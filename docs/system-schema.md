@@ -1,8 +1,8 @@
-# Engine V1 System Schema For OSA
+# Core V1 System Schema For OSA
 
 ## Purpose
 
-This note defines the practical normalized `system` schema for engine v1, with `gtex62-osa` `SYS` as the immediate target.
+This note defines the practical normalized `system` schema for core v1, with `gtex62-osa` `SYS` as the immediate target.
 
 Related OSA suite-cache note:
 
@@ -10,20 +10,20 @@ Related OSA suite-cache note:
 
 The goal is:
 
-- make the engine own machine and OS truth
+- make the core own machine and OS truth
 - let OSA keep its own compact projection and panel formatting
 - avoid widget-local probing of `/proc`, `df`, `nvidia-smi`, and DMI data inside the suite
 
 This follows the existing contract:
 
-- engine defines how things work
+- core defines how things work
 - suite defines how things look and where they go
 
 ---
 
 ## Core Position
 
-For engine v1, the canonical shared `system` truth should be split into:
+For core v1, the canonical shared `system` truth should be split into:
 
 - `current.json`
 - `processes.json`
@@ -41,12 +41,12 @@ OSA should consume these normalized files and build its own `SYS` display rows f
 
 For OSA specifically, `SYS` now uses a fast-lane/slow-lane split:
 
-- slow lane stays engine-owned and cache-backed
+- slow lane stays core-owned and cache-backed
 - fast lane stays suite-local and read directly at draw time
 
 This keeps the shared contract for machine identity and inventory without degrading the usability of live telemetry.
 
-That pattern is similar in spirit to OSA `NET`, where panel-oriented cached values live in a suite-local cache contract instead of being forced into a shared engine schema.
+That pattern is similar in spirit to OSA `NET`, where panel-oriented cached values live in a suite-local cache contract instead of being forced into a shared core schema.
 
 ---
 
@@ -179,7 +179,7 @@ Required:
 }
 ```
 
-Required for engine schema:
+Required for core schema:
 
 - `model`
 - `usage_percent`
@@ -189,7 +189,7 @@ Required for engine schema:
 - `memory.used_mb`
 - `memory.total_mb`
 
-If no GPU is present, engine may emit zero-like numeric values and an empty `model`, but the shape should remain stable.
+If no GPU is present, core may emit zero-like numeric values and an empty `model`, but the shape should remain stable.
 
 ## `motherboard`
 
@@ -303,7 +303,7 @@ For OSA v1, the current expected rows are:
 - `/NAS`
 - `/WD`
 
-These are OSA-facing labels, not necessarily universal engine labels for every future suite. Future engine evolution may add a more generic filesystem inventory while still allowing suite-local label binding.
+These are OSA-facing labels, not necessarily universal core labels for every future suite. Future core evolution may add a more generic filesystem inventory while still allowing suite-local label binding.
 
 ---
 
@@ -353,7 +353,7 @@ OSA `SYS` should derive:
   - GPU temp from direct local telemetry
   - process table from direct live process sampling
 
-The engine should not render panel rows, abbreviate labels for OSA typography, or decide how the `SYS` panel allocates space.
+The core should not render panel rows, abbreviate labels for OSA typography, or decide how the `SYS` panel allocates space.
 
 ---
 
@@ -363,13 +363,13 @@ This split is not just migration fallback.
 
 It is the intended steady state for OSA `SYS`:
 
-- engine publishes normalized slow-lane `system` truth
+- core publishes normalized slow-lane `system` truth
 - OSA reads slow-lane shared truth for stable machine metadata
 - OSA keeps high-churn telemetry local so the panel remains responsive
 
 ---
 
-## Current Engine V1 Implementation
+## Current Core V1 Implementation
 
 The current collector now writes:
 
@@ -383,4 +383,4 @@ And the launcher now refreshes `system` alongside:
 - `weather`
 - `aviation`
 
-That makes `SYS` the first OSA panel after `WXR` to consume an engine-owned shared domain directly, while still preserving a suite-local fast lane for live telemetry.
+That makes `SYS` the first OSA panel after `WXR` to consume an core-owned shared domain directly, while still preserving a suite-local fast lane for live telemetry.

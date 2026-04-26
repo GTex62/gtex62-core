@@ -2,8 +2,8 @@
 set -euo pipefail
 
 PROFILE_ID="${1:-local}"
-CONFIG_ROOT="${GTEX62_CONKY_CONFIG_DIR:-$HOME/.config/gtex62-conky}"
-CACHE_ROOT="${GTEX62_CONKY_CACHE_DIR:-$HOME/.cache/gtex62-conky}"
+CONFIG_ROOT="${GTEX62_CONFIG_DIR:-${GTEX62_CONKY_CONFIG_DIR:-$HOME/.config/gtex62-core}}"
+CACHE_ROOT="${GTEX62_CACHE_DIR:-${GTEX62_CONKY_CACHE_DIR:-$HOME/.cache/gtex62-core}}"
 XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
 PROFILE_TOML="$CONFIG_ROOT/profiles/calendar/${PROFILE_ID}.toml"
 OUT_DIR="$CACHE_ROOT/shared/calendar/${PROFILE_ID}"

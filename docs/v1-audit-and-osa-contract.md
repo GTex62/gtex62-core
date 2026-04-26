@@ -1,13 +1,13 @@
-# Conky Engine V1 Audit And OSA Contract
+# gtex62 Core V1 Audit And OSA Contract
 
 ## Purpose
 
-This document captures the discussion and audit results for the next-generation engine-driven Conky architecture.
+This document captures the discussion and audit results for the next-generation core-driven Conky architecture.
 
 It is intended as a planning reference for:
 
-- engine v1 scope
-- `gtex62-osa` as the first native engine suite
+- core v1 scope
+- `gtex62-osa` as the first native core suite
 - future native rebuilds of legacy suites
 
 Legacy suites remain unchanged for now:
@@ -17,7 +17,7 @@ Legacy suites remain unchanged for now:
 - `gtex62-tech-hud`
 - `gtex62-tri-hud`
 
-The first native engine suite will be:
+The first native core suite will be:
 
 - `gtex62-osa`
 
@@ -25,16 +25,16 @@ The first native engine suite will be:
 
 ## Core Rule
 
-Engine defines how things work.
+Core defines how things work.
 
 Suite defines how things look and where they go.
 
 More specifically:
 
-- Engine owns fetch, normalization, fallback/arbitration, cache layout, path resolution, runtime, launcher behavior, and shared diagnostics.
+- Core owns fetch, normalization, fallback/arbitration, cache layout, path resolution, runtime, launcher behavior, and shared diagnostics.
 - Suite owns layout, palette, widget composition, panel shaping, compact view models, and art direction.
 
-The engine should be an operating substrate, not a UI framework.
+The core should be an operating substrate, not a UI framework.
 
 ---
 
@@ -42,13 +42,13 @@ The engine should be an operating substrate, not a UI framework.
 
 ### Overall Result
 
-After auditing `gtex62-lcars`, `gtex62-tri-hud`, `gtex62-tech-hud`, and `gtex62-clean-suite`, the engine v1 scope is stable.
+After auditing `gtex62-lcars`, `gtex62-tri-hud`, `gtex62-tech-hud`, and `gtex62-clean-suite`, the core v1 scope is stable.
 
 The audits showed that the same core data domains recur across suites, but the current cache names, config placement, and suite-local fetch/display coupling need to be reorganized.
 
 ### What The Audits Confirmed
 
-The following domains are clearly shared enough to belong in engine v1:
+The following domains are clearly shared enough to belong in core v1:
 
 - `system`
 - `time`
@@ -63,14 +63,14 @@ The following domains are clearly shared enough to belong in engine v1:
 - `pfsense`
 - basic `doctor`
 
-The following domains are real, but should be deferred until after engine v1 and `gtex62-osa`:
+The following domains are real, but should be deferred until after core v1 and `gtex62-osa`:
 
 - `ap`
 - `pollen`
 - `music`
 - `lyrics`
 
-The following are suite-specific and should remain outside the engine:
+The following are suite-specific and should remain outside the core:
 
 - `notes`
 - chassis geometry
@@ -98,7 +98,7 @@ Strongest proof of:
 
 Important lesson:
 
-- LCARS already has engine-like domain coverage, but cache naming and provider behavior are still suite-shaped.
+- LCARS already has core-like domain coverage, but cache naming and provider behavior are still suite-shaped.
 
 ### `gtex62-tri-hud`
 
@@ -112,7 +112,7 @@ Strongest proof of:
 
 Important lesson:
 
-- Tri-HUD strongly validates `calendar` and `astro` as first-class engine domains rather than widget-local tricks.
+- Tri-HUD strongly validates `calendar` and `astro` as first-class core domains rather than widget-local tricks.
 
 ### `gtex62-tech-hud`
 
@@ -124,7 +124,7 @@ Strongest proof of:
 
 Important lesson:
 
-- The engine must support single-conf, dual-conf, and multi-widget suites without enforcing one layout model.
+- The core must support single-conf, dual-conf, and multi-widget suites without enforcing one layout model.
 
 ### `gtex62-clean-suite`
 
@@ -138,11 +138,11 @@ Strongest proof of:
 
 Important lesson:
 
-- Clean Suite contains many of the ancestral shared domains, but in a first-generation, widget-local form. It is evidence for engine domains, not a template for engine structure.
+- Clean Suite contains many of the ancestral shared domains, but in a first-generation, widget-local form. It is evidence for core domains, not a template for core structure.
 
 ---
 
-## Engine V1 Domain List
+## Core V1 Domain List
 
 ### 1. `system`
 
@@ -286,7 +286,7 @@ Includes:
 
 Shared diagnostics layer.
 
-Engine doctor should validate:
+Core doctor should validate:
 
 - dependencies
 - config presence
@@ -298,13 +298,13 @@ Suites may extend doctor with suite-specific checks.
 
 ---
 
-## Engine V1 Directory Model
+## Core V1 Directory Model
 
 Recommended XDG-style layout:
 
-- `~/.config/gtex62-conky/`
-- `~/.local/share/gtex62-conky/`
-- `~/.cache/gtex62-conky/`
+- `~/.config/gtex62-core/`
+- `~/.local/share/gtex62-core/`
+- `~/.cache/gtex62-core/`
 
 Meaning:
 
@@ -315,7 +315,7 @@ Meaning:
 Recommended cache structure:
 
 ```text
-~/.cache/gtex62-conky/
+~/.cache/gtex62-core/
 
 shared/
   weather/
@@ -425,9 +425,9 @@ Raw/source-specific outputs may still use provider names inside a `raw/` layer, 
 
 ---
 
-## What Must Stay Out Of The Engine
+## What Must Stay Out Of The Core
 
-Do not let these become engine responsibilities:
+Do not let these become core responsibilities:
 
 - LCARS scaffold geometry
 - OSA tactical table layout
@@ -438,7 +438,7 @@ Do not let these become engine responsibilities:
 - glyph mapping tied to a suite’s style
 - font-specific presentation shaping
 
-The engine should provide truth and runtime support.
+The core should provide truth and runtime support.
 
 Suites should provide visual interpretation.
 
@@ -448,13 +448,13 @@ Suites should provide visual interpretation.
 
 `gtex62-osa` is not a migration target.
 
-It is the first native engine suite and the reference implementation for the contract.
+It is the first native core suite and the reference implementation for the contract.
 
 That means `gtex62-osa` should prove:
 
-- engine install and suite install separation
+- core install and suite install separation
 - suite discovery and manifest handling
-- engine/suite version compatibility
+- core/suite version compatibility
 - XDG path resolution
 - shared collector/provider ownership
 - normalized domain consumption
@@ -496,7 +496,7 @@ Important rule:
 Example:
 
 ```text
-~/.cache/gtex62-conky/suites/osa/
+~/.cache/gtex62-core/suites/osa/
   sys/
   tme/
   orb/
@@ -515,7 +515,7 @@ Recommended suite manifest responsibilities:
 
 - suite identity
 - suite version
-- engine requirement
+- core requirement
 - declared Conky instances
 - required shared domains
 - profile bindings
@@ -528,7 +528,7 @@ Illustrative shape:
 suite_id: osa
 name: gtex62-osa
 version: 0.1.0
-engine_requirement: ">=1.0,<2.0"
+core_requirement: ">=1.0,<2.0"
 
 profiles:
   weather: home
@@ -575,7 +575,7 @@ This is only a design shape, not a locked syntax.
 
 ### Phase 1
 
-Define engine path layer, manifest contract, and domain list.
+Define core path layer, manifest contract, and domain list.
 
 ### Phase 2
 
@@ -594,7 +594,7 @@ Implement shared normalized schemas and cache layout.
 
 ### Phase 4
 
-Build `gtex62-osa` as the first native engine suite.
+Build `gtex62-osa` as the first native core suite.
 
 ### Phase 5
 
@@ -606,7 +606,7 @@ Choose whether each legacy suite is:
 
 - left standalone permanently
 - partially reinterpreted
-- rebuilt natively against the engine
+- rebuilt natively against the core
 
 Preferred long-term direction:
 
@@ -623,7 +623,7 @@ Instead:
 1. inventory their domains and solved edge cases
 2. preserve proven behavior
 3. improve naming, cache layout, and module boundaries
-4. rebuild the suite presentation natively against the engine contract
+4. rebuild the suite presentation natively against the core contract
 
 Acceptance target for each future rebuild:
 
@@ -632,7 +632,7 @@ Acceptance target for each future rebuild:
 - better naming
 - better cache organization
 - less duplication
-- no leakage of legacy folder politics into engine design
+- no leakage of legacy folder politics into core design
 
 ---
 
@@ -641,8 +641,8 @@ Acceptance target for each future rebuild:
 The audit supports a clean next-generation direction:
 
 - legacy suites remain legacy for now
-- `gtex62-osa` becomes the first native engine suite
-- engine v1 focuses on shared truth domains and runtime support
-- future native rebuilds reuse the engine but do not drag legacy structure into it
+- `gtex62-osa` becomes the first native core suite
+- core v1 focuses on shared truth domains and runtime support
+- future native rebuilds reuse the core but do not drag legacy structure into it
 
 This gives you the benefits of the past work without freezing the future architecture around it.

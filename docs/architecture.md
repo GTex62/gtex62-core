@@ -1,8 +1,11 @@
-# Conky Engine Architecture
+# gtex62 Core Architecture
 
 ## Overview
 
-This document defines a structured approach for converting multiple standalone Conky suites into a single engine-driven, multi-suite environment. The goal is to reduce duplication, improve maintainability, and standardize data handling while preserving flexibility for unique suite designs.
+This document defines a structured approach for converting multiple standalone
+Conky suites into a single core-driven, multi-suite environment. The goal is to
+reduce duplication, improve maintainability, and standardize data handling while
+preserving flexibility for unique suite designs.
 
 ---
 
@@ -10,7 +13,7 @@ This document defines a structured approach for converting multiple standalone C
 
 Separate the system into two layers:
 
-### Engine (Platform)
+### Core (Foundation)
 Responsible for:
 - Data collection and normalization
 - Cache management
@@ -28,15 +31,15 @@ Responsible for:
 - Suite-specific data extensions
 
 **Rule:**
-Engine defines how things work. Suites define how things look and where they go.
+Core defines how things work. Suites define how things look and where they go.
 
 ---
 
 ## Directory Structure
 
-### Engine Root
+### Core Root
 
-engine/
+core/
   bin/
   lib/
   providers/
@@ -94,7 +97,7 @@ suites/lcars/weather/weather_extended.json
 
 ### Root
 
-~/.cache/gtex62-conky/
+~/.cache/gtex62-core/
 
 ### Structure
 
@@ -221,7 +224,7 @@ Each provider:
 
 ## Conky Layout Flexibility
 
-The engine does NOT enforce layout.
+The core does NOT enforce layout.
 
 Supported patterns:
 - Single config (tri-hud)
@@ -244,7 +247,7 @@ Identify shared components:
 - Lua helpers
 
 ### Phase 2
-Move shared logic into engine
+Move shared logic into core
 
 ### Phase 3
 Normalize cache structure
@@ -270,7 +273,7 @@ For each file or script:
 ## Risk Management
 
 ### Avoid Over-Coupling
-- Do not hardcode suite logic into engine scripts
+- Do not hardcode suite logic into core scripts
 
 ### Avoid Over-Abstraction
 - Keep layouts explicit
@@ -293,9 +296,9 @@ For each file or script:
 
 ## Recommended System Layout
 
-~/.config/gtex62-conky/
-~/.local/share/gtex62-conky/
-~/.cache/gtex62-conky/
+~/.config/gtex62-core/
+~/.local/share/gtex62-core/
+~/.cache/gtex62-core/
 ~/.config/conky/gtex62-shared-assets/
 
 ### Meaning

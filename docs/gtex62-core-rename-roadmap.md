@@ -349,14 +349,15 @@ When the runtime must be named, use direct dependency language:
 This project targets Conky as its current rendering/runtime surface.
 ```
 
-## Current Decision
+## Current Status
 
-The preferred future naming is:
+The active local naming is:
 
 ```text
 gtex62-core
 gtex62-portal
 ```
 
-No code has been renamed yet by this document. It records the direction and the
-safe sequence for performing the change later.
+The local checkout has been renamed to `gtex62-core`. The old
+`gtex62-conky-engine` path may remain as a temporary compatibility symlink while
+suite references and launchers complete their migration.

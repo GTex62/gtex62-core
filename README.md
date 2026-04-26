@@ -1,11 +1,13 @@
-# gtex62-conky-engine
+# gtex62-core
 
-Shared runtime and provider engine for engine-native Conky suites.
+Shared Lua/Conky foundation for gtex62 desktop suites.
+
+Built for Conky; not affiliated with or part of the Conky project.
 
 ## Purpose
 
-The engine owns shared runtime behavior and normalized data contracts for
-engine-native Conky suites. Suites consume the engine and keep ownership of
+The core owns shared runtime behavior and normalized data contracts for
+core-native Conky suites. Suites consume the core and keep ownership of
 presentation, layout, theme, and suite-specific derived view models.
 
 Current implementation scope:
@@ -14,19 +16,19 @@ Current implementation scope:
 - suite launch/runtime patterns
 - future provider and launcher ownership
 
-The first shared helper extracted into the engine is the runtime window
+The first shared helper extracted into the core is the runtime window
 resolver used by `gtex62-osa`.
 
 ## Repository Boundary
 
-Engine-owned concerns:
+Core-owned concerns:
 
 - shared provider logic
 - normalized cache schemas
 - runtime/config/cache root conventions
 - launch and profile orchestration
 - common Lua helpers
-- conversion architecture for future engine-native suites
+- conversion architecture for future core-native suites
 
 Suite-owned concerns:
 
@@ -39,11 +41,11 @@ Suite-owned concerns:
 
 ## Runtime Roots
 
-Expected engine-era runtime roots:
+Expected core-era runtime roots:
 
-- config: `~/.config/gtex62-conky/`
-- data: `~/.local/share/gtex62-conky/`
-- cache: `~/.cache/gtex62-conky/`
+- config: `~/.config/gtex62-core/`
+- data: `~/.local/share/gtex62-core/`
+- cache: `~/.cache/gtex62-core/`
 
 Expected suite repo roots remain under:
 
@@ -54,17 +56,18 @@ Expected shared binary asset root:
 - `~/.config/conky/gtex62-shared-assets/`
 
 Legacy suites stay intact. Converted legacy suites should be created as sibling
-engine-native suites, commonly using the `-engine` suffix when a legacy original
-must coexist with its converted version.
+core-native suites. Legacy suites can continue to coexist as standalone repos
+while new suites target the shared core.
 
 ## Docs
 
 - [Architecture](docs/architecture.md)
 - [Next Generation Model](docs/next-generation-model.md)
-- [Engine-Driven Suite Notes](docs/engine-driven-suite-notes.md)
+- [Core-Driven Suite Notes](docs/core-driven-suite-notes.md)
+- [gtex62 Core Rename Roadmap](docs/gtex62-core-rename-roadmap.md)
 - [V1 Audit and OSA Contract](docs/v1-audit-and-osa-contract.md)
 - [System Schema](docs/system-schema.md)
 - [Astro Schema](docs/astro-schema.md)
 
 `gtex62-osa` remains the first native suite and the reference consumer for the
-initial engine contract. OSA-specific render/cache notes live in the OSA repo.
+initial core contract. OSA-specific render/cache notes live in the OSA repo.

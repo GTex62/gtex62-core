@@ -1,8 +1,8 @@
-# Engine V1 Astro Schema For OSA
+# Core V1 Astro Schema For OSA
 
 ## Purpose
 
-This note defines a practical normalized `astro` schema for engine v1, with `gtex62-osa` as the immediate target.
+This note defines a practical normalized `astro` schema for core v1, with `gtex62-osa` as the immediate target.
 
 Related OSA suite-cache note:
 
@@ -10,20 +10,20 @@ Related OSA suite-cache note:
 
 The goal is:
 
-- make the engine own astronomical truth
+- make the core own astronomical truth
 - let suites choose their own projection and rendering language
 - avoid forcing future suites to inherit the legacy volvelle `theta` model as the canonical representation
 
 This follows the existing rule:
 
-- engine defines how things work
+- core defines how things work
 - suite defines how things look and where they go
 
 ---
 
 ## Core Position
 
-For engine v1, the canonical astro truth should be:
+For core v1, the canonical astro truth should be:
 
 - altitude
 - azimuth
@@ -54,11 +54,11 @@ Examples:
 - OWM sunrise/sunset for sun fallback
 - station latitude / longitude
 
-This layer remains engine-internal.
+This layer remains core-internal.
 
 ### Layer 2: Normalized Shared Astro
 
-Engine should publish a normalized model that any suite can consume directly.
+Core should publish a normalized model that any suite can consume directly.
 
 Suggested path:
 
@@ -79,7 +79,7 @@ Examples:
 - Tri-HUD flattened volvelle line
 - LCARS orbital/globe placement
 
-This layer belongs to the suite, not the engine.
+This layer belongs to the suite, not the core.
 
 For OSA’s current implementation, the immediate suite-cache layer is documented separately in:
 
@@ -189,7 +189,7 @@ Canonical truth should still remain:
 
 ## Sun-Specific Notes
 
-The sun should use the same body schema, but engine may populate rise/set from a weather or solar provider if that is the current authoritative source.
+The sun should use the same body schema, but core may populate rise/set from a weather or solar provider if that is the current authoritative source.
 
 Example:
 
@@ -207,7 +207,7 @@ Example:
 }
 ```
 
-If a better solar provider exists in the engine later, the schema does not need to change.
+If a better solar provider exists in the core later, the schema does not need to change.
 
 ---
 
@@ -226,9 +226,9 @@ OSA already demonstrated why these fields matter.
 
 ## OSA Consumption Model
 
-OSA ORB does not need the engine to render anything. It only needs consistent truth fields.
+OSA ORB does not need the core to render anything. It only needs consistent truth fields.
 
-OSA may also keep a suite-local cache or projection layer between shared `astro` truth and panel rendering, as long as that cache is treated as OSA-specific derived data rather than canonical engine astronomy truth.
+OSA may also keep a suite-local cache or projection layer between shared `astro` truth and panel rendering, as long as that cache is treated as OSA-specific derived data rather than canonical core astronomy truth.
 
 ### CELESTIAL Box
 
@@ -249,7 +249,7 @@ OSA should derive:
 - flat map terminator window from UTC and solar geometry
 - optional night/day overlays
 
-No special engine projection output is required for this.
+No special core projection output is required for this.
 
 ---
 
@@ -299,7 +299,7 @@ This helps suites display:
 
 ---
 
-## Suggested Engine Output Example
+## Suggested Core Output Example
 
 ```json
 {
@@ -369,8 +369,8 @@ This helps suites display:
 
 ## Recommendation Summary
 
-- Canonical engine astro truth should be `altitude`, `azimuth`, `is_above_horizon`, and rise/set timing.
+- Canonical core astro truth should be `altitude`, `azimuth`, `is_above_horizon`, and rise/set timing.
 - `legacy_theta` should remain optional compatibility output only.
 - OSA should consume the canonical truth and derive its own CELESTIAL and TERMINATOR views.
 - Legacy suites can continue to consume `legacy_theta` during migration.
-- Engine should normalize astronomy once, but never enforce one suite’s projection as the only representation.
+- Core should normalize astronomy once, but never enforce one suite's projection as the only representation.

@@ -82,7 +82,7 @@ Suite defines how things look and where they go.
 ### Core Repository
 gtex62-core
 
-Current repository name:
+Previous repository name:
 gtex62-conky-engine
 
 Relationship:

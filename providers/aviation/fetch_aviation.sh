@@ -2,8 +2,8 @@
 set -euo pipefail
 
 PROFILE_ID="${1:-home}"
-CONFIG_ROOT="${GTEX62_CONKY_CONFIG_DIR:-$HOME/.config/gtex62-conky}"
-CACHE_ROOT="${GTEX62_CONKY_CACHE_DIR:-$HOME/.cache/gtex62-conky}"
+CONFIG_ROOT="${GTEX62_CONFIG_DIR:-${GTEX62_CONKY_CONFIG_DIR:-$HOME/.config/gtex62-core}}"
+CACHE_ROOT="${GTEX62_CACHE_DIR:-${GTEX62_CONKY_CACHE_DIR:-$HOME/.cache/gtex62-core}}"
 PROFILE_TOML="$CONFIG_ROOT/profiles/aviation/${PROFILE_ID}.toml"
 OUT_DIR="$CACHE_ROOT/shared/aviation/${PROFILE_ID}"
 CURRENT_JSON="$OUT_DIR/current.json"
