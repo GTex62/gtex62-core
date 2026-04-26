@@ -1,0 +1,41 @@
+# Local environment and secrets
+.env
+.env.*
+*.local
+*.secret
+*secret*
+*token*
+*key*
+
+# Runtime and generated data
+/cache/
+/data/
+/runtime/
+/tmp/
+/logs/
+*.log
+*.pid
+*.lock
+*.stamp
+*.tmp
+
+# Generated provider output
+*.json.tmp
+current.json
+forecast.json
+normalized.json
+extended.json
+status.json
+snapshot.json
+
+# Editor and OS metadata
+.DS_Store
+Thumbs.db
+*~
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# Lua bytecode
+*.luac

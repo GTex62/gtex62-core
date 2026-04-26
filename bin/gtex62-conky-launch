@@ -1,0 +1,231 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ENGINE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SUITE_ID="osa"
+if [[ "${1:-}" == "--suite" && -n "${2:-}" ]]; then
+  SUITE_ID="$2"
+elif [[ -n "${1:-}" ]]; then
+  SUITE_ID="$1"
+fi
+
+CONFIG_ROOT="${GTEX62_CONKY_CONFIG_DIR:-$HOME/.config/gtex62-conky}"
+ENGINE_TOML="$CONFIG_ROOT/engine.toml"
+SUITE_TOML="$CONFIG_ROOT/suites/${SUITE_ID}.toml"
+
+if [[ ! -f "$SUITE_TOML" ]]; then
+  echo "Suite config not found: $SUITE_TOML" >&2
+  exit 1
+fi
+
+parse_toml_value() {
+  local path="$1"
+  local key="$2"
+  awk -F= -v key="$key" '
+    $0 ~ "^[[:space:]]*" key "[[:space:]]*=" {
+      v=$2
+      sub(/^[[:space:]]+/, "", v)
+      sub(/[[:space:]]+$/, "", v)
+      gsub(/^"|"$/, "", v)
+      print v
+      exit
+    }
+  ' "$path"
+}
+
+parse_toml_section_value() {
+  local path="$1"
+  local section="$2"
+  local key="$3"
+  awk -F= -v section="$section" -v key="$key" '
+    /^[[:space:]]*\[/ {
+      in_section = ($0 == "[" section "]")
+      next
+    }
+    in_section && $0 ~ "^[[:space:]]*" key "[[:space:]]*=" {
+      v=$2
+      sub(/^[[:space:]]+/, "", v)
+      sub(/[[:space:]]+$/, "", v)
+      gsub(/^"|"$/, "", v)
+      print v
+      exit
+    }
+  ' "$path"
+}
+
+CACHE_ROOT="${GTEX62_CONKY_CACHE_DIR:-}"
+if [[ -z "$CACHE_ROOT" && -f "$ENGINE_TOML" ]]; then
+  CACHE_ROOT="$(parse_toml_section_value "$ENGINE_TOML" paths cache_root || true)"
+fi
+CACHE_ROOT="${CACHE_ROOT:-$HOME/.cache/gtex62-conky}"
+
+SUITE_DIR="$(parse_toml_value "$SUITE_TOML" suite_repo)"
+WEATHER_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles weather || true)"
+AVIATION_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles aviation || true)"
+SYSTEM_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles system || true)"
+CALENDAR_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles calendar || true)"
+TIME_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles time || true)"
+WEATHER_PROFILE="${WEATHER_PROFILE:-home}"
+AVIATION_PROFILE="${AVIATION_PROFILE:-home}"
+SYSTEM_PROFILE="${SYSTEM_PROFILE:-local}"
+CALENDAR_PROFILE="${CALENDAR_PROFILE:-local}"
+TIME_PROFILE="${TIME_PROFILE:-local}"
+
+WEATHER_PROFILE_TOML="$CONFIG_ROOT/profiles/weather/${WEATHER_PROFILE}.toml"
+AVIATION_PROFILE_TOML="$CONFIG_ROOT/profiles/aviation/${AVIATION_PROFILE}.toml"
+SYSTEM_PROFILE_TOML="$CONFIG_ROOT/profiles/system/${SYSTEM_PROFILE}.toml"
+CALENDAR_PROFILE_TOML="$CONFIG_ROOT/profiles/calendar/${CALENDAR_PROFILE}.toml"
+TIME_PROFILE_TOML="$CONFIG_ROOT/profiles/time/${TIME_PROFILE}.toml"
+WEATHER_TTL="$(parse_toml_section_value "$WEATHER_PROFILE_TOML" request cache_ttl_sec || true)"
+AVIATION_METAR_TTL="$(parse_toml_section_value "$AVIATION_PROFILE_TOML" cache metar_ttl_sec || true)"
+AVIATION_TAF_TTL="$(parse_toml_section_value "$AVIATION_PROFILE_TOML" cache taf_ttl_sec || true)"
+SYSTEM_TTL="$(parse_toml_section_value "$SYSTEM_PROFILE_TOML" cache refresh_sec || true)"
+CALENDAR_TTL="$(parse_toml_section_value "$CALENDAR_PROFILE_TOML" cache refresh_sec || true)"
+TIME_TTL="$(parse_toml_section_value "$TIME_PROFILE_TOML" cache refresh_sec || true)"
+NET_TTL="${GTEX62_OSA_NET_CACHE_TTL:-5}"
+ORB_TTL="${GTEX62_OSA_ORB_CACHE_TTL:-60}"
+WEATHER_TTL="${WEATHER_TTL:-300}"
+AVIATION_METAR_TTL="${AVIATION_METAR_TTL:-600}"
+AVIATION_TAF_TTL="${AVIATION_TAF_TTL:-600}"
+SYSTEM_TTL="${SYSTEM_TTL:-1}"
+CALENDAR_TTL="${CALENDAR_TTL:-300}"
+TIME_TTL="${TIME_TTL:-1}"
+AVIATION_TTL="$AVIATION_METAR_TTL"
+if (( AVIATION_TAF_TTL < AVIATION_TTL )); then
+  AVIATION_TTL="$AVIATION_TAF_TTL"
+fi
+
+export GTEX62_CONKY_ENGINE_DIR="$ENGINE_DIR"
+export GTEX62_CONKY_CONFIG_DIR="$CONFIG_ROOT"
+export GTEX62_CONKY_CACHE_DIR="$CACHE_ROOT"
+export GTEX62_CONKY_SUITE_ID="$SUITE_ID"
+export CONKY_SUITE_DIR="$SUITE_DIR"
+
+LOCKS_DIR="$CACHE_ROOT/runtime/locks"
+PIDS_DIR="$CACHE_ROOT/runtime/pids"
+STAMPS_DIR="$CACHE_ROOT/runtime/stamps"
+mkdir -p \
+  "$CACHE_ROOT/shared/weather/$WEATHER_PROFILE" \
+  "$CACHE_ROOT/shared/aviation/$AVIATION_PROFILE" \
+  "$CACHE_ROOT/shared/system/$SYSTEM_PROFILE" \
+  "$CACHE_ROOT/shared/calendar/$CALENDAR_PROFILE" \
+  "$CACHE_ROOT/shared/time/$TIME_PROFILE" \
+  "$CACHE_ROOT/suites/$SUITE_ID/net" \
+  "$CACHE_ROOT/suites/$SUITE_ID/orb" \
+  "$LOCKS_DIR" \
+  "$PIDS_DIR" \
+  "$STAMPS_DIR" \
+  "$CACHE_ROOT/tmp"
+
+CONKY_PID_FILE="$PIDS_DIR/${SUITE_ID}-conky.pid"
+WEATHER_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-weather-refresh.pid"
+AVIATION_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-aviation-refresh.pid"
+SYSTEM_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-system-refresh.pid"
+CALENDAR_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-calendar-refresh.pid"
+TIME_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-time-refresh.pid"
+NET_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-net-refresh.pid"
+ORB_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-orb-refresh.pid"
+LAUNCHER_PID_FILE="$PIDS_DIR/${SUITE_ID}-launcher.pid"
+WEATHER_STAMP="$STAMPS_DIR/weather-${WEATHER_PROFILE}.stamp"
+AVIATION_STAMP="$STAMPS_DIR/aviation-${AVIATION_PROFILE}.stamp"
+SYSTEM_STAMP="$STAMPS_DIR/system-${SYSTEM_PROFILE}.stamp"
+CALENDAR_STAMP="$STAMPS_DIR/calendar-${CALENDAR_PROFILE}.stamp"
+TIME_STAMP="$STAMPS_DIR/time-${TIME_PROFILE}.stamp"
+NET_STAMP="$STAMPS_DIR/${SUITE_ID}-net-cache.stamp"
+ORB_STAMP="$STAMPS_DIR/${SUITE_ID}-orb-cache.stamp"
+
+echo $$ > "$LAUNCHER_PID_FILE"
+
+cleanup_pidfile() {
+  local file="$1"
+  if [[ -f "$file" ]]; then
+    local pid
+    pid="$(cat "$file" 2>/dev/null || true)"
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+      kill "$pid" 2>/dev/null || true
+    fi
+    rm -f "$file"
+  fi
+}
+
+cleanup() {
+  cleanup_pidfile "$WEATHER_LOOP_PID_FILE"
+  cleanup_pidfile "$AVIATION_LOOP_PID_FILE"
+  cleanup_pidfile "$SYSTEM_LOOP_PID_FILE"
+  cleanup_pidfile "$CALENDAR_LOOP_PID_FILE"
+  cleanup_pidfile "$TIME_LOOP_PID_FILE"
+  cleanup_pidfile "$NET_LOOP_PID_FILE"
+  cleanup_pidfile "$ORB_LOOP_PID_FILE"
+  rm -f "$CONKY_PID_FILE" "$LAUNCHER_PID_FILE"
+}
+trap cleanup EXIT INT TERM
+
+cleanup_pidfile "$WEATHER_LOOP_PID_FILE"
+cleanup_pidfile "$AVIATION_LOOP_PID_FILE"
+cleanup_pidfile "$SYSTEM_LOOP_PID_FILE"
+cleanup_pidfile "$CALENDAR_LOOP_PID_FILE"
+cleanup_pidfile "$TIME_LOOP_PID_FILE"
+cleanup_pidfile "$NET_LOOP_PID_FILE"
+cleanup_pidfile "$ORB_LOOP_PID_FILE"
+
+run_locked() {
+  local name="$1"
+  local stamp="$2"
+  shift 2
+  local lock_dir="$LOCKS_DIR/${name}.lock"
+  if mkdir "$lock_dir" 2>/dev/null; then
+    (
+      trap 'rmdir "$lock_dir" 2>/dev/null || true' EXIT
+      "$@"
+      date -u +%Y-%m-%dT%H:%M:%SZ > "$stamp"
+    )
+  fi
+}
+
+refresh_loop() {
+  local name="$1"
+  local interval="$2"
+  local stamp="$3"
+  local pid_file="$4"
+  shift 4
+  (
+    echo $$ > "$pid_file"
+    while kill -0 "$CONKY_PID" 2>/dev/null; do
+      sleep "$interval"
+      kill -0 "$CONKY_PID" 2>/dev/null || break
+      run_locked "$name" "$stamp" "$@"
+    done
+    rm -f "$pid_file"
+  ) &
+}
+
+initial_refresh() {
+  local name="$1"
+  local stamp="$2"
+  shift 2
+  (
+    run_locked "$name" "$stamp" "$@"
+  ) &
+}
+
+conky -c "$SUITE_DIR/widgets/osa-main.conky.conf" &
+CONKY_PID=$!
+echo "$CONKY_PID" > "$CONKY_PID_FILE"
+
+initial_refresh "weather-${WEATHER_PROFILE}" "$WEATHER_STAMP" "$ENGINE_DIR/providers/weather/fetch_openweather.sh" "$WEATHER_PROFILE"
+initial_refresh "aviation-${AVIATION_PROFILE}" "$AVIATION_STAMP" "$ENGINE_DIR/providers/aviation/fetch_aviation.sh" "$AVIATION_PROFILE"
+initial_refresh "system-${SYSTEM_PROFILE}" "$SYSTEM_STAMP" "$ENGINE_DIR/providers/system/fetch_system.sh" "$SYSTEM_PROFILE"
+initial_refresh "calendar-${CALENDAR_PROFILE}" "$CALENDAR_STAMP" "$ENGINE_DIR/providers/calendar/fetch_calendar.sh" "$CALENDAR_PROFILE"
+initial_refresh "time-${TIME_PROFILE}" "$TIME_STAMP" "$ENGINE_DIR/providers/time/fetch_time.sh" "$TIME_PROFILE"
+initial_refresh "${SUITE_ID}-net-cache" "$NET_STAMP" bash "$SUITE_DIR/scripts/refresh_net_cache.sh"
+initial_refresh "${SUITE_ID}-orb-cache" "$ORB_STAMP" bash "$SUITE_DIR/scripts/refresh_orb_cache.sh"
+
+refresh_loop "weather-${WEATHER_PROFILE}" "$WEATHER_TTL" "$WEATHER_STAMP" "$WEATHER_LOOP_PID_FILE" "$ENGINE_DIR/providers/weather/fetch_openweather.sh" "$WEATHER_PROFILE"
+refresh_loop "aviation-${AVIATION_PROFILE}" "$AVIATION_TTL" "$AVIATION_STAMP" "$AVIATION_LOOP_PID_FILE" "$ENGINE_DIR/providers/aviation/fetch_aviation.sh" "$AVIATION_PROFILE"
+refresh_loop "system-${SYSTEM_PROFILE}" "$SYSTEM_TTL" "$SYSTEM_STAMP" "$SYSTEM_LOOP_PID_FILE" "$ENGINE_DIR/providers/system/fetch_system.sh" "$SYSTEM_PROFILE"
+refresh_loop "calendar-${CALENDAR_PROFILE}" "$CALENDAR_TTL" "$CALENDAR_STAMP" "$CALENDAR_LOOP_PID_FILE" "$ENGINE_DIR/providers/calendar/fetch_calendar.sh" "$CALENDAR_PROFILE"
+refresh_loop "time-${TIME_PROFILE}" "$TIME_TTL" "$TIME_STAMP" "$TIME_LOOP_PID_FILE" "$ENGINE_DIR/providers/time/fetch_time.sh" "$TIME_PROFILE"
+refresh_loop "${SUITE_ID}-net-cache" "$NET_TTL" "$NET_STAMP" "$NET_LOOP_PID_FILE" bash "$SUITE_DIR/scripts/refresh_net_cache.sh"
+refresh_loop "${SUITE_ID}-orb-cache" "$ORB_TTL" "$ORB_STAMP" "$ORB_LOOP_PID_FILE" bash "$SUITE_DIR/scripts/refresh_orb_cache.sh"
+
+wait "$CONKY_PID"
