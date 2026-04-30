@@ -20,5 +20,11 @@ staged migration plan from the previous `gtex62-conky-engine` name.
 - [System Schema](system-schema.md)
 - [Astro Schema](astro-schema.md)
 
+## Tools
+
+- `../scripts/generate_palette_pdf.py`: generates `docs/palette-reference.pdf`
+  for engine-driven suites that declare `[theme].palette_catalog` and
+  `[theme].palette_format` in `suite.toml`.
+
 OSA-specific render/cache projection notes live in
 `../../gtex62-osa/docs/`.

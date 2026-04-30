@@ -118,10 +118,11 @@ The discussion specifically cautioned against centralizing these too early:
 Keeping OSA theme files under `theme/` was considered the right core-native structure:
 
 - `theme/osa-theme.lua`
+- `theme/osa-palettes.lua`
 - `theme/osa-layout.lua`
 - `theme/panels.lua`
 
-This keeps theme, layout, and panel definitions together and separates suite styling/config from Lua rendering code.
+This keeps theme, palette catalog, layout, and panel definitions together while separating suite styling/config from Lua rendering code. Palette catalogs remain suite-local unless two or more core-native suites genuinely need a shared palette library.
 
 ## Practical Summary
 

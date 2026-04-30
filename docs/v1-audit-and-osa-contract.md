@@ -522,6 +522,8 @@ Recommended suite manifest responsibilities:
 - optional suite-derived cache namespaces
 - defaults for launcher/theme options
 
+For palette-enabled suites, the palette catalog should remain suite-local. The manifest may advertise the default palette for launcher/UI defaults, but core should not parse or own the palette table.
+
 Illustrative shape:
 
 ```yaml
@@ -556,6 +558,11 @@ domains:
 launch:
   conky_instances:
     - widgets/osa-main.conky.conf
+
+theme:
+  default_palette: amber
+  palette_catalog: theme/osa-palettes.lua
+  palette_format: role3
 
 suite_cache:
   namespaces:
