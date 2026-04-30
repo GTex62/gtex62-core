@@ -83,6 +83,7 @@ CACHE_ROOT="${CACHE_ROOT:-$(resolve_root "" "" "$HOME/.cache/gtex62-core" "$HOME
 SUITE_DIR="$(parse_toml_value "$SUITE_TOML" suite_repo)"
 WEATHER_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles weather || true)"
 AIR_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles air || true)"
+SOLAR_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles solar || true)"
 AVIATION_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles aviation || true)"
 SYSTEM_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles system || true)"
 CALENDAR_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles calendar || true)"
@@ -93,6 +94,7 @@ CONNECTIVITY_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles connecti
 PFSENSE_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles pfsense || true)"
 WEATHER_PROFILE="${WEATHER_PROFILE:-home}"
 AIR_PROFILE="${AIR_PROFILE:-home}"
+SOLAR_PROFILE="${SOLAR_PROFILE:-home}"
 AVIATION_PROFILE="${AVIATION_PROFILE:-home}"
 SYSTEM_PROFILE="${SYSTEM_PROFILE:-local}"
 CALENDAR_PROFILE="${CALENDAR_PROFILE:-local}"
@@ -104,6 +106,7 @@ PFSENSE_PROFILE="${PFSENSE_PROFILE:-main_router}"
 
 WEATHER_PROFILE_TOML="$CONFIG_ROOT/profiles/weather/${WEATHER_PROFILE}.toml"
 AIR_PROFILE_TOML="$CONFIG_ROOT/profiles/air/${AIR_PROFILE}.toml"
+SOLAR_PROFILE_TOML="$CONFIG_ROOT/profiles/solar/${SOLAR_PROFILE}.toml"
 AVIATION_PROFILE_TOML="$CONFIG_ROOT/profiles/aviation/${AVIATION_PROFILE}.toml"
 SYSTEM_PROFILE_TOML="$CONFIG_ROOT/profiles/system/${SYSTEM_PROFILE}.toml"
 CALENDAR_PROFILE_TOML="$CONFIG_ROOT/profiles/calendar/${CALENDAR_PROFILE}.toml"
@@ -114,6 +117,7 @@ CONNECTIVITY_PROFILE_TOML="$CONFIG_ROOT/profiles/connectivity/${CONNECTIVITY_PRO
 PFSENSE_PROFILE_TOML="$CONFIG_ROOT/profiles/pfsense/${PFSENSE_PROFILE}.toml"
 WEATHER_TTL="$(parse_toml_section_value "$WEATHER_PROFILE_TOML" request cache_ttl_sec || true)"
 AIR_TTL="$(parse_toml_section_value "$AIR_PROFILE_TOML" cache ttl_sec || true)"
+SOLAR_TTL="$(parse_toml_section_value "$SOLAR_PROFILE_TOML" cache refresh_sec || true)"
 AVIATION_METAR_TTL="$(parse_toml_section_value "$AVIATION_PROFILE_TOML" cache metar_ttl_sec || true)"
 AVIATION_TAF_TTL="$(parse_toml_section_value "$AVIATION_PROFILE_TOML" cache taf_ttl_sec || true)"
 SYSTEM_TTL="$(parse_toml_section_value "$SYSTEM_PROFILE_TOML" cache refresh_sec || true)"
@@ -126,6 +130,7 @@ NET_TTL="${GTEX62_OSA_NET_CACHE_TTL:-1}"
 ORB_TTL="${GTEX62_OSA_ORB_CACHE_TTL:-60}"
 WEATHER_TTL="${WEATHER_TTL:-300}"
 AIR_TTL="${AIR_TTL:-900}"
+SOLAR_TTL="${SOLAR_TTL:-300}"
 AVIATION_METAR_TTL="${AVIATION_METAR_TTL:-600}"
 AVIATION_TAF_TTL="${AVIATION_TAF_TTL:-600}"
 SYSTEM_TTL="${SYSTEM_TTL:-1}"
@@ -155,6 +160,7 @@ STAMPS_DIR="$CACHE_ROOT/runtime/stamps"
 mkdir -p \
   "$CACHE_ROOT/shared/weather/$WEATHER_PROFILE" \
   "$CACHE_ROOT/shared/air/$AIR_PROFILE" \
+  "$CACHE_ROOT/shared/solar/$SOLAR_PROFILE" \
   "$CACHE_ROOT/shared/aviation/$AVIATION_PROFILE" \
   "$CACHE_ROOT/shared/system/$SYSTEM_PROFILE" \
   "$CACHE_ROOT/shared/calendar/$CALENDAR_PROFILE" \
@@ -173,6 +179,7 @@ mkdir -p \
 CONKY_PID_FILE="$PIDS_DIR/${SUITE_ID}-conky.pid"
 WEATHER_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-weather-refresh.pid"
 AIR_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-air-refresh.pid"
+SOLAR_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-solar-refresh.pid"
 AVIATION_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-aviation-refresh.pid"
 SYSTEM_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-system-refresh.pid"
 CALENDAR_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-calendar-refresh.pid"
@@ -186,6 +193,7 @@ ORB_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-orb-refresh.pid"
 LAUNCHER_PID_FILE="$PIDS_DIR/${SUITE_ID}-launcher.pid"
 WEATHER_STAMP="$STAMPS_DIR/weather-${WEATHER_PROFILE}.stamp"
 AIR_STAMP="$STAMPS_DIR/air-${AIR_PROFILE}.stamp"
+SOLAR_STAMP="$STAMPS_DIR/solar-${SOLAR_PROFILE}.stamp"
 AVIATION_STAMP="$STAMPS_DIR/aviation-${AVIATION_PROFILE}.stamp"
 SYSTEM_STAMP="$STAMPS_DIR/system-${SYSTEM_PROFILE}.stamp"
 CALENDAR_STAMP="$STAMPS_DIR/calendar-${CALENDAR_PROFILE}.stamp"
@@ -243,6 +251,7 @@ trap cleanup EXIT INT TERM
 
 cleanup_pidfile "$WEATHER_LOOP_PID_FILE"
 cleanup_pidfile "$AIR_LOOP_PID_FILE"
+cleanup_pidfile "$SOLAR_LOOP_PID_FILE"
 cleanup_pidfile "$AVIATION_LOOP_PID_FILE"
 cleanup_pidfile "$SYSTEM_LOOP_PID_FILE"
 cleanup_pidfile "$CALENDAR_LOOP_PID_FILE"
@@ -323,6 +332,7 @@ echo "$CONKY_PID" > "$CONKY_PID_FILE"
 
 initial_refresh "weather-${WEATHER_PROFILE}" "$WEATHER_STAMP" "$CORE_DIR/providers/weather/fetch_openweather.sh" "$WEATHER_PROFILE"
 initial_refresh "air-${AIR_PROFILE}" "$AIR_STAMP" "$CORE_DIR/providers/air/fetch_air.sh" "$AIR_PROFILE"
+initial_refresh "solar-${SOLAR_PROFILE}" "$SOLAR_STAMP" "$CORE_DIR/providers/solar/fetch_solar.sh" "$SOLAR_PROFILE"
 initial_refresh "aviation-${AVIATION_PROFILE}" "$AVIATION_STAMP" "$CORE_DIR/providers/aviation/fetch_aviation.sh" "$AVIATION_PROFILE"
 initial_refresh "system-${SYSTEM_PROFILE}" "$SYSTEM_STAMP" "$CORE_DIR/providers/system/fetch_system.sh" "$SYSTEM_PROFILE"
 initial_refresh "calendar-${CALENDAR_PROFILE}" "$CALENDAR_STAMP" "$CORE_DIR/providers/calendar/fetch_calendar.sh" "$CALENDAR_PROFILE"
@@ -336,6 +346,7 @@ initial_refresh "${SUITE_ID}-orb-cache" "$ORB_STAMP" bash "$SUITE_DIR/scripts/re
 
 refresh_loop "weather-${WEATHER_PROFILE}" "$WEATHER_TTL" "$WEATHER_STAMP" "$WEATHER_LOOP_PID_FILE" "$CORE_DIR/providers/weather/fetch_openweather.sh" "$WEATHER_PROFILE"
 refresh_loop "air-${AIR_PROFILE}" "$AIR_TTL" "$AIR_STAMP" "$AIR_LOOP_PID_FILE" "$CORE_DIR/providers/air/fetch_air.sh" "$AIR_PROFILE"
+refresh_loop "solar-${SOLAR_PROFILE}" "$SOLAR_TTL" "$SOLAR_STAMP" "$SOLAR_LOOP_PID_FILE" "$CORE_DIR/providers/solar/fetch_solar.sh" "$SOLAR_PROFILE"
 refresh_loop "aviation-${AVIATION_PROFILE}" "$AVIATION_TTL" "$AVIATION_STAMP" "$AVIATION_LOOP_PID_FILE" "$CORE_DIR/providers/aviation/fetch_aviation.sh" "$AVIATION_PROFILE"
 refresh_loop "system-${SYSTEM_PROFILE}" "$SYSTEM_TTL" "$SYSTEM_STAMP" "$SYSTEM_LOOP_PID_FILE" "$CORE_DIR/providers/system/fetch_system.sh" "$SYSTEM_PROFILE"
 refresh_loop "calendar-${CALENDAR_PROFILE}" "$CALENDAR_TTL" "$CALENDAR_STAMP" "$CALENDAR_LOOP_PID_FILE" "$CORE_DIR/providers/calendar/fetch_calendar.sh" "$CALENDAR_PROFILE"
