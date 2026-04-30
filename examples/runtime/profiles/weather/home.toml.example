@@ -1,0 +1,23 @@
+profile_id = "home"
+provider = "openweather"
+enabled = true
+
+[location]
+name = "home"
+# Defaults come from site.toml [location.home].
+# lat =
+# lon =
+# timezone =
+
+[request]
+units = "imperial"
+lang = "en"
+cache_ttl_sec = 300
+
+[credentials]
+# Defaults come from site.toml [credentials].openweather_api_key.
+# owm_api_key =
+
+[events]
+cache_ttl_sec = 86400
+extra_events_file = "__RUNTIME_ROOT__/state/events_extra.txt"

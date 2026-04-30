@@ -5,6 +5,7 @@ PROFILE_ID="${1:-home}"
 CONFIG_ROOT="${GTEX62_CONFIG_DIR:-${GTEX62_CONKY_CONFIG_DIR:-$HOME/.config/gtex62-core}}"
 CACHE_ROOT="${GTEX62_CACHE_DIR:-${GTEX62_CONKY_CACHE_DIR:-$HOME/.cache/gtex62-core}}"
 PROFILE_TOML="$CONFIG_ROOT/profiles/aviation/${PROFILE_ID}.toml"
+SITE_TOML="$CONFIG_ROOT/site.toml"
 OUT_DIR="$CACHE_ROOT/shared/aviation/${PROFILE_ID}"
 CURRENT_JSON="$OUT_DIR/current.json"
 STATUS_JSON="$OUT_DIR/status.json"
@@ -15,6 +16,7 @@ mkdir -p "$OUT_DIR" "$TMP_DIR"
 parse_root_value() {
   local path="$1"
   local key="$2"
+  [[ -f "$path" ]] || return 0
   awk -F= -v key="$key" '
     /^[[:space:]]*\[/ { if (in_section) exit; next }
     $0 ~ "^[[:space:]]*" key "[[:space:]]*=" {
@@ -32,6 +34,7 @@ parse_section_value() {
   local path="$1"
   local section="$2"
   local key="$3"
+  [[ -f "$path" ]] || return 0
   awk -F= -v section="$section" -v key="$key" '
     /^[[:space:]]*\[/ {
       in_section = ($0 == "[" section "]")
@@ -72,6 +75,10 @@ fi
 
 METAR_STATION="$(parse_section_value "$PROFILE_TOML" stations metar || true)"
 TAF_STATION="$(parse_section_value "$PROFILE_TOML" stations taf || true)"
+METAR_STATION="${METAR_STATION:-$(parse_section_value "$SITE_TOML" aviation metar || true)}"
+TAF_STATION="${TAF_STATION:-$(parse_section_value "$SITE_TOML" aviation taf || true)}"
+METAR_STATION="${METAR_STATION:-$(parse_section_value "$SITE_TOML" aviation primary || true)}"
+TAF_STATION="${TAF_STATION:-$(parse_section_value "$SITE_TOML" aviation primary || true)}"
 METAR_TTL="$(parse_section_value "$PROFILE_TOML" cache metar_ttl_sec || true)"
 TAF_TTL="$(parse_section_value "$PROFILE_TOML" cache taf_ttl_sec || true)"
 METAR_STATION="${METAR_STATION:-KMEM}"

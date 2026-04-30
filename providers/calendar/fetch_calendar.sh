@@ -6,6 +6,7 @@ CONFIG_ROOT="${GTEX62_CONFIG_DIR:-${GTEX62_CONKY_CONFIG_DIR:-$HOME/.config/gtex6
 CACHE_ROOT="${GTEX62_CACHE_DIR:-${GTEX62_CONKY_CACHE_DIR:-$HOME/.cache/gtex62-core}}"
 XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
 PROFILE_TOML="$CONFIG_ROOT/profiles/calendar/${PROFILE_ID}.toml"
+SITE_TOML="$CONFIG_ROOT/site.toml"
 OUT_DIR="$CACHE_ROOT/shared/calendar/${PROFILE_ID}"
 EVENTS_JSON="$OUT_DIR/events.json"
 SEASONAL_JSON="$OUT_DIR/seasonal.json"
@@ -16,6 +17,7 @@ mkdir -p "$OUT_DIR" "$TMP_DIR"
 parse_root_value() {
   local path="$1"
   local key="$2"
+  [[ -f "$path" ]] || return 0
   awk -F= -v key="$key" '
     /^[[:space:]]*\[/ { if (in_section) exit; next }
     $0 ~ "^[[:space:]]*" key "[[:space:]]*=" {
@@ -33,6 +35,7 @@ parse_section_value() {
   local path="$1"
   local section="$2"
   local key="$3"
+  [[ -f "$path" ]] || return 0
   awk -F= -v section="$section" -v key="$key" '
     /^[[:space:]]*\[/ {
       in_section = ($0 == "[" section "]")
@@ -73,10 +76,17 @@ if [[ "${ENABLED:-true}" != "true" ]]; then
 fi
 
 TIMEZONE="$(parse_root_value "$PROFILE_TOML" timezone || true)"
+TIMEZONE="${TIMEZONE:-$(parse_section_value "$SITE_TOML" calendar timezone || true)}"
+TIMEZONE="${TIMEZONE:-$(parse_section_value "$SITE_TOML" location.home timezone || true)}"
 EXTRA_EVENTS_FILE="$(parse_section_value "$PROFILE_TOML" events extra_events_file || true)"
 EVENT_CACHE_FILE="$(parse_section_value "$PROFILE_TOML" events cache_file || true)"
-DEFAULT_EVENT_CACHE="${CONKY_CACHE_DIR:-$XDG_CACHE_HOME/conky}/events_cache.txt"
+DEFAULT_EVENT_CACHE="$CACHE_ROOT/shared/calendar/${PROFILE_ID}/events_cache.txt"
 EVENT_CACHE_FILE="${EVENT_CACHE_FILE:-$DEFAULT_EVENT_CACHE}"
+LEGACY_EVENT_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/conky/events_cache.txt"
+
+if [[ "$EVENT_CACHE_FILE" == "$DEFAULT_EVENT_CACHE" && ! -s "$EVENT_CACHE_FILE" && -s "$LEGACY_EVENT_CACHE" ]]; then
+  cp "$LEGACY_EVENT_CACHE" "$EVENT_CACHE_FILE"
+fi
 
 TMP_EVENTS="$TMP_DIR/calendar_events_${PROFILE_ID}.tmp"
 TMP_SEASONAL="$TMP_DIR/calendar_seasonal_${PROFILE_ID}.tmp"

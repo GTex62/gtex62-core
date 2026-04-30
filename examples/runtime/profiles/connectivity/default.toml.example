@@ -1,0 +1,15 @@
+profile_id = "default"
+enabled = true
+
+[ping]
+primary_host = "8.8.8.8"
+secondary_host = "1.1.1.1"
+interval_sec = 5
+
+[speedtest]
+enabled = true
+max_age_days = 14
+# Defaults come from site.toml [speedtest].
+# baseline_down_mbps =
+# fallback_down_mbps =
+# server_id =

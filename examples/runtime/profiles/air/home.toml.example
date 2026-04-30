@@ -1,0 +1,26 @@
+profile_id = "home"
+baseline_provider = "openweather"
+overlay_provider = "airnow"
+enabled = true
+
+[location]
+# Defaults come from site.toml [location.home].
+# lat =
+# lon =
+# timezone =
+
+[cache]
+ttl_sec = 900
+
+[openweather]
+enabled = true
+# Defaults come from site.toml [credentials].openweather_api_key.
+# api_key =
+
+[airnow]
+enabled = true
+# Defaults come from site.toml [credentials].airnow_api_key.
+# api_key =
+distance_miles = 25
+window_hours = 6
+owm_tolerance_sec = 3600

@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CORE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SRC_DIR="$CORE_DIR/examples/runtime"
+RUNTIME_ROOT="${GTEX62_CONFIG_DIR:-${GTEX62_CONKY_CONFIG_DIR:-$HOME/.config/gtex62-core}}"
+SUITE_DIR="${CONKY_SUITE_DIR:-${GTEX62_SUITE_DIR:-$HOME/.config/conky/gtex62-osa}}"
+FORCE=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --force)
+      FORCE=1
+      shift
+      ;;
+    --suite-dir)
+      SUITE_DIR="${2:-}"
+      shift 2
+      ;;
+    *)
+      RUNTIME_ROOT="$1"
+      shift
+      ;;
+  esac
+done
+
+install_template() {
+  local src="$1"
+  local rel="${src#$SRC_DIR/}"
+  local dest_rel="${rel%.example}"
+  local dest="$RUNTIME_ROOT/$dest_rel"
+
+  mkdir -p "$(dirname "$dest")"
+
+  if [[ -e "$dest" && "$FORCE" -ne 1 ]]; then
+    printf 'skip  %s\n' "$dest"
+    return
+  fi
+
+  sed \
+    -e "s|__HOME__|$HOME|g" \
+    -e "s|__RUNTIME_ROOT__|$RUNTIME_ROOT|g" \
+    -e "s|__SUITE_REPO__|$SUITE_DIR|g" \
+    "$src" > "$dest"
+
+  printf 'write %s\n' "$dest"
+}
+
+if [[ ! -d "$SRC_DIR" ]]; then
+  echo "Template directory not found: $SRC_DIR" >&2
+  exit 1
+fi
+
+while IFS= read -r -d '' file; do
+  install_template "$file"
+done < <(find "$SRC_DIR" -type f -name '*.example' -print0 | sort -z)
+
+mkdir -p "$RUNTIME_ROOT/overrides/core" "$RUNTIME_ROOT/overrides/suites" "$RUNTIME_ROOT/state"
+
+cat <<EOF
+
+Runtime root prepared at:
+  $RUNTIME_ROOT
+
+Next:
+  1. Fill in local site defaults, API keys, location, network, aviation, and pfSense settings in:
+     $RUNTIME_ROOT/site.toml
+  2. Use profile TOMLs only for domain-specific overrides:
+     $RUNTIME_ROOT/profiles/
+  3. Add optional local calendar events in:
+     $RUNTIME_ROOT/state/events_extra.txt
+EOF

@@ -1,0 +1,10 @@
+profile_id = "home"
+enabled = true
+source = "weather-derived"
+weather_profile = "home"
+
+[location]
+# Defaults come from site.toml [location.home].
+# lat =
+# lon =
+# timezone =

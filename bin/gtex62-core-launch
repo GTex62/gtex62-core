@@ -38,6 +38,7 @@ fi
 parse_toml_value() {
   local path="$1"
   local key="$2"
+  [[ -f "$path" ]] || return 0
   awk -F= -v key="$key" '
     $0 ~ "^[[:space:]]*" key "[[:space:]]*=" {
       v=$2
@@ -54,6 +55,7 @@ parse_toml_section_value() {
   local path="$1"
   local section="$2"
   local key="$3"
+  [[ -f "$path" ]] || return 0
   awk -F= -v section="$section" -v key="$key" '
     /^[[:space:]]*\[/ {
       in_section = ($0 == "[" section "]")
@@ -80,35 +82,58 @@ CACHE_ROOT="${CACHE_ROOT:-$(resolve_root "" "" "$HOME/.cache/gtex62-core" "$HOME
 
 SUITE_DIR="$(parse_toml_value "$SUITE_TOML" suite_repo)"
 WEATHER_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles weather || true)"
+AIR_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles air || true)"
 AVIATION_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles aviation || true)"
 SYSTEM_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles system || true)"
 CALENDAR_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles calendar || true)"
 TIME_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles time || true)"
+ASTRO_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles astro || true)"
+NETWORK_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles network || true)"
+CONNECTIVITY_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles connectivity || true)"
+PFSENSE_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles pfsense || true)"
 WEATHER_PROFILE="${WEATHER_PROFILE:-home}"
+AIR_PROFILE="${AIR_PROFILE:-home}"
 AVIATION_PROFILE="${AVIATION_PROFILE:-home}"
 SYSTEM_PROFILE="${SYSTEM_PROFILE:-local}"
 CALENDAR_PROFILE="${CALENDAR_PROFILE:-local}"
 TIME_PROFILE="${TIME_PROFILE:-local}"
+ASTRO_PROFILE="${ASTRO_PROFILE:-home}"
+NETWORK_PROFILE="${NETWORK_PROFILE:-local}"
+CONNECTIVITY_PROFILE="${CONNECTIVITY_PROFILE:-default}"
+PFSENSE_PROFILE="${PFSENSE_PROFILE:-main_router}"
 
 WEATHER_PROFILE_TOML="$CONFIG_ROOT/profiles/weather/${WEATHER_PROFILE}.toml"
+AIR_PROFILE_TOML="$CONFIG_ROOT/profiles/air/${AIR_PROFILE}.toml"
 AVIATION_PROFILE_TOML="$CONFIG_ROOT/profiles/aviation/${AVIATION_PROFILE}.toml"
 SYSTEM_PROFILE_TOML="$CONFIG_ROOT/profiles/system/${SYSTEM_PROFILE}.toml"
 CALENDAR_PROFILE_TOML="$CONFIG_ROOT/profiles/calendar/${CALENDAR_PROFILE}.toml"
 TIME_PROFILE_TOML="$CONFIG_ROOT/profiles/time/${TIME_PROFILE}.toml"
+ASTRO_PROFILE_TOML="$CONFIG_ROOT/profiles/astro/${ASTRO_PROFILE}.toml"
+NETWORK_PROFILE_TOML="$CONFIG_ROOT/profiles/network/${NETWORK_PROFILE}.toml"
+CONNECTIVITY_PROFILE_TOML="$CONFIG_ROOT/profiles/connectivity/${CONNECTIVITY_PROFILE}.toml"
+PFSENSE_PROFILE_TOML="$CONFIG_ROOT/profiles/pfsense/${PFSENSE_PROFILE}.toml"
 WEATHER_TTL="$(parse_toml_section_value "$WEATHER_PROFILE_TOML" request cache_ttl_sec || true)"
+AIR_TTL="$(parse_toml_section_value "$AIR_PROFILE_TOML" cache ttl_sec || true)"
 AVIATION_METAR_TTL="$(parse_toml_section_value "$AVIATION_PROFILE_TOML" cache metar_ttl_sec || true)"
 AVIATION_TAF_TTL="$(parse_toml_section_value "$AVIATION_PROFILE_TOML" cache taf_ttl_sec || true)"
 SYSTEM_TTL="$(parse_toml_section_value "$SYSTEM_PROFILE_TOML" cache refresh_sec || true)"
 CALENDAR_TTL="$(parse_toml_section_value "$CALENDAR_PROFILE_TOML" cache refresh_sec || true)"
 TIME_TTL="$(parse_toml_section_value "$TIME_PROFILE_TOML" cache refresh_sec || true)"
-NET_TTL="${GTEX62_OSA_NET_CACHE_TTL:-5}"
+ASTRO_TTL="$(parse_toml_section_value "$ASTRO_PROFILE_TOML" cache refresh_sec || true)"
+NETWORK_TTL="$(parse_toml_section_value "$NETWORK_PROFILE_TOML" cache refresh_sec || true)"
+PFSENSE_TTL="$(parse_toml_value "$PFSENSE_PROFILE_TOML" cache_ttl_sec || true)"
+NET_TTL="${GTEX62_OSA_NET_CACHE_TTL:-1}"
 ORB_TTL="${GTEX62_OSA_ORB_CACHE_TTL:-60}"
 WEATHER_TTL="${WEATHER_TTL:-300}"
+AIR_TTL="${AIR_TTL:-900}"
 AVIATION_METAR_TTL="${AVIATION_METAR_TTL:-600}"
 AVIATION_TAF_TTL="${AVIATION_TAF_TTL:-600}"
 SYSTEM_TTL="${SYSTEM_TTL:-1}"
 CALENDAR_TTL="${CALENDAR_TTL:-300}"
 TIME_TTL="${TIME_TTL:-1}"
+ASTRO_TTL="${ASTRO_TTL:-60}"
+NETWORK_TTL="${NETWORK_TTL:-5}"
+PFSENSE_TTL="${PFSENSE_TTL:-5}"
 AVIATION_TTL="$AVIATION_METAR_TTL"
 if (( AVIATION_TAF_TTL < AVIATION_TTL )); then
   AVIATION_TTL="$AVIATION_TAF_TTL"
@@ -129,10 +154,15 @@ PIDS_DIR="$CACHE_ROOT/runtime/pids"
 STAMPS_DIR="$CACHE_ROOT/runtime/stamps"
 mkdir -p \
   "$CACHE_ROOT/shared/weather/$WEATHER_PROFILE" \
+  "$CACHE_ROOT/shared/air/$AIR_PROFILE" \
   "$CACHE_ROOT/shared/aviation/$AVIATION_PROFILE" \
   "$CACHE_ROOT/shared/system/$SYSTEM_PROFILE" \
   "$CACHE_ROOT/shared/calendar/$CALENDAR_PROFILE" \
   "$CACHE_ROOT/shared/time/$TIME_PROFILE" \
+  "$CACHE_ROOT/shared/astro/$ASTRO_PROFILE" \
+  "$CACHE_ROOT/shared/network/$NETWORK_PROFILE" \
+  "$CACHE_ROOT/shared/connectivity/$CONNECTIVITY_PROFILE" \
+  "$CACHE_ROOT/shared/pfsense/$PFSENSE_PROFILE" \
   "$CACHE_ROOT/suites/$SUITE_ID/net" \
   "$CACHE_ROOT/suites/$SUITE_ID/orb" \
   "$LOCKS_DIR" \
@@ -142,22 +172,34 @@ mkdir -p \
 
 CONKY_PID_FILE="$PIDS_DIR/${SUITE_ID}-conky.pid"
 WEATHER_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-weather-refresh.pid"
+AIR_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-air-refresh.pid"
 AVIATION_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-aviation-refresh.pid"
 SYSTEM_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-system-refresh.pid"
 CALENDAR_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-calendar-refresh.pid"
 TIME_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-time-refresh.pid"
+ASTRO_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-astro-refresh.pid"
+NETWORK_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-network-refresh.pid"
+CONNECTIVITY_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-connectivity-refresh.pid"
+PFSENSE_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-pfsense-refresh.pid"
 NET_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-net-refresh.pid"
 ORB_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-orb-refresh.pid"
 LAUNCHER_PID_FILE="$PIDS_DIR/${SUITE_ID}-launcher.pid"
 WEATHER_STAMP="$STAMPS_DIR/weather-${WEATHER_PROFILE}.stamp"
+AIR_STAMP="$STAMPS_DIR/air-${AIR_PROFILE}.stamp"
 AVIATION_STAMP="$STAMPS_DIR/aviation-${AVIATION_PROFILE}.stamp"
 SYSTEM_STAMP="$STAMPS_DIR/system-${SYSTEM_PROFILE}.stamp"
 CALENDAR_STAMP="$STAMPS_DIR/calendar-${CALENDAR_PROFILE}.stamp"
 TIME_STAMP="$STAMPS_DIR/time-${TIME_PROFILE}.stamp"
+ASTRO_STAMP="$STAMPS_DIR/astro-${ASTRO_PROFILE}.stamp"
+NETWORK_STAMP="$STAMPS_DIR/network-${NETWORK_PROFILE}.stamp"
+CONNECTIVITY_STAMP="$STAMPS_DIR/connectivity-${CONNECTIVITY_PROFILE}.stamp"
+PFSENSE_STAMP="$STAMPS_DIR/pfsense-${PFSENSE_PROFILE}.stamp"
 NET_STAMP="$STAMPS_DIR/${SUITE_ID}-net-cache.stamp"
 ORB_STAMP="$STAMPS_DIR/${SUITE_ID}-orb-cache.stamp"
 
 echo $$ > "$LAUNCHER_PID_FILE"
+LOOP_PIDS=()
+LOOP_PID_FILES=()
 
 cleanup_pidfile() {
   local file="$1"
@@ -171,23 +213,44 @@ cleanup_pidfile() {
   fi
 }
 
+remove_pidfile_if_value() {
+  local file="$1"
+  local expected="$2"
+  local current=""
+  [[ -n "$expected" && -f "$file" ]] || return 0
+  current="$(cat "$file" 2>/dev/null || true)"
+  if [[ "$current" == "$expected" ]]; then
+    rm -f "$file"
+  fi
+}
+
 cleanup() {
-  cleanup_pidfile "$WEATHER_LOOP_PID_FILE"
-  cleanup_pidfile "$AVIATION_LOOP_PID_FILE"
-  cleanup_pidfile "$SYSTEM_LOOP_PID_FILE"
-  cleanup_pidfile "$CALENDAR_LOOP_PID_FILE"
-  cleanup_pidfile "$TIME_LOOP_PID_FILE"
-  cleanup_pidfile "$NET_LOOP_PID_FILE"
-  cleanup_pidfile "$ORB_LOOP_PID_FILE"
-  rm -f "$CONKY_PID_FILE" "$LAUNCHER_PID_FILE"
+  local i pid pid_file
+  for pid in "${LOOP_PIDS[@]:-}"; do
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+      kill "$pid" 2>/dev/null || true
+    fi
+  done
+  for i in "${!LOOP_PID_FILES[@]}"; do
+    pid_file="${LOOP_PID_FILES[$i]}"
+    pid="${LOOP_PIDS[$i]:-}"
+    remove_pidfile_if_value "$pid_file" "$pid"
+  done
+  remove_pidfile_if_value "$CONKY_PID_FILE" "${CONKY_PID:-}"
+  remove_pidfile_if_value "$LAUNCHER_PID_FILE" "$$"
 }
 trap cleanup EXIT INT TERM
 
 cleanup_pidfile "$WEATHER_LOOP_PID_FILE"
+cleanup_pidfile "$AIR_LOOP_PID_FILE"
 cleanup_pidfile "$AVIATION_LOOP_PID_FILE"
 cleanup_pidfile "$SYSTEM_LOOP_PID_FILE"
 cleanup_pidfile "$CALENDAR_LOOP_PID_FILE"
 cleanup_pidfile "$TIME_LOOP_PID_FILE"
+cleanup_pidfile "$ASTRO_LOOP_PID_FILE"
+cleanup_pidfile "$NETWORK_LOOP_PID_FILE"
+cleanup_pidfile "$CONNECTIVITY_LOOP_PID_FILE"
+cleanup_pidfile "$PFSENSE_LOOP_PID_FILE"
 cleanup_pidfile "$NET_LOOP_PID_FILE"
 cleanup_pidfile "$ORB_LOOP_PID_FILE"
 
@@ -212,14 +275,37 @@ refresh_loop() {
   local pid_file="$4"
   shift 4
   (
-    echo $$ > "$pid_file"
+    loop_pid="$BASHPID"
+    echo "$loop_pid" > "$pid_file"
+    sleep "$interval"
+    case "$name" in
+      system-*) sleep 0.10 ;;
+      time-*) sleep 0.30 ;;
+      pfsense-*) sleep 0.50 ;;
+      "${SUITE_ID}-net-cache") sleep 0.70 ;;
+    esac
     while kill -0 "$CONKY_PID" 2>/dev/null; do
-      sleep "$interval"
       kill -0 "$CONKY_PID" 2>/dev/null || break
+      started_ns=""
+      ended_ns=""
+      sleep_for=""
+      started_ns="$(date +%s%N)"
       run_locked "$name" "$stamp" "$@"
+      ended_ns="$(date +%s%N)"
+      sleep_for="$(
+        awk -v started="$started_ns" -v ended="$ended_ns" -v interval="$interval" 'BEGIN {
+          elapsed = (ended - started) / 1000000000
+          wait = interval - elapsed
+          if (wait < 0.05) wait = 0.05
+          printf "%.3f\n", wait
+        }'
+      )"
+      sleep "$sleep_for"
     done
-    rm -f "$pid_file"
+    remove_pidfile_if_value "$pid_file" "$loop_pid"
   ) &
+  LOOP_PIDS+=("$!")
+  LOOP_PID_FILES+=("$pid_file")
 }
 
 initial_refresh() {
@@ -236,18 +322,27 @@ CONKY_PID=$!
 echo "$CONKY_PID" > "$CONKY_PID_FILE"
 
 initial_refresh "weather-${WEATHER_PROFILE}" "$WEATHER_STAMP" "$CORE_DIR/providers/weather/fetch_openweather.sh" "$WEATHER_PROFILE"
+initial_refresh "air-${AIR_PROFILE}" "$AIR_STAMP" "$CORE_DIR/providers/air/fetch_air.sh" "$AIR_PROFILE"
 initial_refresh "aviation-${AVIATION_PROFILE}" "$AVIATION_STAMP" "$CORE_DIR/providers/aviation/fetch_aviation.sh" "$AVIATION_PROFILE"
 initial_refresh "system-${SYSTEM_PROFILE}" "$SYSTEM_STAMP" "$CORE_DIR/providers/system/fetch_system.sh" "$SYSTEM_PROFILE"
 initial_refresh "calendar-${CALENDAR_PROFILE}" "$CALENDAR_STAMP" "$CORE_DIR/providers/calendar/fetch_calendar.sh" "$CALENDAR_PROFILE"
 initial_refresh "time-${TIME_PROFILE}" "$TIME_STAMP" "$CORE_DIR/providers/time/fetch_time.sh" "$TIME_PROFILE"
+initial_refresh "astro-${ASTRO_PROFILE}" "$ASTRO_STAMP" "$CORE_DIR/providers/astro/fetch_astro.sh" "$ASTRO_PROFILE"
+initial_refresh "network-${NETWORK_PROFILE}" "$NETWORK_STAMP" "$CORE_DIR/providers/network/fetch_network.sh" "$NETWORK_PROFILE"
+initial_refresh "connectivity-${CONNECTIVITY_PROFILE}" "$CONNECTIVITY_STAMP" "$CORE_DIR/providers/connectivity/fetch_connectivity.sh" "$CONNECTIVITY_PROFILE"
+initial_refresh "pfsense-${PFSENSE_PROFILE}" "$PFSENSE_STAMP" "$CORE_DIR/providers/pfsense/fetch_pfsense.sh" "$PFSENSE_PROFILE"
 initial_refresh "${SUITE_ID}-net-cache" "$NET_STAMP" bash "$SUITE_DIR/scripts/refresh_net_cache.sh"
 initial_refresh "${SUITE_ID}-orb-cache" "$ORB_STAMP" bash "$SUITE_DIR/scripts/refresh_orb_cache.sh"
 
 refresh_loop "weather-${WEATHER_PROFILE}" "$WEATHER_TTL" "$WEATHER_STAMP" "$WEATHER_LOOP_PID_FILE" "$CORE_DIR/providers/weather/fetch_openweather.sh" "$WEATHER_PROFILE"
+refresh_loop "air-${AIR_PROFILE}" "$AIR_TTL" "$AIR_STAMP" "$AIR_LOOP_PID_FILE" "$CORE_DIR/providers/air/fetch_air.sh" "$AIR_PROFILE"
 refresh_loop "aviation-${AVIATION_PROFILE}" "$AVIATION_TTL" "$AVIATION_STAMP" "$AVIATION_LOOP_PID_FILE" "$CORE_DIR/providers/aviation/fetch_aviation.sh" "$AVIATION_PROFILE"
 refresh_loop "system-${SYSTEM_PROFILE}" "$SYSTEM_TTL" "$SYSTEM_STAMP" "$SYSTEM_LOOP_PID_FILE" "$CORE_DIR/providers/system/fetch_system.sh" "$SYSTEM_PROFILE"
 refresh_loop "calendar-${CALENDAR_PROFILE}" "$CALENDAR_TTL" "$CALENDAR_STAMP" "$CALENDAR_LOOP_PID_FILE" "$CORE_DIR/providers/calendar/fetch_calendar.sh" "$CALENDAR_PROFILE"
 refresh_loop "time-${TIME_PROFILE}" "$TIME_TTL" "$TIME_STAMP" "$TIME_LOOP_PID_FILE" "$CORE_DIR/providers/time/fetch_time.sh" "$TIME_PROFILE"
+refresh_loop "astro-${ASTRO_PROFILE}" "$ASTRO_TTL" "$ASTRO_STAMP" "$ASTRO_LOOP_PID_FILE" "$CORE_DIR/providers/astro/fetch_astro.sh" "$ASTRO_PROFILE"
+refresh_loop "network-${NETWORK_PROFILE}" "$NETWORK_TTL" "$NETWORK_STAMP" "$NETWORK_LOOP_PID_FILE" "$CORE_DIR/providers/network/fetch_network.sh" "$NETWORK_PROFILE"
+refresh_loop "pfsense-${PFSENSE_PROFILE}" "$PFSENSE_TTL" "$PFSENSE_STAMP" "$PFSENSE_LOOP_PID_FILE" "$CORE_DIR/providers/pfsense/fetch_pfsense.sh" "$PFSENSE_PROFILE"
 refresh_loop "${SUITE_ID}-net-cache" "$NET_TTL" "$NET_STAMP" "$NET_LOOP_PID_FILE" bash "$SUITE_DIR/scripts/refresh_net_cache.sh"
 refresh_loop "${SUITE_ID}-orb-cache" "$ORB_TTL" "$ORB_STAMP" "$ORB_LOOP_PID_FILE" bash "$SUITE_DIR/scripts/refresh_orb_cache.sh"
 

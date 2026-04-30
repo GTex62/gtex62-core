@@ -5,6 +5,7 @@ PROFILE_ID="${1:-home}"
 CONFIG_ROOT="${GTEX62_CONFIG_DIR:-${GTEX62_CONKY_CONFIG_DIR:-$HOME/.config/gtex62-core}}"
 CACHE_ROOT="${GTEX62_CACHE_DIR:-${GTEX62_CONKY_CACHE_DIR:-$HOME/.cache/gtex62-core}}"
 PROFILE_TOML="$CONFIG_ROOT/profiles/weather/${PROFILE_ID}.toml"
+SITE_TOML="$CONFIG_ROOT/site.toml"
 OUT_DIR="$CACHE_ROOT/shared/weather/${PROFILE_ID}"
 STATUS_JSON="$OUT_DIR/status.json"
 CURRENT_JSON="$OUT_DIR/current.json"
@@ -18,6 +19,7 @@ mkdir -p "$OUT_DIR" "$TMP_DIR"
 parse_root_value() {
   local path="$1"
   local key="$2"
+  [[ -f "$path" ]] || return 0
   awk -F= -v key="$key" '
     /^[[:space:]]*\[/ { if (in_section) exit; next }
     $0 ~ "^[[:space:]]*" key "[[:space:]]*=" {
@@ -35,6 +37,7 @@ parse_section_value() {
   local path="$1"
   local section="$2"
   local key="$3"
+  [[ -f "$path" ]] || return 0
   awk -F= -v section="$section" -v key="$key" '
     /^[[:space:]]*\[/ {
       in_section = ($0 == "[" section "]")
@@ -84,6 +87,10 @@ UNITS="$(parse_section_value "$PROFILE_TOML" request units || true)"
 LANG="$(parse_section_value "$PROFILE_TOML" request lang || true)"
 TTL="$(parse_section_value "$PROFILE_TOML" request cache_ttl_sec || true)"
 API_KEY="$(parse_section_value "$PROFILE_TOML" credentials owm_api_key || true)"
+LAT="${LAT:-$(parse_section_value "$SITE_TOML" location.home lat || true)}"
+LON="${LON:-$(parse_section_value "$SITE_TOML" location.home lon || true)}"
+TZ_NAME="${TZ_NAME:-$(parse_section_value "$SITE_TOML" location.home timezone || true)}"
+API_KEY="${API_KEY:-$(parse_section_value "$SITE_TOML" credentials openweather_api_key || true)}"
 
 PROVIDER="${PROVIDER:-openweather}"
 UNITS="${UNITS:-imperial}"

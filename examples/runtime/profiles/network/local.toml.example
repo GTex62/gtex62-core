@@ -1,0 +1,18 @@
+profile_id = "local"
+enabled = true
+# Defaults come from site.toml [network].primary_interface.
+# primary_interface =
+
+[cache]
+refresh_sec = 5
+
+[labels]
+lan = "LAN IP"
+dns = "DNS"
+subnet = "SUBNET"
+gateway = "GATEWAY"
+
+[vlan]
+# Defaults come from site.toml [vlan].
+# labels = []
+# hosts = []

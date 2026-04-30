@@ -1,0 +1,14 @@
+profile_id = "main_router"
+enabled = true
+# Defaults come from site.toml [pfsense].ssh_target.
+# ssh_target =
+cache_ttl_sec = 1
+
+[interfaces]
+# Defaults come from site.toml [pfsense.interfaces].
+# wan =
+# home =
+# iot =
+# guest =
+# infra =
+# cam =

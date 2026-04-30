@@ -1,0 +1,15 @@
+profile_id = "home"
+enabled = true
+source = "ephem"
+# Defaults come from site.toml [location.home].
+# timezone =
+
+[location]
+# lat =
+# lon =
+
+[fallback]
+weather_profile = "home"
+
+[cache]
+refresh_sec = 60

@@ -1,0 +1,7 @@
+# Optional extra events for the local calendar/event profile.
+#
+# Format:
+# YYYY-MM-DD|Event Name|optional-type
+#
+# Example:
+# 2026-04-13|Example Event|note

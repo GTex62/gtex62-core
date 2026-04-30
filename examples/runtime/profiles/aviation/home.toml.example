@@ -1,0 +1,18 @@
+profile_id = "home"
+enabled = true
+
+[stations]
+# Defaults come from site.toml [aviation].
+# primary =
+# metar =
+# taf =
+# advisories_center =
+
+[cache]
+metar_ttl_sec = 600
+taf_ttl_sec = 600
+advisories_ttl_sec = 600
+
+[advisories]
+enabled = false
+radius_nm = 300

@@ -1,0 +1,43 @@
+site_id = "local"
+
+[location.home]
+name = "home"
+lat = 41.8781
+lon = -87.6298
+timezone = "America/Chicago"
+
+[credentials]
+openweather_api_key = "YOUR_OPENWEATHER_API_KEY"
+airnow_api_key = "YOUR_AIRNOW_API_KEY"
+
+[network]
+primary_interface = "eno1"
+
+[vlan]
+labels = ["HOME", "IOT", "GUEST", "INFRA", "CAM"]
+hosts = ["192.168.10.1", "192.168.20.1", "192.168.30.1", "192.168.40.1", "192.168.50.1"]
+
+[speedtest]
+baseline_down_mbps = 500
+fallback_down_mbps = 500
+server_id = ""
+
+[aviation]
+primary = "KMEM"
+metar = "KMEM"
+taf = "KMEM"
+advisories_center = "KMEM"
+
+[calendar]
+timezone = "America/Chicago"
+
+[pfsense]
+ssh_target = "pf"
+
+[pfsense.interfaces]
+wan = "igc0"
+home = "igc1.10"
+iot = "igc1.20"
+guest = "igc1.30"
+infra = "igc1.40"
+cam = "igc1.50"
