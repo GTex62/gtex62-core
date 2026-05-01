@@ -37,5 +37,18 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Backup files
+*.bak
+*.bak2
+/bak/
+
+# Local tool state
+.codex
+**/.comments/
+
 # Lua bytecode
 *.luac
