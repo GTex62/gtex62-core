@@ -113,7 +113,13 @@ TMP_SPEED="$TMP_DIR/connectivity_speedtest_${PROFILE_ID}.json"
 SPEED_STATE="disabled"
 SPEED_NOTE=""
 if [[ "$SPEED_ENABLED" == "true" ]]; then
-  if speedtest_json "$SERVER_ID" > "$TMP_SPEED"; then
+  if [[ -s "$CURRENT_JSON" ]] && jq -e --argjson max "$MAX_AGE_DAYS" '
+      (.speedtest.raw.timestamp // .speedtest.raw.result.timestamp // null) as $ts
+      | $ts != null and ((now - ($ts | fromdateiso8601)) / 86400) < $max
+    ' "$CURRENT_JSON" >/dev/null 2>&1; then
+    jq '.speedtest.raw // {}' "$CURRENT_JSON" > "$TMP_SPEED" 2>/dev/null || : > "$TMP_SPEED"
+    SPEED_STATE="ok"
+  elif speedtest_json "$SERVER_ID" > "$TMP_SPEED"; then
     SPEED_STATE="ok"
   else
     SPEED_STATE="error"
