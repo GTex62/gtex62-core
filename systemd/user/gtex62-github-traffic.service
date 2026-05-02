@@ -1,0 +1,6 @@
+[Unit]
+Description=Refresh gtex62-core GitHub traffic cache
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/env python3 %h/.config/conky/gtex62-core/providers/github/fetch_github_traffic.py
