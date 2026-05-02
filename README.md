@@ -218,6 +218,18 @@ Suites should reference shared assets through `suite.toml` and the
 `GTEX62_SHARED_ASSETS` environment variable rather than carrying duplicate
 `assets/`, `fonts/`, or `wallpapers/` trees.
 
+To install all shared fonts into `~/.local/share/fonts/` and rebuild the font
+cache, run the font helper (optional, but required fonts for each suite must be
+installed):
+
+```bash
+bash scripts/install-fonts.sh
+```
+
+The script is idempotent and writes a manifest at
+`~/.local/share/fonts/.gtex62-core-fonts.manifest`. Specific required fonts for
+each suite are documented in that suite's README.
+
 ## Core-Native Suite Template
 
 A core-native suite should generally look like this:
@@ -269,7 +281,8 @@ gtex62-core/
 ├── docs/         # architecture, schemas, migration notes
 ├── examples/     # runtime templates copied into ~/.config/gtex62-core
 ├── lua/          # common Lua helpers
-└── providers/    # shared provider scripts by domain
+├── providers/    # shared provider scripts by domain
+└── scripts/      # shared setup helpers (font install, palette generation)
 ```
 
 ## Docs
