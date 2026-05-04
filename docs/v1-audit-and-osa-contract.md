@@ -242,9 +242,15 @@ Selection rule:
 
 ### 8. `solar`
 
-Shared derived solar/radiation-like values where you want those exposed independently from core weather.
+Shared solar values exposed independently from core weather.
 
-This may later be folded partly into `weather` or `astro`, but for v1 it is acceptable as its own normalized output because the existing suites already treat it as a reusable layer.
+UV index and shortwave radiation (W/m²) are fetched from Open-Meteo on each
+refresh cycle — no API key required. VI, IR, and CL remain weather-derived
+from OWM current data. A full geometric synthetic model serves as fallback for
+UV and RAD when Open-Meteo is unreachable.
+
+See `gtex62-osa/docs/solar_array.md` for the full source strategy and output
+schema.
 
 ### 9. `network`
 

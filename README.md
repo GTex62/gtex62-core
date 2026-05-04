@@ -147,7 +147,8 @@ Current provider domains include:
 - `weather`
 - `aviation`
 - `air`
-- `solar`
+- `solar` — UV index and shortwave radiation via Open-Meteo (no key required);
+  geometric synthetic model as fallback
 - `network`
 - `connectivity`
 - `pfsense`

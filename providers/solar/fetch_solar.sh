@@ -112,6 +112,17 @@ if [[ ! -f "$INPUT_CURRENT" ]]; then
   printf '{}\n' > "$INPUT_CURRENT"
 fi
 
+REAL_UV=""
+REAL_RAD=""
+if [[ -n "$LAT" && -n "$LON" ]]; then
+  OM_UV_TMP="$TMP_DIR/solar_${PROFILE_ID}_om_uv.json"
+  OM_UV_URL="https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&current=uv_index,shortwave_radiation&timezone=auto&forecast_days=1"
+  if curl -fsS --max-time 8 "$OM_UV_URL" > "$OM_UV_TMP" 2>>"$LOG_FILE"; then
+    REAL_UV="$(jq -r '.current.uv_index // empty' "$OM_UV_TMP" 2>/dev/null || true)"
+    REAL_RAD="$(jq -r '.current.shortwave_radiation // empty' "$OM_UV_TMP" 2>/dev/null || true)"
+  fi
+fi
+
 if ! jq -n \
   --slurpfile raw "$INPUT_RAW" \
   --slurpfile cur "$INPUT_CURRENT" \
@@ -122,6 +133,8 @@ if ! jq -n \
   --arg lat "$LAT" \
   --arg lon "$LON" \
   --arg timezone "$TZ_NAME" \
+  --arg real_uv "$REAL_UV" \
+  --arg real_rad "$REAL_RAD" \
   '
   def clamp($lo; $hi):
     if . < $lo then $lo elif . > $hi then $hi else . end;
@@ -146,6 +159,13 @@ if ! jq -n \
   (($sun_factor * $cloud_factor) | clamp(0; 1)) as $visible_factor |
   (($temp - 20) / 80 | clamp(0; 1)) as $temp_factor |
   (($sun_factor * ((0.65 * $cloud_factor) + (0.35 * $temp_factor))) | clamp(0; 1)) as $ir_factor |
+  (($ts | strftime("%j")) | tonumber) as $doy |
+  (23.45 * ((2 * 3.141592653589793 * ($doy - 81) / 365) | sin)) as $decl_deg |
+  (($lat | tonumber) - $decl_deg | if . < 0 then -. else . end | clamp(0; 89)) as $zenith_noon_deg |
+  ($zenith_noon_deg * 3.141592653589793 / 180 | cos) as $cos_zenith_noon |
+  (11 * $cos_zenith_noon * $cos_zenith_noon) as $uv_noon_max |
+  (if ($real_uv | length) > 0 then ($real_uv | tonumber) else null end) as $om_uv |
+  (if ($real_rad | length) > 0 then ($real_rad | tonumber) else null end) as $om_rad |
   {
     profile: $profile,
     provider: $provider,
@@ -161,18 +181,18 @@ if ! jq -n \
     },
     labels: ["UV", "VI", "IR", "CL", "RAD"],
     values: {
-      UV: ((11 * $sun_factor) | round2),
+      UV: (if $om_uv then ($om_uv | round2) else (($uv_noon_max * $sun_factor * $cloud_factor) | round2) end),
       VI: ((100 * $visible_factor) | round2),
       IR: ((100 * $ir_factor) | round2),
       CL: ($clouds | round2),
-      RAD: ((1000 * $visible_factor) | round2)
+      RAD: (if $om_rad then ($om_rad | round2) else ((1000 * $visible_factor) | round2) end)
     },
     norm: {
-      UV: ($sun_factor | round2),
+      UV: (if $om_uv then (($om_uv / 11) | clamp(0; 1) | round2) else ($visible_factor | round2) end),
       VI: ($visible_factor | round2),
       IR: ($ir_factor | round2),
       CL: (($clouds / 100) | round2),
-      RAD: ($visible_factor | round2)
+      RAD: (if $om_rad then (($om_rad / 1000) | clamp(0; 1) | round2) else ($visible_factor | round2) end)
     },
     meta: {
       source_weather_profile: $weather_profile,
@@ -181,7 +201,8 @@ if ! jq -n \
       sunset: $sunset,
       clouds: $clouds,
       temp_f: $temp,
-      temp_c: $temp_c
+      temp_c: $temp_c,
+      uv_source: (if $om_uv then "open-meteo" else "synthetic" end)
     }
   }
   ' > "$CURRENT_JSON"; then
