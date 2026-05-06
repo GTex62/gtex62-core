@@ -75,21 +75,26 @@ fi
 
 METAR_STATION="$(parse_section_value "$PROFILE_TOML" stations metar || true)"
 TAF_STATION="$(parse_section_value "$PROFILE_TOML" stations taf || true)"
+STATION_MODEL="$(parse_section_value "$PROFILE_TOML" stations station_model || true)"
 METAR_STATION="${METAR_STATION:-$(parse_section_value "$SITE_TOML" aviation metar || true)}"
 TAF_STATION="${TAF_STATION:-$(parse_section_value "$SITE_TOML" aviation taf || true)}"
+STATION_MODEL="${STATION_MODEL:-$(parse_section_value "$SITE_TOML" aviation station_model || true)}"
 METAR_STATION="${METAR_STATION:-$(parse_section_value "$SITE_TOML" aviation primary || true)}"
 TAF_STATION="${TAF_STATION:-$(parse_section_value "$SITE_TOML" aviation primary || true)}"
 METAR_TTL="$(parse_section_value "$PROFILE_TOML" cache metar_ttl_sec || true)"
 TAF_TTL="$(parse_section_value "$PROFILE_TOML" cache taf_ttl_sec || true)"
 METAR_STATION="${METAR_STATION:-KMEM}"
 TAF_STATION="${TAF_STATION:-$METAR_STATION}"
+STATION_MODEL="${STATION_MODEL:-$METAR_STATION}"
 METAR_TTL="${METAR_TTL:-600}"
 TAF_TTL="${TAF_TTL:-600}"
 
 RAW_METAR="$OUT_DIR/metar_raw.txt"
 RAW_TAF="$OUT_DIR/taf_raw.txt"
+RAW_STATION_MODEL="$OUT_DIR/station_model_raw.txt"
 TMP_METAR="$TMP_DIR/aviation_${PROFILE_ID}_metar.tmp"
 TMP_TAF="$TMP_DIR/aviation_${PROFILE_ID}_taf.tmp"
+TMP_STATION_MODEL="$TMP_DIR/aviation_${PROFILE_ID}_station_model.tmp"
 
 is_fresh() {
   local path="$1"
@@ -128,6 +133,18 @@ if ! is_fresh "$RAW_TAF" "$TAF_TTL"; then
   fi
 fi
 
+if [[ "$STATION_MODEL" != "$METAR_STATION" ]]; then
+  if ! is_fresh "$RAW_STATION_MODEL" "$METAR_TTL"; then
+    if fetch_metar "$STATION_MODEL" "$TMP_STATION_MODEL" && [[ -s "$TMP_STATION_MODEL" ]]; then
+      mv -f "$TMP_STATION_MODEL" "$RAW_STATION_MODEL"
+    else
+      rm -f "$TMP_STATION_MODEL"
+    fi
+  fi
+else
+  RAW_STATION_MODEL="$RAW_METAR"
+fi
+
 METAR_TEXT="$(cat "$RAW_METAR" 2>/dev/null || true)"
 TAF_TEXT="$(cat "$RAW_TAF" 2>/dev/null || true)"
 if [[ -z "$METAR_TEXT" && -z "$TAF_TEXT" ]]; then
@@ -139,8 +156,10 @@ jq -n \
   --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --arg metar_station "$METAR_STATION" \
   --arg taf_station "$TAF_STATION" \
+  --arg station_model "$STATION_MODEL" \
   --rawfile metar "$RAW_METAR" \
   --rawfile taf "$RAW_TAF" \
-  '{generated_at:$generated_at, stations:{metar:$metar_station, taf:$taf_station}, metar_raw:$metar, taf_raw:$taf}' > "$CURRENT_JSON"
+  --rawfile station_model_raw "$RAW_STATION_MODEL" \
+  '{generated_at:$generated_at, stations:{metar:$metar_station, taf:$taf_station, station_model:$station_model}, metar_raw:$metar, taf_raw:$taf, station_model_raw:$station_model_raw}' > "$CURRENT_JSON"
 
 write_status "ok" ""
