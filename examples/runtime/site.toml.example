@@ -26,6 +26,7 @@ server_id = ""
 primary = "KMEM"
 metar = "KMEM"
 taf = "KMEM"
+station_model = "KMEM"
 advisories_center = "KMEM"
 
 [calendar]

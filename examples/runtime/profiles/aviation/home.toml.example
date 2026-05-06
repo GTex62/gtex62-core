@@ -6,6 +6,7 @@ enabled = true
 # primary =
 # metar =
 # taf =
+# station_model =
 # advisories_center =
 
 [cache]
