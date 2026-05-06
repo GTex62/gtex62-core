@@ -108,7 +108,7 @@ is_fresh() {
 fetch_metar() {
   local station="$1"
   local out="$2"
-  curl -fsS "https://tgftp.nws.noaa.gov/data/observations/metar/decoded/${station}.TXT" -o "$out" 2>>"$LOG_FILE"
+  curl -fsS "https://aviationweather.gov/api/data/metar?ids=${station}&format=raw&hours=1" -o "$out" 2>>"$LOG_FILE"
 }
 
 fetch_taf() {
