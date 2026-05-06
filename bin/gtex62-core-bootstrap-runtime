@@ -26,7 +26,7 @@ done
 
 install_template() {
   local src="$1"
-  local rel="${src#$SRC_DIR/}"
+  local rel="${src#"$SRC_DIR/"}"
   local dest_rel="${rel%.example}"
   local dest="$RUNTIME_ROOT/$dest_rel"
 
