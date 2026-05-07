@@ -268,9 +268,18 @@ run_locked() {
   local stamp="$2"
   shift 2
   local lock_dir="$LOCKS_DIR/${name}.lock"
+  local lock_pid_file="$lock_dir/pid"
+  if [[ -d "$lock_dir" ]]; then
+    local lock_pid
+    lock_pid="$(cat "$lock_pid_file" 2>/dev/null || true)"
+    if [[ -z "$lock_pid" ]] || ! kill -0 "$lock_pid" 2>/dev/null; then
+      rm -rf "$lock_dir" 2>/dev/null || true
+    fi
+  fi
   if mkdir "$lock_dir" 2>/dev/null; then
     (
-      trap 'rmdir "$lock_dir" 2>/dev/null || true' EXIT
+      echo "$BASHPID" > "$lock_pid_file" 2>/dev/null || true
+      trap 'rm -rf "$lock_dir" 2>/dev/null || true' EXIT
       "$@"
       date -u +%Y-%m-%dT%H:%M:%SZ > "$stamp"
     )
