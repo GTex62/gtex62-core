@@ -4,3 +4,4 @@ Description=Refresh gtex62-core GitHub traffic cache
 [Service]
 Type=oneshot
 ExecStart=/usr/bin/env python3 %h/.config/conky/gtex62-core/providers/github/fetch_github_traffic.py
+ExecStartPost=/bin/bash -c 'MISC=/mnt/NAS_Data/Data/Linux/backups/conky/misc; [ -d "$MISC" ] && [ -w "$MISC" ] && { mkdir -p "$MISC/github_cache" && cp -a %h/.cache/gtex62-core/shared/github/. "$MISC/github_cache/" && cp -a %h/.config/conky/github-traffic-repos.json "$MISC/"; } || true'
