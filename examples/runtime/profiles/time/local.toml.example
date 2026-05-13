@@ -1,0 +1,15 @@
+# Time provider profile — local workstation
+# Copy to: ~/.config/gtex62-core/profiles/time/local.toml
+
+profile_id = "local"
+enabled = true
+
+[cache]
+refresh_sec = 1
+
+[zones]
+UTC = "UNIVERSAL TIME"
+America/Chicago = "CENTRAL TIME"
+America/Los_Angeles = "PACIFIC TIME"
+Europe/Berlin = "CENTRAL EUROPEAN TIME"
+Asia/Tokyo = "JAPAN STANDARD TIME"

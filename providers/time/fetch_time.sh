@@ -62,7 +62,7 @@ profile_path = sys.argv[1]
 out_path = sys.argv[2]
 
 DEFAULT_ZONES = [
-    {"tz": "UTC", "name": "UNIVERSAL TIME COORDINATED"},
+    {"tz": "UTC", "name": "UNIVERSAL TIME"},
     {"tz": "America/Chicago", "name": "CENTRAL TIME"},
     {"tz": "America/Los_Angeles", "name": "PACIFIC TIME"},
     {"tz": "Europe/Berlin", "name": "CENTRAL EUROPEAN TIME"},
