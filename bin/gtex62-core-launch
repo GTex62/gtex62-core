@@ -113,7 +113,6 @@ CALENDAR_PROFILE_TOML="$CONFIG_ROOT/profiles/calendar/${CALENDAR_PROFILE}.toml"
 TIME_PROFILE_TOML="$CONFIG_ROOT/profiles/time/${TIME_PROFILE}.toml"
 ASTRO_PROFILE_TOML="$CONFIG_ROOT/profiles/astro/${ASTRO_PROFILE}.toml"
 NETWORK_PROFILE_TOML="$CONFIG_ROOT/profiles/network/${NETWORK_PROFILE}.toml"
-CONNECTIVITY_PROFILE_TOML="$CONFIG_ROOT/profiles/connectivity/${CONNECTIVITY_PROFILE}.toml"
 PFSENSE_PROFILE_TOML="$CONFIG_ROOT/profiles/pfsense/${PFSENSE_PROFILE}.toml"
 WEATHER_TTL="$(parse_toml_section_value "$WEATHER_PROFILE_TOML" request cache_ttl_sec || true)"
 AIR_TTL="$(parse_toml_section_value "$AIR_PROFILE_TOML" cache ttl_sec || true)"
@@ -244,6 +243,10 @@ cleanup() {
     pid="${LOOP_PIDS[$i]:-}"
     remove_pidfile_if_value "$pid_file" "$pid"
   done
+  # Clean up all conky PID files (single-chassis or multi-chassis)
+  for i in "${!CONKY_PIDS[@]:-}"; do
+    remove_pidfile_if_value "${CONKY_PID_FILES[$i]:-}" "${CONKY_PIDS[$i]:-}"
+  done
   remove_pidfile_if_value "$CONKY_PID_FILE" "${CONKY_PID:-}"
   remove_pidfile_if_value "$LAUNCHER_PID_FILE" "$$"
 }
@@ -335,9 +338,57 @@ initial_refresh() {
   ) &
 }
 
-conky -c "$SUITE_DIR/widgets/osa-main.conky.conf" &
-CONKY_PID=$!
-echo "$CONKY_PID" > "$CONKY_PID_FILE"
+# -------------------------------------------------------------------------
+# Launch Conky chassis — multi-chassis (suite.toml [[instances]]) or legacy
+# -------------------------------------------------------------------------
+
+# Read conf paths from [[instances.chassis]] and [[instances.standalone]] blocks.
+# Falls back to the single OSA window if no suite manifest is present.
+get_instance_confs() {
+  local path="$1"
+  [[ -f "$path" ]] || return 0
+  awk '
+    /^\[\[instances\.(chassis|standalone)\]\]/ { in_block = 1; next }
+    /^\[/ { in_block = 0 }
+    in_block && /^[[:space:]]*conf[[:space:]]*=/ {
+      v = $0; sub(/^[^=]+=/, "", v)
+      gsub(/^[[:space:]"]+|[[:space:]"]+$/, "", v)
+      print v
+    }
+  ' "$path"
+}
+
+CONKY_PIDS=()
+CONKY_PID_FILES=()
+SUITE_MANIFEST="$SUITE_DIR/suite.toml"
+
+if [[ -f "$SUITE_MANIFEST" ]] && grep -q '^\[\[instances\.' "$SUITE_MANIFEST" 2>/dev/null; then
+  while IFS= read -r conf_rel; do
+    [[ -n "$conf_rel" ]] || continue
+    conf_abs="$SUITE_DIR/$conf_rel"
+    if [[ ! -f "$conf_abs" ]]; then
+      echo "Warning: instance conf not found: $conf_abs" >&2
+      continue
+    fi
+    conky -c "$conf_abs" &
+    _pid=$!
+    _id="$(basename "$conf_rel" .conky.conf)"
+    _pid_file="$PIDS_DIR/${SUITE_ID}-${_id}-conky.pid"
+    echo "$_pid" > "$_pid_file"
+    CONKY_PIDS+=("$_pid")
+    CONKY_PID_FILES+=("$_pid_file")
+  done < <(get_instance_confs "$SUITE_MANIFEST")
+else
+  # Legacy single-window fallback (OSA)
+  conky -c "$SUITE_DIR/widgets/osa-main.conky.conf" &
+  CONKY_PIDS=("$!")
+  CONKY_PID_FILES=("$CONKY_PID_FILE")
+  echo "${CONKY_PIDS[0]}" > "$CONKY_PID_FILE"
+fi
+
+# CONKY_PID: primary process watched by refresh loops
+CONKY_PID="${CONKY_PIDS[0]:-}"
+[[ -n "$CONKY_PID" ]] && echo "$CONKY_PID" > "$CONKY_PID_FILE"
 
 initial_refresh "weather-${WEATHER_PROFILE}" "$WEATHER_STAMP" "$CORE_DIR/providers/weather/fetch_openweather.sh" "$WEATHER_PROFILE"
 initial_refresh "air-${AIR_PROFILE}" "$AIR_STAMP" "$CORE_DIR/providers/air/fetch_air.sh" "$AIR_PROFILE"
@@ -350,8 +401,10 @@ initial_refresh "astro-${ASTRO_PROFILE}" "$ASTRO_STAMP" "$CORE_DIR/providers/ast
 initial_refresh "network-${NETWORK_PROFILE}" "$NETWORK_STAMP" "$CORE_DIR/providers/network/fetch_network.sh" "$NETWORK_PROFILE"
 initial_refresh "connectivity-${CONNECTIVITY_PROFILE}" "$CONNECTIVITY_STAMP" "$CORE_DIR/providers/connectivity/fetch_connectivity.sh" "$CONNECTIVITY_PROFILE"
 initial_refresh "pfsense-${PFSENSE_PROFILE}" "$PFSENSE_STAMP" "$CORE_DIR/providers/pfsense/fetch_pfsense.sh" "$PFSENSE_PROFILE"
-initial_refresh "${SUITE_ID}-net-cache" "$NET_STAMP" bash "$SUITE_DIR/scripts/refresh_net_cache.sh"
-initial_refresh "${SUITE_ID}-orb-cache" "$ORB_STAMP" bash "$SUITE_DIR/scripts/refresh_orb_cache.sh"
+[[ -x "$SUITE_DIR/scripts/refresh_net_cache.sh" ]] && \
+  initial_refresh "${SUITE_ID}-net-cache" "$NET_STAMP" bash "$SUITE_DIR/scripts/refresh_net_cache.sh"
+[[ -x "$SUITE_DIR/scripts/refresh_orb_cache.sh" ]] && \
+  initial_refresh "${SUITE_ID}-orb-cache" "$ORB_STAMP" bash "$SUITE_DIR/scripts/refresh_orb_cache.sh"
 
 refresh_loop "weather-${WEATHER_PROFILE}" "$WEATHER_TTL" "$WEATHER_STAMP" "$WEATHER_LOOP_PID_FILE" "$CORE_DIR/providers/weather/fetch_openweather.sh" "$WEATHER_PROFILE"
 refresh_loop "air-${AIR_PROFILE}" "$AIR_TTL" "$AIR_STAMP" "$AIR_LOOP_PID_FILE" "$CORE_DIR/providers/air/fetch_air.sh" "$AIR_PROFILE"
@@ -363,7 +416,13 @@ refresh_loop "time-${TIME_PROFILE}" "$TIME_TTL" "$TIME_STAMP" "$TIME_LOOP_PID_FI
 refresh_loop "astro-${ASTRO_PROFILE}" "$ASTRO_TTL" "$ASTRO_STAMP" "$ASTRO_LOOP_PID_FILE" "$CORE_DIR/providers/astro/fetch_astro.sh" "$ASTRO_PROFILE"
 refresh_loop "network-${NETWORK_PROFILE}" "$NETWORK_TTL" "$NETWORK_STAMP" "$NETWORK_LOOP_PID_FILE" "$CORE_DIR/providers/network/fetch_network.sh" "$NETWORK_PROFILE"
 refresh_loop "pfsense-${PFSENSE_PROFILE}" "$PFSENSE_TTL" "$PFSENSE_STAMP" "$PFSENSE_LOOP_PID_FILE" "$CORE_DIR/providers/pfsense/fetch_pfsense.sh" "$PFSENSE_PROFILE"
-refresh_loop "${SUITE_ID}-net-cache" "$NET_TTL" "$NET_STAMP" "$NET_LOOP_PID_FILE" bash "$SUITE_DIR/scripts/refresh_net_cache.sh"
-refresh_loop "${SUITE_ID}-orb-cache" "$ORB_TTL" "$ORB_STAMP" "$ORB_LOOP_PID_FILE" bash "$SUITE_DIR/scripts/refresh_orb_cache.sh"
+[[ -x "$SUITE_DIR/scripts/refresh_net_cache.sh" ]] && \
+  refresh_loop "${SUITE_ID}-net-cache" "$NET_TTL" "$NET_STAMP" "$NET_LOOP_PID_FILE" bash "$SUITE_DIR/scripts/refresh_net_cache.sh"
+[[ -x "$SUITE_DIR/scripts/refresh_orb_cache.sh" ]] && \
+  refresh_loop "${SUITE_ID}-orb-cache" "$ORB_TTL" "$ORB_STAMP" "$ORB_LOOP_PID_FILE" bash "$SUITE_DIR/scripts/refresh_orb_cache.sh"
 
-wait "$CONKY_PID"
+# Wait for all conky processes; exit when the primary one exits
+for _wait_pid in "${CONKY_PIDS[@]:-}"; do
+  wait "$_wait_pid" 2>/dev/null || true
+  break
+done
