@@ -10,7 +10,6 @@ CURRENT_JSON="$OUT_DIR/current.json"
 STATUS_JSON="$OUT_DIR/status.json"
 PROCESSES_JSON="$OUT_DIR/processes.json"
 STORAGE_JSON="$OUT_DIR/storage.json"
-LOG_FILE="$OUT_DIR/fetch.log"
 TMP_DIR="$CACHE_ROOT/tmp"
 mkdir -p "$OUT_DIR" "$TMP_DIR"
 

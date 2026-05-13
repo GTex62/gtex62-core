@@ -139,7 +139,7 @@ nic_alias_from_model() {
 }
 
 nic_friendly() {
-  local iface="$1" pci alias model
+  local iface="$1" pci model
   pci="$(pci_id_for_iface "$iface" 2>/dev/null || true)"
   if [[ -n "$pci" ]] && alias_by_pci "$pci" >/dev/null 2>&1; then
     alias_by_pci "$pci"; return
