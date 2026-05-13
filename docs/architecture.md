@@ -14,7 +14,9 @@ preserving flexibility for unique suite designs.
 Separate the system into two layers:
 
 ### Core (Foundation)
+
 Responsible for:
+
 - Data collection and normalization
 - Cache management
 - Shared assets
@@ -23,15 +25,16 @@ Responsible for:
 - Documentation framework
 
 ### Suites (Profiles / Skins)
+
 Responsible for:
+
 - Visual identity (themes, colors, fonts)
 - Layout and chassis (Lua)
 - Module selection
 - Conky configuration structure (single/multi instance)
 - Suite-specific data extensions
 
-**Rule:**
-Core defines how things work. Suites define how things look and where they go.
+**Rule:** Core defines how things work. Suites define how things look and where they go.
 
 ---
 
@@ -39,6 +42,7 @@ Core defines how things work. Suites define how things look and where they go.
 
 ### Core Root
 
+```
 core/
   bin/
   lib/
@@ -47,21 +51,26 @@ core/
   modules/
   assets/
   docs/
+```
 
 ### Suites
 
+```
 suites/
   lcars/
   tri-hud/
   tech-hud/
+```
 
 Each suite contains:
 
+```
 suite.conf
 conky/
 lua/
 assets/
 docs/
+```
 
 ---
 
@@ -69,22 +78,19 @@ docs/
 
 ### Data Layers
 
-1. Raw Data
-   - Direct API responses (e.g., OpenWeather)
-
-2. Normalized (Shared)
-   - Standardized JSON usable by all suites
-
-3. Derived (Suite-Specific)
-   - Enhanced or transformed data for specific suites
+1. Raw Data — direct API responses (e.g., OpenWeather)
+2. Normalized (Shared) — standardized JSON usable by all suites
+3. Derived (Suite-Specific) — enhanced or transformed data for specific suites
 
 ---
 
 ## Weather Example
 
+```
 shared/weather/raw/owm.json
 shared/weather/common/weather_common.json
 suites/lcars/weather/weather_extended.json
+```
 
 ### Design Principle
 
@@ -97,17 +103,25 @@ suites/lcars/weather/weather_extended.json
 
 ### Root
 
+```
 ~/.cache/gtex62-core/
+```
 
 ### Structure
 
+```
 shared/
   weather/
   astro/
   system/
   network/
+  connectivity/
   air/
-  firewall/
+  solar/
+  aviation/
+  pfsense/
+  net/
+  orb/
 
 suites/
   lcars/
@@ -120,28 +134,38 @@ runtime/
   stamps/
 
 tmp/
+```
 
 ---
 
 ## Cache Rules
 
 ### Shared Cache
+
 Used by multiple suites:
+
 - Normalized weather
 - System snapshots
 - Astronomy data
+- Network and connectivity state
+- Ephemeris and planet positions (orb)
+- Fast-refresh net display cache
 
 ### Suite Cache
+
 Used by a single suite:
+
 - LCARS extended weather
 - Suite-specific rendering data
 
 ### Runtime
+
 - Locks
 - PIDs
 - Timestamp markers
 
 ### Temporary
+
 - Safe to delete
 
 ---
@@ -149,24 +173,33 @@ Used by a single suite:
 ## Naming Conventions
 
 ### Directory Naming
-- Based on data domain, not script name
+
+Based on data domain, not script name.
 
 Good:
+
+```
 weather/common/
 network/pfsense/
+```
 
 Bad:
+
+```
 conver_dyn/
 ap/
+```
 
 ### File Naming
 
+```
 current.json
 forecast.json
 normalized.json
 extended.json
 status.json
 snapshot.json
+```
 
 ---
 
@@ -174,12 +207,15 @@ snapshot.json
 
 ### Shared Assets
 
+```
 ~/.config/conky/gtex62-shared-assets/
   wallpapers/
   icons/
   fonts/
+```
 
 ### Rules
+
 - Cache only generated assets
 - Store source assets outside cache
 
@@ -189,6 +225,7 @@ snapshot.json
 
 Each suite defines a suite.conf:
 
+```yaml
 suite_name: lcars
 
 assets:
@@ -204,18 +241,24 @@ launch:
   conky_instances:
     - conky/main.conf
     - conky/side.conf
+```
 
 ---
 
 ## Provider Model
 
+```
 providers/
   weather/
   astro/
   system/
   network/
+  net/
+  orb/
+```
 
 Each provider:
+
 - Fetches raw data
 - Produces normalized output
 - Optionally produces extended output
@@ -227,36 +270,41 @@ Each provider:
 The core does NOT enforce layout.
 
 Supported patterns:
+
 - Single config (tri-hud)
 - Dual config (LCARS)
 - Multi-widget configs (tech-hud)
 
 Suite controls:
 
+```yaml
 launch:
   conky_instances: [...]
+```
 
 ---
 
 ## Migration Strategy
 
 ### Phase 1
-Identify shared components:
-- Scripts
-- Cache files
-- Lua helpers
+
+Identify shared components: scripts, cache files, Lua helpers.
 
 ### Phase 2
-Move shared logic into core
+
+Move shared logic into core.
 
 ### Phase 3
-Normalize cache structure
+
+Normalize cache structure.
 
 ### Phase 4
-Convert one suite (pilot)
+
+Convert one suite (pilot).
 
 ### Phase 5
-Convert remaining suites
+
+Convert remaining suites.
 
 ---
 
@@ -273,13 +321,16 @@ For each file or script:
 ## Risk Management
 
 ### Avoid Over-Coupling
+
 - Do not hardcode suite logic into core scripts
 
 ### Avoid Over-Abstraction
+
 - Keep layouts explicit
 - Avoid unnecessary frameworks
 
 ### Keep Interfaces Stable
+
 - Shared JSON formats must remain consistent
 
 ---
@@ -296,17 +347,12 @@ For each file or script:
 
 ## Recommended System Layout
 
-~/.config/gtex62-core/
-~/.local/share/gtex62-core/
-~/.cache/gtex62-core/
-~/.config/conky/gtex62-shared-assets/
-
-### Meaning
-
-- .config → user configuration
-- .local/share → persistent runtime state
-- .cache → regeneratable data
-- gtex62-shared-assets → shared binary assets
+```
+~/.config/gtex62-core/       — user configuration
+~/.local/share/gtex62-core/  — persistent runtime state
+~/.cache/gtex62-core/        — regeneratable data
+~/.config/conky/gtex62-shared-assets/  — shared binary assets
+```
 
 ---
 
@@ -325,9 +371,3 @@ While preserving:
 - Unique visual identities
 - Flexible layout models
 - Suite-specific enhancements
-
----
-
-## Next Step
-
-Create a mapping of current cache directories and scripts into the new structure before moving files.

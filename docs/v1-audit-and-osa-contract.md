@@ -334,6 +334,8 @@ shared/
   network/
   connectivity/
   pfsense/
+  net/
+  orb/
 
 suites/
   osa/
@@ -505,13 +507,15 @@ Example:
 ~/.cache/gtex62-core/suites/osa/
   sys/
   tme/
-  orb/
   wxr/
-  net/
   env/
 ```
 
-These suite caches may contain panel-oriented compact row models, but they should not replace shared normalized truth.
+These suite caches may contain panel-oriented compact row models, but they should
+not replace shared normalized truth.
+
+`net` and `orb` are now shared core providers and write to `shared/net/<profile>/`
+and `shared/orb/<profile>/` respectively. They are no longer suite-local namespaces.
 
 ---
 
@@ -544,7 +548,10 @@ profiles:
   calendar: local
   astro: home
   network: local
+  connectivity: default
   pfsense: main_router
+  net: local
+  orb: home
 
 domains:
   required:
@@ -558,6 +565,8 @@ domains:
     - solar
     - network
     - connectivity
+    - net
+    - orb
   optional:
     - pollen
 
@@ -574,9 +583,7 @@ suite_cache:
   namespaces:
     - sys
     - tme
-    - orb
     - wxr
-    - net
     - env
 ```
 
