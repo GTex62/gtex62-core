@@ -15,7 +15,7 @@ refreshed at a faster cadence than either.
 
 ## Provider
 
-```
+```text
 providers/net/fetch_net.sh <profile>
 ```
 
@@ -25,7 +25,7 @@ Profile default: `local`
 
 ## Cache Location
 
-```
+```text
 ~/.cache/gtex62-core/shared/net/<profile>/state.vars
 ~/.cache/gtex62-core/shared/net/<profile>/vlan.tsv
 ```
@@ -34,7 +34,7 @@ Profile default: `local`
 
 ## Profile
 
-```
+```text
 ~/.config/gtex62-core/profiles/net/<profile>.toml
 ```
 
@@ -43,7 +43,7 @@ Example (`profiles/net/local.toml`):
 ```toml
 [cache]
 # How often to refresh pings, WAN IP, and VLAN latency (seconds)
-ttl_sec = 60
+ttl_sec = 1
 ```
 
 See `examples/runtime/profiles/net/local.toml.example` for the installable
@@ -89,7 +89,7 @@ SSH_LEFT=0
 ### Key Reference
 
 | Key | Description |
-|-----|-------------|
+| --- | --- |
 | `GENERATED_AT` | ISO 8601 UTC generation timestamp |
 | `IFACE` | Primary network interface name |
 | `TITLE` | User-facing NIC label (model name or alias) |
@@ -115,22 +115,22 @@ SSH_LEFT=0
 
 ## `vlan.tsv`
 
-### Format
+### Row Format
 
 Tab-separated, one row per VLAN gateway.
 
 ```text
-192.168.10.1	0.546000	0.23
-192.168.20.1	0.524000	0.24
-192.168.30.1	0.526000	0.24
-192.168.40.1	0.538000	0.23
-192.168.50.1	0.518000	0.24
+192.168.10.1    0.546000    0.23
+192.168.20.1    0.524000    0.24
+192.168.30.1    0.526000    0.24
+192.168.40.1    0.538000    0.23
+192.168.50.1    0.518000    0.24
 ```
 
 ### Column Order
 
 | Col | Key | Description |
-|-----|-----|-------------|
+| --- | --- | --- |
 | 1 | `gateway` | VLAN gateway address |
 | 2 | `speed_ratio` | Normalized bar-fill value (0.0–1.0) |
 | 3 | `ms` | Ping text shown in the latency column |
@@ -145,10 +145,15 @@ falling back to `site.toml`, then to hardcoded defaults.
 The launcher schedules:
 
 - initial background refresh at startup
-- recurring background refresh every `ttl_sec` seconds (default 60)
+- recurring background refresh every `ttl_sec` seconds (default 1)
 
-VLAN pings and external pings (`1.1.1.1`, `8.8.8.8`) run in parallel so one
-slow target does not stretch the full refresh interval.
+VLAN and ping are fast-track display metrics. The 1s default matches the cadence
+of live meters (CPU, RAM, GPU, LIVE bandwidth). VLAN pings and external pings run
+in parallel so one slow target does not stretch the full refresh interval.
+
+WAN IP is rate-limited internally to at most one external API call every 30
+seconds, regardless of `ttl_sec`. The WAN IP cache is invalidated immediately on
+VPN state change so the new public IP is picked up without delay.
 
 ---
 
