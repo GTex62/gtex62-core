@@ -1,0 +1,8 @@
+# Net provider profile — local workstation
+# Copy to: ~/.config/gtex62-core/profiles/net/local.toml
+
+enabled = true
+
+[cache]
+# How often to refresh pings, WAN IP, and VLAN latency (seconds)
+ttl_sec = 60
