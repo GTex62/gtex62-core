@@ -12,6 +12,8 @@ STATE_OUT="$OUT_DIR/state.vars"
 VLAN_OUT="$OUT_DIR/vlan.tsv"
 STATUS_JSON="$OUT_DIR/status.json"
 LOG_FILE="$OUT_DIR/fetch.log"
+WAN_IP_CACHE="$OUT_DIR/wan_ip.cache"
+VPN_STATE_CACHE="$OUT_DIR/vpn_state.cache"
 TMP_DIR="$CACHE_ROOT/tmp"
 mkdir -p "$OUT_DIR" "$TMP_DIR"
 
@@ -308,9 +310,24 @@ if [[ "$SPEEDTEST_DELTA" =~ ^[+-]?[0-9]+$ ]]; then
 fi
 
 VPN_STATE="$(normalize "$(vpn_state)")"
+WAN_IP_MIN_INTERVAL=30
+# Clear WAN IP cache on VPN state change so the new IP is fetched immediately
+_prev_vpn_state="$(cat "$VPN_STATE_CACHE" 2>/dev/null || true)"
+if [[ "$VPN_STATE" != "$_prev_vpn_state" ]]; then
+  rm -f "$WAN_IP_CACHE"
+fi
+printf '%s\n' "$VPN_STATE" > "$VPN_STATE_CACHE"
+
 WAN_IP="$(normalize "$(json_value "$NETWORK_JSON" '.interface.wan_ip // empty' || true)")"
 if [[ -z "$WAN_IP" ]]; then
-  WAN_IP="$(fetch_wan_ip 2>>"$LOG_FILE" || true)"
+  _wan_mtime="$(date -r "$WAN_IP_CACHE" +%s 2>/dev/null || echo 0)"
+  _wan_age=$(( $(date +%s) - _wan_mtime ))
+  if [[ ! -f "$WAN_IP_CACHE" ]] || (( _wan_age >= WAN_IP_MIN_INTERVAL )); then
+    WAN_IP="$(fetch_wan_ip 2>>"$LOG_FILE" || true)"
+    [[ -n "$WAN_IP" ]] && printf '%s\n' "$WAN_IP" > "$WAN_IP_CACHE"
+  else
+    WAN_IP="$(tr -d '[:space:]' < "$WAN_IP_CACHE" 2>/dev/null || true)"
+  fi
 fi
 if [[ "$VPN_STATE" == "ON" ]]; then
   VPN_WAN_IP="$(piactl get vpnip 2>/dev/null | tr -d '[:space:]' || true)"
