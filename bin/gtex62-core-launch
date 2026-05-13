@@ -93,6 +93,7 @@ NETWORK_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles network || tr
 CONNECTIVITY_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles connectivity || true)"
 PFSENSE_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles pfsense || true)"
 NET_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles net || true)"
+ORB_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles orb || true)"
 WEATHER_PROFILE="${WEATHER_PROFILE:-home}"
 AIR_PROFILE="${AIR_PROFILE:-home}"
 SOLAR_PROFILE="${SOLAR_PROFILE:-home}"
@@ -105,6 +106,7 @@ NETWORK_PROFILE="${NETWORK_PROFILE:-local}"
 CONNECTIVITY_PROFILE="${CONNECTIVITY_PROFILE:-default}"
 PFSENSE_PROFILE="${PFSENSE_PROFILE:-main_router}"
 NET_PROFILE="${NET_PROFILE:-local}"
+ORB_PROFILE="${ORB_PROFILE:-home}"
 
 WEATHER_PROFILE_TOML="$CONFIG_ROOT/profiles/weather/${WEATHER_PROFILE}.toml"
 AIR_PROFILE_TOML="$CONFIG_ROOT/profiles/air/${AIR_PROFILE}.toml"
@@ -129,7 +131,8 @@ NETWORK_TTL="$(parse_toml_section_value "$NETWORK_PROFILE_TOML" cache refresh_se
 PFSENSE_TTL="$(parse_toml_value "$PFSENSE_PROFILE_TOML" cache_ttl_sec || true)"
 NET_PROFILE_TOML="$CONFIG_ROOT/profiles/net/${NET_PROFILE}.toml"
 NET_TTL="$(parse_toml_section_value "$NET_PROFILE_TOML" cache ttl_sec || true)"
-ORB_TTL="${GTEX62_OSA_ORB_CACHE_TTL:-60}"
+ORB_PROFILE_TOML="$CONFIG_ROOT/profiles/orb/${ORB_PROFILE}.toml"
+ORB_TTL="$(parse_toml_section_value "$ORB_PROFILE_TOML" cache ttl_sec || true)"
 WEATHER_TTL="${WEATHER_TTL:-300}"
 AIR_TTL="${AIR_TTL:-900}"
 SOLAR_TTL="${SOLAR_TTL:-300}"
@@ -142,6 +145,7 @@ ASTRO_TTL="${ASTRO_TTL:-60}"
 NETWORK_TTL="${NETWORK_TTL:-5}"
 PFSENSE_TTL="${PFSENSE_TTL:-5}"
 NET_TTL="${NET_TTL:-60}"
+ORB_TTL="${ORB_TTL:-60}"
 AVIATION_TTL="$AVIATION_METAR_TTL"
 if (( AVIATION_TAF_TTL < AVIATION_TTL )); then
   AVIATION_TTL="$AVIATION_TAF_TTL"
@@ -173,7 +177,7 @@ mkdir -p \
   "$CACHE_ROOT/shared/connectivity/$CONNECTIVITY_PROFILE" \
   "$CACHE_ROOT/shared/pfsense/$PFSENSE_PROFILE" \
   "$CACHE_ROOT/shared/net/$NET_PROFILE" \
-  "$CACHE_ROOT/suites/$SUITE_ID/orb" \
+  "$CACHE_ROOT/shared/orb/$ORB_PROFILE" \
   "$LOCKS_DIR" \
   "$PIDS_DIR" \
   "$STAMPS_DIR" \
@@ -192,7 +196,7 @@ NETWORK_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-network-refresh.pid"
 CONNECTIVITY_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-connectivity-refresh.pid"
 PFSENSE_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-pfsense-refresh.pid"
 NET_LOOP_PID_FILE="$PIDS_DIR/net-${NET_PROFILE}-refresh.pid"
-ORB_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-orb-refresh.pid"
+ORB_LOOP_PID_FILE="$PIDS_DIR/orb-${ORB_PROFILE}-refresh.pid"
 LAUNCHER_PID_FILE="$PIDS_DIR/${SUITE_ID}-launcher.pid"
 WEATHER_STAMP="$STAMPS_DIR/weather-${WEATHER_PROFILE}.stamp"
 AIR_STAMP="$STAMPS_DIR/air-${AIR_PROFILE}.stamp"
@@ -206,7 +210,7 @@ NETWORK_STAMP="$STAMPS_DIR/network-${NETWORK_PROFILE}.stamp"
 CONNECTIVITY_STAMP="$STAMPS_DIR/connectivity-${CONNECTIVITY_PROFILE}.stamp"
 PFSENSE_STAMP="$STAMPS_DIR/pfsense-${PFSENSE_PROFILE}.stamp"
 NET_STAMP="$STAMPS_DIR/net-${NET_PROFILE}.stamp"
-ORB_STAMP="$STAMPS_DIR/${SUITE_ID}-orb-cache.stamp"
+ORB_STAMP="$STAMPS_DIR/orb-${ORB_PROFILE}.stamp"
 
 echo $$ > "$LAUNCHER_PID_FILE"
 LOOP_PIDS=()
@@ -307,7 +311,7 @@ refresh_loop() {
       system-*) sleep 0.10 ;;
       time-*) sleep 0.30 ;;
       pfsense-*) sleep 0.50 ;;
-      "${SUITE_ID}-net-cache") sleep 0.70 ;;
+      net-*) sleep 0.70 ;;
     esac
     while kill -0 "$CONKY_PID" 2>/dev/null; do
       kill -0 "$CONKY_PID" 2>/dev/null || break
@@ -406,8 +410,7 @@ initial_refresh "network-${NETWORK_PROFILE}" "$NETWORK_STAMP" "$CORE_DIR/provide
 initial_refresh "connectivity-${CONNECTIVITY_PROFILE}" "$CONNECTIVITY_STAMP" "$CORE_DIR/providers/connectivity/fetch_connectivity.sh" "$CONNECTIVITY_PROFILE"
 initial_refresh "pfsense-${PFSENSE_PROFILE}" "$PFSENSE_STAMP" "$CORE_DIR/providers/pfsense/fetch_pfsense.sh" "$PFSENSE_PROFILE"
 initial_refresh "net-${NET_PROFILE}" "$NET_STAMP" "$CORE_DIR/providers/net/fetch_net.sh" "$NET_PROFILE"
-[[ -x "$SUITE_DIR/scripts/refresh_orb_cache.sh" ]] && \
-  initial_refresh "${SUITE_ID}-orb-cache" "$ORB_STAMP" bash "$SUITE_DIR/scripts/refresh_orb_cache.sh"
+initial_refresh "orb-${ORB_PROFILE}" "$ORB_STAMP" "$CORE_DIR/providers/orb/fetch_orb.sh" "$ORB_PROFILE"
 
 refresh_loop "weather-${WEATHER_PROFILE}" "$WEATHER_TTL" "$WEATHER_STAMP" "$WEATHER_LOOP_PID_FILE" "$CORE_DIR/providers/weather/fetch_openweather.sh" "$WEATHER_PROFILE"
 refresh_loop "air-${AIR_PROFILE}" "$AIR_TTL" "$AIR_STAMP" "$AIR_LOOP_PID_FILE" "$CORE_DIR/providers/air/fetch_air.sh" "$AIR_PROFILE"
@@ -420,8 +423,7 @@ refresh_loop "astro-${ASTRO_PROFILE}" "$ASTRO_TTL" "$ASTRO_STAMP" "$ASTRO_LOOP_P
 refresh_loop "network-${NETWORK_PROFILE}" "$NETWORK_TTL" "$NETWORK_STAMP" "$NETWORK_LOOP_PID_FILE" "$CORE_DIR/providers/network/fetch_network.sh" "$NETWORK_PROFILE"
 refresh_loop "pfsense-${PFSENSE_PROFILE}" "$PFSENSE_TTL" "$PFSENSE_STAMP" "$PFSENSE_LOOP_PID_FILE" "$CORE_DIR/providers/pfsense/fetch_pfsense.sh" "$PFSENSE_PROFILE"
 refresh_loop "net-${NET_PROFILE}" "$NET_TTL" "$NET_STAMP" "$NET_LOOP_PID_FILE" "$CORE_DIR/providers/net/fetch_net.sh" "$NET_PROFILE"
-[[ -x "$SUITE_DIR/scripts/refresh_orb_cache.sh" ]] && \
-  refresh_loop "${SUITE_ID}-orb-cache" "$ORB_TTL" "$ORB_STAMP" "$ORB_LOOP_PID_FILE" bash "$SUITE_DIR/scripts/refresh_orb_cache.sh"
+refresh_loop "orb-${ORB_PROFILE}" "$ORB_TTL" "$ORB_STAMP" "$ORB_LOOP_PID_FILE" "$CORE_DIR/providers/orb/fetch_orb.sh" "$ORB_PROFILE"
 
 # Wait for all conky processes; exit when the primary one exits
 for _wait_pid in "${CONKY_PIDS[@]:-}"; do

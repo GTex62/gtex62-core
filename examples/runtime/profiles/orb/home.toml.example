@@ -1,0 +1,9 @@
+# Orb ephemeris provider profile — home location
+# Copy to: ~/.config/gtex62-core/profiles/orb/home.toml
+
+[cache]
+# How often to recompute planet/sun/moon positions (seconds)
+ttl_sec = 60
+
+# Which astro profile to use for lat/lon (defaults to "home")
+# astro_profile = "home"
