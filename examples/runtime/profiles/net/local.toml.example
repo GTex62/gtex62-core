@@ -5,4 +5,4 @@ enabled = true
 
 [cache]
 # How often to refresh pings, WAN IP, and VLAN latency (seconds)
-ttl_sec = 2
+ttl_sec = 1
