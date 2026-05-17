@@ -2,6 +2,7 @@
 set -euo pipefail
 
 # Manual/core helper for cached speedtest snapshots.
+# ~/.config/conky/gtex62-core/providers/connectivity/speedtest_snapshot.sh run
 
 CMD="${1:-read}"
 BASELINE_DOWN="${2:-500}"

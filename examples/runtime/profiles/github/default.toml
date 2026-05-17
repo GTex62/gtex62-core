@@ -1,0 +1,12 @@
+profile_id = "default"
+enabled = true
+
+[repos]
+# Path to the shared repo registry JSON.
+# Default: ~/.config/conky/github-traffic-repos.json
+# registry_path = "~/.config/conky/github-traffic-repos.json"
+
+[request]
+# How long to reuse the cached result before re-fetching (seconds).
+# GitHub traffic API data changes at most once per hour; 6h is a safe default.
+cache_ttl_sec = 21600
