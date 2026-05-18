@@ -231,8 +231,6 @@ This is optional convenience metadata for suites and debug tools.
 
 ## `processes.json`
 
-## Shape
-
 ```json
 {
   "generated_at": "2026-04-22T03:34:14Z",
@@ -260,8 +258,6 @@ OSA currently consumes this as the source for the CPU-side process table in `SYS
 ---
 
 ## `storage.json`
-
-## Shape
 
 ```json
 {
@@ -308,8 +304,6 @@ These are OSA-facing labels, not necessarily universal core labels for every fut
 ---
 
 ## `status.json`
-
-## Shape
 
 ```json
 {
