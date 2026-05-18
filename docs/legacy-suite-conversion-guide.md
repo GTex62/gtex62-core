@@ -27,7 +27,7 @@ exist. Legacy suites mixed data fetch, cache management, and rendering into the 
 Core-native suites draw a hard line:
 
 | Responsibility | Owner |
-|----------------|-------|
+| -------------- | ----- |
 | Data collection and normalization | Core (shared providers) |
 | Cache lifecycle and structure | Core |
 | Path resolution and env exports | Core |
@@ -88,7 +88,7 @@ Document the existing theme system:
 
 For each widget, draw the path from raw data to rendered pixel:
 
-```
+```text
 [external source] → [fetch script] → [cache file] → [Lua reader] → [Cairo draw]
 ```
 
@@ -119,7 +119,7 @@ A "chassis" is one transparent Conky process drawing one Cairo window.
 **Choose a chassis model based on how the legacy suite's widgets are used:**
 
 | Model | Use When | Notes |
-|-------|----------|-------|
+| ----- | -------- | ----- |
 | **Single chassis** | All widgets are on one screen in a unified layout | Most like OSA; cleanest architecture |
 | **Hybrid (2–3 chassis)** | Widgets span monitors or serve distinct functional groups | Group by function; each chassis is one .conky.conf |
 | **Standalone panel** | A widget is niche, optional, or reused across suites | Keep as its own process; still engine-driven for data |
@@ -146,7 +146,7 @@ Map every legacy data script to a core provider domain. The core owns fetching a
 normalization for these v1 domains:
 
 | Core Domain | Covers | Cache Root |
-|-------------|--------|------------|
+| ----------- | ------ | ---------- |
 | `system` | CPU/RAM/GPU/storage/processes/uptime | `shared/system/[profile]/` |
 | `time` | Clock, timezone, UTC | (read directly at draw time) |
 | `calendar` | Date, offset, seasonal | (read directly at draw time) |
@@ -172,7 +172,7 @@ normalization for these v1 domains:
 Document the explicit decision for every widget in the audit. Example format:
 
 | Widget | Decision | Reason |
-|--------|----------|--------|
+| ------ | -------- | ------ |
 | sys-info | Group (Monitoring chassis) | Core domain; always-on |
 | weather | Group (Ambient chassis) | Core domain; always-on |
 | pfsense | Standalone (VLAN flow only) | Visual metaphor varies per suite; see §1.4 |
@@ -190,7 +190,7 @@ to every suite that has a pfSense widget — **except `gtex62-osa`, which has no
 **The three-way split:**
 
 | Component | Owner | Reason |
-|-----------|-------|--------|
+| --------- | ----- | ------ |
 | **VLAN traffic flow visualization** — arcs, meters, rate bars showing WAN/HOME/IOT/GUEST/INFRA throughput | Suite (standalone panel) | Each suite uses a different visual metaphor: arcs in clean-suite and tech-hud, meters in tri-hud, arc-variant in lcars. Same data, different drawing code. Suite owns it. |
 | **pfSense raw data** — interface counters, rates, state | Core `pfsense` provider | Fetched once, cached in shared cache, consumed by any suite's VLAN flow panel |
 | **Infrastructure status** — pfBlockerNG counts, Pi-hole stats, cumulative data totals, AP client status, gateway health | Core `sitrep` utility | Identical presentation across all suites. No visual identity. Terminal-launched diagnostic tool. |
@@ -227,7 +227,7 @@ The `sitrep` command replaces per-suite equivalents like `apwbe` (clean-suite) a
 
 Every core-native suite follows this template. Names are prefixed with the suite ID.
 
-```
+```text
 gtex62-[suite-id]-e/
 ├── suite.toml                          # Suite manifest
 ├── README.md                           # User guide and panel map
@@ -259,6 +259,7 @@ gtex62-[suite-id]-e/
 ```
 
 **Not included by design:**
+
 - `assets/`, `fonts/` — use `gtex62-shared-assets`
 - `examples/` — in core
 - `providers/` — in core
@@ -279,7 +280,7 @@ needs updating if the conversion requires a new core capability that did not pre
 exist (e.g., a missing provider the core must now add to support the suite).
 
 | Event | What bumps |
-|-------|------------|
+| ----- | ---------- |
 | New suite conversion begins | Suite `version` starts at `0.1.0` |
 | Suite reaches stable / feature-complete | Suite `version` → `1.0.0` |
 | Core adds a new provider or changes a cache schema | Core version bumps |
@@ -521,7 +522,7 @@ Follow the OSA pattern:
 Domains with no core provider (media player, notes, AP status) still follow the same module
 pattern — they just read from suite-local cache paths or directly from the source:
 
-```
+```text
 ~/.cache/gtex62-core/suites/[suite-id]/[domain]/
 ```
 
@@ -791,7 +792,7 @@ reference for applying this guide.
 ### Audit Summary
 
 | Category | Count |
-|----------|-------|
+| -------- | ----- |
 | Conky instances | 9 active (1 optional) |
 | Lua modules | 8 |
 | Data fetch scripts | 30+ |
@@ -804,7 +805,7 @@ reference for applying this guide.
 **Hybrid model — 3 grouped chassis + 1 standalone panel.**
 
 | Process | Type | Panels | Rationale |
-|---------|------|--------|-----------|
+| ------- | ---- | ------ | --------- |
 | `clean-monitor` | Chassis | SYS + NET | Core domains; always-on; co-located visually |
 | `clean-ambient` | Chassis | WXR + ORB + TME | Core domains; ambient awareness group |
 | `clean-media` | Chassis | MSC + NOTES + LYRICS | Suite-local; personal/media group |
@@ -819,7 +820,7 @@ is retired entirely — its data is now covered by `sitrep`.
 ### Domain Mapping
 
 | Legacy Script(s) | Core Domain | Notes |
-|-----------------|-------------|-------|
+| --------------- | ----------- | ----- |
 | `owm_fetch.sh`, `owm_fc_*.sh` | `weather` | Core provider replaces all OWM scripts |
 | `sky_update.py` (PyEphem) | `astro` | Migrate theta → altitude/azimuth in orb.lua |
 | `metar.sh`, `taf.sh`, `airsig_*.sh` | `aviation` | Core provider replaces all AVN scripts |
@@ -842,7 +843,7 @@ is retired entirely — its data is now covered by `sitrep`.
 ### Theme Conversion Summary
 
 | Legacy File | Converted To |
-|-------------|-------------|
+| ----------- | ------------ |
 | `theme.lua` | `clean-palettes.lua` (colors) + `clean-theme.lua` (fonts/strokes) + `clean-layout.lua` (geometry) + `panels.lua` (panel/box definitions) |
 | `theme-pf.lua` | Merged into `panels.lua` (pfSense panel geometry) + `clean-palettes.lua` (pfSense arc colors as named roles) |
 
@@ -856,7 +857,7 @@ theme system as the rest of the suite.
 
 All paths relative to `$GTEX62_CACHE_DIR` (default `~/.cache/gtex62-core/`).
 
-```
+```text
 shared/
   weather/[profile]/
     current.json          current conditions
