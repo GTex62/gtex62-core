@@ -1,30 +1,29 @@
 # Core Docs
 
-This directory is the canonical home for shared core architecture, normalized
-schemas, and future suite conversion references.
+Reference documentation for the `gtex62-core` shared engine.
 
 `gtex62-core` is the shared Lua/Conky foundation for gtex62 desktop suites.
-See the rename roadmap for rationale, compatibility requirements, and the
-staged migration plan from the previous `gtex62-conky-engine` name.
+It owns data collection, cache management, path resolution, and launch
+orchestration. Suites own visual identity, layout, and rendering.
 
 ## Architecture
 
-- [Architecture](architecture.md)
-- [Next Generation Model](next-generation-model.md)
-- [Core-Driven Suite Notes](core-driven-suite-notes.md)
-- [gtex62 Core Rename Roadmap](gtex62-core-rename-roadmap.md)
-- [V1 Audit and OSA Contract](v1-audit-and-osa-contract.md)
+- [Architecture](architecture.md) — two-repo structure, provider pattern, cache layout, TTL table, design principles
+
+## Provider Reference
+
+- [Net Provider](net-provider.md) — state.vars and vlan.tsv formats, key reference, refresh model
+- [Orb Provider](orb-provider.md) — ephemeris.vars format, per-body key reference, location resolution
 
 ## Schemas
 
-- [System Schema](system-schema.md)
-- [Astro Schema](astro-schema.md)
+- [System Schema](system-schema.md) — normalized system domain: current.json, processes.json, storage.json
+- [Astro Schema](astro-schema.md) — normalized astro body schema: altitude, azimuth, rise/set, legacy theta
 
-## Tools
+## Suite Conversion
 
-- `../scripts/generate_palette_pdf.py`: generates `docs/palette-reference.pdf`
-  for engine-driven suites that declare `[theme].palette_catalog` and
-  `[theme].palette_format` in `suite.toml`.
+- [Legacy Suite Conversion Guide](legacy-suite-conversion-guide.md) — phased guide for converting standalone suites to core-native
 
-OSA-specific render/cache projection notes live in
-`../../gtex62-osa/docs/`.
+## Archive
+
+Superseded planning and design documents are in [archive/](archive/).
