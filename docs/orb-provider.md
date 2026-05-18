@@ -18,7 +18,7 @@ horizontal line, arc). The provider is shared; the rendering is suite-specific.
 
 ## Provider
 
-```
+```text
 providers/orb/fetch_orb.sh <profile>
 providers/orb/fetch_orb.py <profile>
 ```
@@ -32,7 +32,7 @@ atomically via a temp file.
 
 ## Cache Location
 
-```
+```text
 ~/.cache/gtex62-core/shared/orb/<profile>/ephemeris.vars
 ```
 
@@ -40,7 +40,7 @@ atomically via a temp file.
 
 ## Profile
 
-```
+```text
 ~/.config/gtex62-core/profiles/orb/<profile>.toml
 ```
 
@@ -104,7 +104,7 @@ JUPITER_NEXT_SET_TS=1776925412
 ### Top-Level Keys
 
 | Key | Description |
-|-----|-------------|
+| --- | ----------- |
 | `LAT` | Observer latitude |
 | `LON` | Observer longitude |
 | `TS` | Cache generation timestamp (Unix epoch) |
@@ -112,7 +112,7 @@ JUPITER_NEXT_SET_TS=1776925412
 ### Bodies
 
 | Body key | Body |
-|----------|------|
+| -------- | ---- |
 | `SUN` | Sun |
 | `MOON` | Moon |
 | `MERCURY` | Mercury |
@@ -126,7 +126,7 @@ JUPITER_NEXT_SET_TS=1776925412
 For each body `<BODY>`:
 
 | Key | Description |
-|-----|-------------|
+| --- | ----------- |
 | `<BODY>_AZ` | Azimuth in degrees |
 | `<BODY>_ALT` | Altitude in degrees (negative = below horizon) |
 | `<BODY>_THETA` | Projection angle for ring/arc placement (`azimuth − 90°`, wrapped 0–360) |
