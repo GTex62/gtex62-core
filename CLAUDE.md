@@ -42,6 +42,10 @@ bash ~/.config/conky/gtex62-core/bin/gtex62-core-bootstrap-runtime
 
 Missing profile TOML → 60s TTL fallback → meters appear frozen in suites.
 
+## Full Project Docs
+
+- `docs/architecture.md` — two-repo structure, provider pattern, cache layout, TTL table, design principles
+
 ## Key Paths
 
 | Area | Path |
