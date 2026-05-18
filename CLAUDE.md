@@ -49,7 +49,7 @@ Missing profile TOML → 60s TTL fallback → meters appear frozen in suites.
 ## Key Paths
 
 | Area | Path |
-|---|---|
+| ---- | ---- |
 | Providers | `providers/<domain>/` |
 | Launcher | `bin/gtex62-core-launch` |
 | Example profiles | `examples/runtime/profiles/<domain>/` |
