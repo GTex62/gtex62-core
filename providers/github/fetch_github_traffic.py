@@ -171,7 +171,8 @@ def main():
                 "uniques": int(entry.get("uniques") or 0),
             }
 
-        lifetime_count = sum(int(v.get("count") or 0) for v in history_days.values())
+        lifetime_count   = sum(int(v.get("count")   or 0) for v in history_days.values())
+        lifetime_uniques = sum(int(v.get("uniques") or 0) for v in history_days.values())
         repo_created_at = existing_repo.get("repo_created_at") or gh_created_at(repo)
         if complete_lifetime_override is not None:
             complete_lifetime = complete_lifetime_override
@@ -189,6 +190,7 @@ def main():
             "window_count": int(payload.get("count") or 0),
             "window_uniques": int(payload.get("uniques") or 0),
             "lifetime_count": lifetime_count,
+            "lifetime_uniques": lifetime_uniques,
             "complete_lifetime": complete_lifetime,
             "repo_created_at": repo_created_at,
             "note": note,
