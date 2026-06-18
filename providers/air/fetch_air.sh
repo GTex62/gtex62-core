@@ -176,7 +176,7 @@ print(f"{lon - dlon:.4f},{lat - dlat:.4f},{lon + dlon:.4f},{lat + dlat:.4f}")
 PY
   )"
   AIRNOW_DATA_URL="https://www.airnowapi.org/aq/data/?startDate=${AIRNOW_START}&endDate=${AIRNOW_END}&parameters=OZONE,PM25,PM10,CO,NO2,SO2&BBOX=${AIRNOW_BBOX}&dataType=C&format=application/json&verbose=0&monitorType=2&includerawconcentrations=1&API_KEY=${AIRNOW_API_KEY}"
-  AIRNOW_OBS_URL="https://www.airnowapi.org/aq/observation/latLong/current/?format=application/json&latitude=${LAT}&longitude=${LON}&distance=${AIRNOW_DISTANCE}&API_KEY=${AIRNOW_API_KEY}"
+  AIRNOW_OBS_URL="https://www.airnowapi.org/aq/observation/current/ziplatlong/?format=application/json&latitude=${LAT}&longitude=${LON}&distance=${AIRNOW_DISTANCE}&API_KEY=${AIRNOW_API_KEY}"
 
   if ! is_fresh "$RAW_AIRNOW_DATA"; then
     if fetch_url "$AIRNOW_DATA_URL" "$TMP_AIRNOW_DATA" && jq -e 'type == "array"' "$TMP_AIRNOW_DATA" >/dev/null 2>&1; then
@@ -239,6 +239,14 @@ jq -n \
         elif test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}$") then strptime("%Y-%m-%dT%H") | mktime
         else null end)
     end;
+  def obs_ts:
+    if .UTC then (.UTC | epoch_from_airnow)
+    elif .DateObserved then (.DateObserved | epoch_from_airnow)
+    elif .dateObserved then
+      ({"CDT":5,"EDT":4,"MDT":6,"PDT":7,"CST":6,"EST":5,"MST":7,"PST":8,"AKDT":8,"AKST":9,"HST":10} as $off |
+       (.dateObserved + "T" + ((.hourObserved // "00") | tostring | split(":") | .[0] | ("00" + .) | .[-2:]))
+       | strptime("%Y-%m-%dT%H") | mktime) + ({"CDT":5,"EDT":4,"MDT":6,"PDT":7,"CST":6,"EST":5,"MST":7,"PST":8,"AKDT":8,"AKST":9,"HST":10}[.localTimeZone] // 0) * 3600
+    else null end;
   def key_for:
     (tostring | ascii_upcase) as $p |
     if $p == "PM2.5" or $p == "PM2_5" or $p == "PM25" then "pm2_5"
@@ -287,7 +295,7 @@ jq -n \
   ) as $anw_values |
   (
     ($airnow_obs[0] // [])
-    | map(select(.AQI != null) | {aqi:(.AQI | tonumber), ts:((.UTC // .DateObserved) | epoch_from_airnow)})
+    | map(select((.AQI // .nowcastAQI) != null) | {aqi:((.AQI // .nowcastAQI) | tonumber), ts:obs_ts})
     | map(select(.ts != null))
     | sort_by(.ts)
     | last
