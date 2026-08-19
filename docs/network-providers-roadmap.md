@@ -1,0 +1,588 @@
+# Network Providers Roadmap
+
+Proposed engine providers unrelated to pfSense's SSH-gated domains: `vpn` (local
+`piactl`/`wg` polling, no SSH), `network-health` (WAN loss/latency sampling), and `modem`
+(HTTP scrape of the cable modem's admin UI via a pfSense NAT path). None are started.
+They're grouped here because they were drafted in the same investigation session, not
+because they share a transport, host, or gate with each other or with the `pfsense`
+provider — see [pfSense Provider Status](pfsense-provider-status.md) for that.
+
+Full prose history predating this split:
+[archive/sitrep-engine-migration-2026-08-18.md](archive/sitrep-engine-migration-2026-08-18.md).
+
+---
+
+## VPN Provider (Proposed)
+
+A new, simpler provider class — no SSH target, no gate. `piactl` and `wg` are local
+commands; `fetch_vpn.sh` polls them directly and writes via the same atomic-write pattern
+as `fetch_pfsense.sh`. Cadence can be tighter than the SSH-based providers since there's
+no remote round-trip cost — 10–15s is reasonable.
+
+### Output Schema — vpn.json
+
+```json
+{
+  "generated_at": "2026-06-16T21:34:00Z",
+  "connectionstate": "Connected",
+  "region": "us-texas",
+  "protocol": "wireguard",
+  "interface": "wgpia0",
+  "vpnip": "102.129.234.184",
+  "endpoint": "102.129.234.184:1337",
+  "latest_handshake_seconds": 55,
+  "keepalive_interval_seconds": 25,
+  "transfer": { "rx_bytes": 1593344, "tx_bytes": 454522 },
+  "killswitch": true
+}
+```
+
+All fields are collected regardless of whether SitRep surfaces all of them at any given
+moment — handshake age and killswitch state are the two fields most likely to drive
+display logic, but the rest (region, protocol, interface, IP) round out the picture for
+future use without requiring a schema change later.
+
+`vpnip` and `endpoint` are distinct and both worth keeping: `vpnip` is the tunnel-assigned
+local address inside the VPN, while `endpoint` is the remote PIA server's public address
+and port the tunnel connects to. They happen to share the same IP in the sample above —
+coincidental to this particular server, not a general rule.
+
+### Live Verification
+
+Confirmed directly via `sudo wg show wgpia0` on Titan:
+
+```
+interface: wgpia0
+  public key: 0+OxgStESDbxHpPLt0sxrIFOxQBq1oyH9DyddZA1jjA=
+  listening port: 47871
+  fwmark: 0x3213
+peer: uRENeJ8Hn6f8eWCuesrPOeT088eqZZqoFuj/LiaaX3U=
+  endpoint: 102.129.234.184:1337
+  allowed ips: 0.0.0.0/0
+  latest handshake: 55 seconds ago
+  transfer: 1.52 MiB received, 443.87 KiB sent
+  persistent keepalive: every 25 seconds
+```
+
+This confirms `fwmark: 0x3213` from a second, independent source — the same value cited
+in the killswitch detection section below, now doubly verified rather than inferred from
+one piece of evidence. It also confirms the raw byte counts behind the human-readable
+transfer line; `wg show wgpia0 dump` returns these as machine-parseable raw bytes directly,
+without needing to reverse the MiB/KiB formatting `wg show` applies for display.
+
+The `persistent keepalive: every 25 seconds` line matters beyond confirming the field
+exists — it changes how the handshake-age thresholds below should be set.
+
+### Data Sources — Resolved
+
+Each field's source is determined by what it actually is, not by branching the script on
+"PIA vs. generic WireGuard." Protocol-level facts come from `wg`; PIA-application concepts
+come from `piactl`:
+
+| Field | Source | Command |
+| --- | --- | --- |
+| `connectionstate`, `region` | PIA app | `piactl get connectionstate` / `piactl get region` |
+| `interface`, `vpnip` | WireGuard kernel module | `wg show wgpia0 dump` |
+| `latest_handshake_seconds`, `transfer` | WireGuard kernel module | `wg show wgpia0 dump` |
+| `killswitch` | PIA policy routing tables (see below) | `ip route show table piavpnFwdrt` |
+
+`piactl get killswitch` and `piactl get publicip` were tested directly and confirmed
+**not supported** — both return `Unknown type`. A third-party command reference claimed
+otherwise; it was wrong. This rules out the documented CLI path entirely for killswitch
+state — it has to come from inspecting PIA's routing, not piactl.
+
+Because the wg-sourced fields are generic WireGuard facts rather than PIA-specific ones,
+`fetch_vpn.sh` would extend cleanly to a second, unrelated WireGuard tunnel later without a
+schema change — the piactl-sourced fields would simply be absent/null for that tunnel. No
+fallback branch is needed; this resolves the original open question.
+
+**Open item:** `wg show` requires root (confirmed directly — without `sudo` it returns
+`Unable to access interface: Operation not permitted`). `fetch_vpn.sh` runs as the regular
+user alongside the other providers, so this needs either a narrowly-scoped passwordless
+sudoers rule for `wg show wgpia0 dump` specifically (read-only, interface-specific — much
+safer than broad sudo access), or confirmation that PIA's daemon socket exposes equivalent
+data without raw WireGuard access. To be resolved before the provider is built.
+
+### Killswitch Detection — Verified Mechanism
+
+PIA's Linux killswitch is implemented as policy routing, not firewall rules. Custom route
+tables are registered in `/etc/iproute2/rt_tables`:
+
+```
+256  piavpnrt
+257  piavpnOnlyrt
+258  piavpnWgrt
+259  piavpnFwdrt
+```
+
+Packets are steered into these tables by `fwmark` — confirmed via `wg show`'s
+`fwmark: 0x3213` line, the same mark PIA's `ip rule` entries presumably match on. The
+killswitch itself is a `blackhole default metric 32000` route inside `piavpnFwdrt` — lowest
+priority, so it's only consulted when no better route exists.
+
+This was verified empirically across controlled states on the live system:
+
+| `ip route show table piavpnFwdrt` | State |
+| --- | --- |
+| `dev wgpia0` + `blackhole` | Connected, Kill Switch enabled |
+| `dev wgpia0` only | Connected, Kill Switch disabled |
+| `blackhole` only | Tunnel failed unexpectedly — Kill Switch enforcing, traffic dropped |
+| Empty | Voluntary disconnect — PIA tears down routing entirely, not enforced by design |
+
+The last row matters for interpretation: a deliberate disconnect (GUI or `piactl
+disconnect`) clears this table regardless of the Kill Switch setting — by design, the
+client doesn't block your traffic just because you asked to disconnect. This means an
+empty table is **indistinguishable from "killswitch off"** by inspection alone.
+`fetch_vpn.sh` should only read `killswitch` from this table while
+`connectionstate == "Connected"`; outside that, hold the last-known value rather than
+re-deriving it from an empty table.
+
+The "failed unexpectedly" row was confirmed by forcing `sudo ip link set wgpia0 down`
+without touching the PIA app — the `blackhole` route held and became the sole entry while
+the `wgpia0` route vanished, confirming the killswitch enforces during a real failure, not
+just at the configuration level.
+
+**Not yet tested:** Kill Switch disabled + forced unexpected drop. This is the actual
+unprotected-leak scenario and would show what real exposure looks like in this table —
+worth testing before fully trusting the "unprotected" classification end to end.
+
+### Health Classification
+
+`latest_handshake_seconds` is the leading indicator of tunnel health — a stale handshake
+often precedes `connectionstate` catching up to a dropped tunnel. The engine, not SitRep,
+classifies this.
+
+With `persistent keepalive: every 25 seconds` confirmed live, a healthy tunnel should
+never miss more than one or two keepalive cycles:
+
+| Class | Condition |
+| --- | --- |
+| `HEALTHY` | `connectionstate == "Connected"` and handshake < 60s (≤ ~2 missed keepalives) |
+| `STALE` | `connectionstate == "Connected"` and handshake 60–180s |
+| `DEAD` | `connectionstate != "Connected"` or handshake > 180s or absent |
+
+If the keepalive interval varies by server or region, `fetch_vpn.sh` should read
+`keepalive_interval_seconds` from the live `wg show` output rather than hardcoding 25s,
+and derive the thresholds as a multiple of it (e.g. `HEALTHY` ≤ 2× interval, `STALE` ≤
+6–8× interval) so the classification stays correct if PIA changes the interval server-side.
+
+### Proposed Display
+
+A `PIA` status line, formatted consistently with the existing `SYSTEM PFSENSE` line:
+
+```
+PIA: HEALTHY
+VPN: CONNECTED | REGION: US-TEXAS | PROTO: WG
+LATENCY 25ms | HANDSHAKE 0:55 | KS ON
+```
+
+`PIA: HEALTHY` is the classified verdict (engine-derived from handshake freshness +
+killswitch state). `VPN: CONNECTED` is the raw `connectionstate` passthrough — same
+pattern as `ONLINE` (verdict) vs `gateway.online` (raw fact) elsewhere in the widget.
+Handshake age renders as `m:ss`, consistent with load/uptime formatting conventions
+already in use.
+
+### Transfer Data Placement
+
+Rather than a dedicated block, `transfer.rx_bytes`/`tx_bytes` fold into the existing
+VLAN totals table as a `VPN` column after `CAM`, preserving the table's visual rhythm:
+
+```
+WAN    HOME    IoT   GUEST  INFRA  CAM    VPN
+593G   24G    11G   105M   45G    1.6G   12.4G
+51G   244G   345G   1.5G   32G    88M    3.2G
+```
+
+This keeps the PIA status line focused on connection health while the ambient transfer
+volume sits alongside the rest of the network totals.
+
+---
+
+## WAN Health Monitoring (Proposed)
+
+### Motivating Incident
+
+Three to four consecutive nights (Aug 15–18, 2026) of intermittent overnight connectivity
+degradation — pings cycling through partial values (e.g. `60/48/21/000`) roughly every
+4–5 seconds, worsening to sustained multi-minute drops. Throughout, pfSense's WAN interface
+continued reporting link-up/`ONLINE`, because that status reflects interface link state,
+not actual throughput or loss. The existing `gateway.online` boolean in the pfSense
+provider schema cannot detect this class of problem — the connection can be degraded to
+the point of unusability while still reading "online."
+
+Root cause confirmed as a Comcast-side plant/node issue, independently corroborated by:
+
+- Comcast's own outage status page (100–200 subscribers impacted, resolution ETA 10:34am)
+- Hand-run `mtr` logging from Titan and Pi5, captured overnight across two source machines
+  and two different destination targets (8.8.8.8 and the pfSense WAN gateway), both
+  showing the same signature: near-zero loss at the local gateway hop, then sustained
+  20–95% loss beginning at the first Comcast-facing hop, tracking closely with a second
+  hop downstream, and clearing to ~0% within the same hour as Comcast's reported fix time.
+
+This is exactly the kind of event SitRep should have surfaced in real time instead of
+requiring manual `mtr` diagnosis after the fact.
+
+**Update (Aug 18, 2026):** CM1000 admin access from behind pfSense was solved (see
+`cable-modem-admin-access.md`, "Confirmed Working Solution: NAT via Same-Subnet Virtual
+IP"). Pulling the modem's own data independently corroborates the above from a third angle:
+
+- The Event Log for the same morning shows a dense cluster of `T3 time-out` /
+  `No Ranging Response received` / `UCD invalid or channel unusable` entries on the
+  upstream, packed into roughly 07:55–08:22 — the modem's own view of losing sync with the
+  CMTS repeatedly during the window the `mtr` logs show loss.
+- The Cable Connection page's Downstream OFDM table showed channel 2 (957 MHz) running
+  weak even hours after recovery: -2.0 dBmV power (vs. +4.2 dBmV on channel 1), 35.8 dB SNR
+  (vs. 39.8 dB), and 3,460 uncorrectable codewords vs. 21 on channel 1 — consistent with a
+  marginal RF path on the coax plant, not a modem or pfSense-side problem.
+
+This changes the "Remaining option" note further down (see "Modem-Level Corroboration
+Provider" below) — a scripted scrape is now feasible without a dedicated bridge device,
+since the NAT-to-VIP path gives any host behind pfSense a routable path to
+`192.168.100.1`.
+
+### Observed Failure Modes of the `ONLINE`/`OFFLINE` Boolean
+
+Directly observed during the incident, watching the existing `ONLINE`/`OFFLINE` display
+against live ping behavior — two distinct failure modes, not one polling-speed problem:
+
+1. **Boolean didn't drop to `OFFLINE` when pings were cycling to `000`.** Link state
+   (carrier/interface up) and packet delivery are different things — the WAN interface
+   never actually lost carrier during the degradation, so the boolean had nothing to flip
+   on. This isn't fixable by polling faster; polling more often just re-samples the same
+   wrong-but-stable `true` value, since the signal being measured is the wrong layer for
+   this class of problem.
+
+2. **Inverse case also observed: `OFFLINE` showing while pings were still getting positive
+   values through.** A brief real link-state drop (carrier/lease loss) can recover fast
+   enough that live traffic partially resumes before the cached `OFFLINE` verdict updates,
+   producing a display that contradicts what's actually happening on the wire in the
+   moment.
+
+**Conclusion — this isn't "add loss% as a supplementary metric."** The link-state boolean
+was measuring the wrong thing for this failure class the entire time. Loss%-based
+classification (`HEALTHY`/`DEGRADED`/`CRITICAL`) should be the primary verdict driving the
+`WAN` status line; `gateway.online` stays as a raw secondary fact (same relationship as
+`connectionstate` vs. `PIA: HEALTHY` in the VPN section), not the thing decided first.
+
+### Proposed Provider: `providers/network-health/fetch_wanhealth.sh`
+
+Short, frequent `mtr` (or `ping`) sampling against the WAN gateway IP — not a full
+overnight-style continuous log, just enough samples per cycle (e.g. 15–20 pings every
+60–120s) to produce a live loss%/latency reading for the cache.
+
+**Target selection — important, learned the hard way:** the probe target must not be a
+known DNS-over-HTTPS resolver IP (e.g. 8.8.8.8, 1.1.1.1, 9.9.9.9). pfBlockerNG's
+`pfB_DoH_IP_v4` auto-rule silently blocks ICMP to those addresses for the INFRA VLAN,
+which caused an entire night's logging attempt from Pi5 to produce empty output with no
+error. The **pfSense WAN gateway IP** is the correct target: it isolates whether
+degradation is happening at the very first hop into Comcast's network (which is what
+actually happened) without tripping that blocklist. Hardcode a comment in the script
+noting why this target was chosen, so it doesn't get swapped back to a public DNS IP
+later and silently break again.
+
+Proposed schema, `shared/network-health/wan.json`:
+
+```json
+{
+  "state": "ok",
+  "collector": "wanhealth",
+  "generated_at": "2026-08-18T02:35:07Z",
+  "target": "gateway",
+  "target_ip": "100.92.72.67",
+  "loss_pct": 25.0,
+  "avg_latency_ms": 20.4,
+  "samples": 20
+}
+```
+
+### Health Classification
+
+Same pattern as the PIA `HEALTHY`/`STALE`/`DEAD` verdict — a classified field layered on
+top of the raw `gateway.online` link-state boolean already in the pfSense provider, not a
+replacement for it:
+
+| Class | Condition |
+| --- | --- |
+| `HEALTHY` | `loss_pct` < 5% |
+| `DEGRADED` | `loss_pct` 5–20% |
+| `CRITICAL` | `loss_pct` > 20% |
+
+### Display Layout — Resolved (Aug 18, 2026)
+
+A `WAN` status line, formatted consistently with the existing `PIA` and `SYSTEM PFSENSE`
+lines — raw link state and classified verdict shown side by side, same convention as
+`VPN: CONNECTED` (raw) vs. `PIA: HEALTHY` (classified):
+
+```
+WAN: DEGRADED
+GATEWAY LOSS 25% | AVG 20ms | ONLINE (link-up)
+```
+
+**Placement:** in the blank gap between the WBE530 access points section and the
+`SYSTEM PFSENSE` line — this space already exists in the current layout and reads as
+reserved room for exactly this kind of addition. `WAN` sits above `PIA` (network health
+takes priority over VPN health), both above the existing `SYSTEM PFSENSE` divider.
+
+**Modem line is conditional, not always-on.** Mocked up and settled on: the modem
+corroboration line (`MODEM: T3x<n> (1H) | DS2 SNR <x>dB | US AVG <y>dBmV` — pulling from
+`shared/modem/status.json`, proposed above) only renders when `WAN` is `DEGRADED` or
+`CRITICAL`. When `WAN` is `HEALTHY` it's absent entirely, not shown blank — matches the
+"corroborating detail for an active incident, not a standing metric" framing decided
+earlier. It sits directly under the `WAN` line it corroborates, sharing the
+same visual accent so the two read as one unit:
+
+**Field meanings, and derivation still needed:** each of the three values is a compressed
+summary, not a raw passthrough of the schema below — `fetch_modem.sh` (or a display-layer
+step) needs to compute these, since the proposed `modem/status.json` schema only has raw
+per-channel arrays today:
+- `T3x<n> (1H)` — count of T3 ranging-timeout events in the trailing 1-hour window. This
+  is `recent_t3_timeouts` as already defined in the schema below (summed from
+  `docsDevEvCounts`, not a row count) — no new derivation needed here.
+- `DS2 SNR <x>dB` — the downstream OFDM channel with the **worst** SNR, labeled by its
+  channel number, not both channels shown. Requires a "pick the min-SNR entry from
+  `downstream_ofdm_channels`" step not yet in the schema — a full channel-by-channel dump
+  would be too dense for a single status line; the intent is "is anything bad," with the
+  full breakdown still available by opening `DocsisStatus.asp` directly.
+- `US AVG <y>dBmV` — mean upstream power across the locked SC-QAM channels (e.g. the four
+  values in `upstream_channels` averaged). Also not yet in the schema — needs an averaging
+  step over locked channels only, since `Not Locked` channels report `0 dBmV` and would
+  skew a naive average.
+
+```
+WAN: DEGRADED
+GATEWAY LOSS 25% | AVG 20ms | ONLINE (link-up)
+MODEM: T3x24 (1H) | DS2 SNR 35.8dB | US AVG 39.8dBmV
+
+PIA: HEALTHY
+VPN: CONNECTED | REGION: US-TEXAS | PROTO: WG
+LATENCY 25ms | HANDSHAKE 0:55 | KS ON
+```
+
+**VLAN totals table** gets a `VPN` column appended after `CAM` (see Transfer Data Placement
+above) — no new table, same DN/UP row structure as the existing WAN/HOME/IoT/GUEST/INFRA/CAM
+columns.
+
+### Execution Model — Resolved (Conky's Own Loop Is Sufficient)
+
+Nothing in the current architecture (this doc, `fetch_pfsense.sh`, `fetch_vpn.sh`) specifies
+what actually invokes the fetch scripts on a schedule. `pf-ssh-gate.sh` is portable as a
+standalone core utility, which means the fetch scripts *can* run independent of Conky, but
+nothing confirms they currently *do*.
+
+In practice this isn't a blocker: the OSA suite runs essentially anytime Titan is powered
+on — the only gap is the window between boot and OSA launching. Conky's own update loop
+calling into the engine on its normal cadence is therefore a reliable enough trigger for
+the WAN health provider to work for its intended purpose (catching multi-hour overnight
+degradation like the Aug 15–18 incident); a fresh-boot gap of a few minutes doesn't
+meaningfully change the outcome for that use case.
+
+A `systemd` timer or cron schedule independent of Conky remains a nice-to-have — it would
+close the boot-to-launch gap and provide monitoring coverage on the rare occasion OSA isn't
+running — but it is not required for the auto-trigger design below to function correctly
+under normal usage.
+
+### Auto-Triggered mtr Capture on Sustained CRITICAL
+
+Extends the classification above: rather than requiring manual intervention (as happened
+during the Aug 15–18 incident), the provider tracks how long `loss_pct` has remained in
+`CRITICAL` and, past a configurable duration threshold, automatically shells out to start a
+full diagnostic capture — the automated equivalent of `mtr_overnight_log.sh` — without
+anyone needing to notice pings cycling in the widget first.
+
+Proposed state additions to `wan.json` (or a sibling `wan_incident.json`):
+
+```json
+{
+  "critical_since": "2026-08-18T02:35:07Z",
+  "critical_duration_seconds": 780,
+  "capture_triggered": true,
+  "capture_log_path": "/home/gtex62/Documents/_Reports/auto_mtr_20260818_024755.log"
+}
+```
+
+**Trigger logic:**
+
+| Condition | Action |
+| --- | --- |
+| `loss_pct` enters `CRITICAL` | Start/continue `critical_since` timer |
+| `critical_duration_seconds` ≥ threshold (e.g. 300–600s) AND `capture_triggered == false` | Launch mtr capture script, set `capture_triggered = true`, record `capture_log_path` |
+| `loss_pct` returns to `HEALTHY` | Reset `critical_since` to null, reset `capture_triggered = false` (ready to fire again on a future episode) |
+
+**Guard against re-trigger spam:** the `capture_triggered` flag must persist across poll
+cycles while still `CRITICAL` — without it, every poll past the threshold would spawn a new
+capture process. One capture process per continuous critical episode, not one per poll.
+
+**Reuses existing tooling:** the auto-triggered capture is the same script logic as
+`mtr_overnight_log.sh` (timestamped snapshots appended to a logfile), just started
+programmatically by the provider instead of manually from a terminal, and scoped to run
+until `loss_pct` recovers rather than for a fixed overnight window. Output path should stay
+consistent with where manual captures already land (`/home/gtex62/Documents/_Reports/`) so
+both manual and automatic runs are easy to find together.
+
+**Threshold duration is a judgment call, not yet set** — long enough to avoid firing on a
+brief transient blip (a single bad `mtr` cycle isn't an outage), short enough to still catch
+the bulk of an episode rather than triggering near its end. The Aug 18 incident's own data
+is a useful reference point: loss stayed elevated continuously for roughly 6 hours, so even
+a conservative 10–15 minute sustained-critical threshold would have triggered well within
+the first hour of onset.
+
+### Modem-Level Corroboration Provider (Newly Feasible)
+
+Previously deferred — `cable-modem-admin-access.md` originally concluded that modem-level
+data (SNR, power, error counts) required a dedicated always-on bridge device wired directly
+to the modem, since the modem only answers a same-subnet source. That constraint is
+unchanged, but as of Aug 18, 2026 pfSense itself satisfies it: a WAN Virtual IP inside
+`192.168.100.0/24`, combined with Outbound NAT translating to that VIP, gives any host
+behind pfSense a routable path to `192.168.100.1`. A dedicated bridge device is no longer
+required — the engine can poll the modem directly, the same way it polls pfSense.
+
+**Proposed provider:** `providers/modem/fetch_modem.sh` — scrapes the CM1000 admin pages
+(`Cable Connection` for signal stats, `Event Log` for ranging/timeout events) on a schedule,
+via the pfSense NAT-to-VIP path. Cadence should be much lower than the WAN loss-based
+provider (signal stats and event log entries change slowly outside an active incident) —
+every few minutes is likely sufficient, versus the 60–120s loss-based sampling above.
+
+**Reconnaissance complete (Aug 18, 2026)** — confirmed via view-source and HAR capture
+against the live CM1000, so this is implementation-ready rather than speculative:
+
+- **Page is server-rendered HTML, not JS-injected.** A plain HTTP GET returns fully
+  populated `<table>` markup — no headless browser or JS execution needed. Older leftover
+  JS (`InitDsTableTagValue()` etc.) suggests a prior firmware architecture; current
+  firmware renders server-side despite that code still being present.
+- **URL map**, extracted from the Genie menu HTML (`GenieIndex.asp`):
+
+  | Page | Filename |
+  | --- | --- |
+  | Login | `GenieLogin.asp` (GET to view, `POST /goform/GenieLogin` to authenticate) |
+  | Dashboard | `DashBoard.asp` |
+  | Cable Connection (signal data) | `DocsisStatus.asp` |
+  | Event Log | `EventLog.asp` |
+  | Logout | `Logout.asp` |
+
+- **Table `id` attributes on `DocsisStatus.asp`** — stable targets for parsing, no
+  positional column-counting needed:
+
+  | Table | `id` |
+  | --- | --- |
+  | Startup Procedure | `startup_procedure_table` |
+  | Downstream Bonded Channels (SC-QAM) | `dsTable` |
+  | Upstream Bonded Channels (SC-QAM) | `usTable` |
+  | Downstream OFDM Channels | `d31dsTable` |
+  | Upstream OFDMA Channels | `d31usTable` |
+
+  Two standalone fields are also present: `#Current_systemtime` and `#SystemUpTime` —
+  useful for confirming a fetch returned fresh data rather than something cached.
+
+- **`EventLog.asp` uses a different pattern — worth handling separately from
+  `DocsisStatus.asp`.** Its `<table id="eventlog_table">` contains only a header row in the
+  raw HTML; the actual event data is embedded as an XML string inside an inline
+  `InitTagValue()` JS function (same "server-templated into JS, not real AJAX" pattern as
+  `DocsisStatus.asp`, but XML instead of pipe-delimited). Extract via regex
+  (`InitTagValue\(\)\s*{\s*var xmlFormat = '(.+?)';`) then parse as XML — actually simpler
+  than DOM-walking the table would have been. Root element `docsDevEventTable`, one `<tr>`
+  per row, fields `docsDevEvIndex`, `docsDevEvFirstTime`, `docsDevEvLastTime`,
+  `docsDevEvCounts`, `docsDevEvLevel`, `docsDevEvId`, `docsDevEvText` — these are the actual
+  DOCSIS Device Event MIB field names (RFC 4639), suggesting this is close to a verbatim
+  dump of what SNMP would have exposed if it were reachable.
+  - **Important for the `recent_t3_timeouts` field:** the modem already de-duplicates
+    repeated identical events into one row with a `docsDevEvCounts` repeat counter and a
+    `docsDevEvFirstTime`/`docsDevEvLastTime` span — e.g. the Aug 18 log's first row
+    represents 31 occurrences of the same T3-timeout message collapsed into one entry
+    spanning 08:22:07–09:04:06, not 31 separate rows. `fetch_modem.sh` must **sum
+    `docsDevEvCounts` across matching rows**, not count table rows, or it will
+    undercount actual timeout occurrences by roughly an order of magnitude.
+
+- **Auth flow, confirmed via HAR capture (not cookie-free as first suspected):**
+  1. `GET /GenieLogin.asp` → extract the current `webToken` value (a hidden form field;
+     confirmed to change per page load — must be fetched fresh each login, not hardcoded).
+  2. `POST /goform/GenieLogin` — form-encoded body: `loginUsername`, `loginPassword`,
+     `login=1`, `webToken`. Response is a `302` redirect to `/GenieIndex.asp`, with
+     **no cookie set on this response.**
+  3. Follow the redirect → `GET /GenieIndex.asp` — **this** response is where the session
+     cookie (`SessionID=<value>`) actually gets set, one step after the login POST itself.
+     A scraper checking for `Set-Cookie` immediately after the login POST would incorrectly
+     conclude auth failed — the cookie only appears after following the redirect.
+  4. Subsequent requests (`DocsisStatus.asp`, `EventLog.asp`, etc.) carry
+     `Cookie: SessionID=<value>` and return authenticated data.
+  - **Firmware quirk:** the modem's embedded server splits the cookie across two separate
+    `Set-Cookie` headers (`SessionID=<value>` on one line, `HttpOnly; Secure` flags with no
+    name/value on a second) instead of one conformant header. A `requests.Session()` in
+    Python should handle this transparently (its cookie jar picks up the valid line and
+    ignores the malformed one), but worth confirming empirically once code exists — embedded
+    device HTTP servers occasionally have further surprises nearby.
+  - **Credential handling:** the login POST body carries the admin password in plain text
+    (normal for form auth over HTTP, not a bug) — store it in an environment variable or a
+    permissions-locked secrets file for `fetch_modem.sh`, not hardcoded in the script or
+    committed anywhere in this repo.
+
+Proposed schema, `shared/modem/status.json`:
+
+```json
+{
+  "state": "ok",
+  "collector": "modem",
+  "generated_at": "2026-08-18T11:22:10Z",
+  "modem_ip": "192.168.100.1",
+  "upstream_channels": [
+    { "id": 17, "freq_hz": 16400000, "power_dbmv": 39.5, "locked": true },
+    { "id": 18, "freq_hz": 22800000, "power_dbmv": 40.3, "locked": true },
+    { "id": 19, "freq_hz": 29200000, "power_dbmv": 39.3, "locked": true },
+    { "id": 20, "freq_hz": 35600000, "power_dbmv": 40.0, "locked": true }
+  ],
+  "downstream_ofdm_channels": [
+    { "id": 193, "freq_hz": 690000000, "power_dbmv": 4.2, "snr_db": 39.8, "uncorrectables": 21 },
+    { "id": 194, "freq_hz": 957000000, "power_dbmv": -2.0, "snr_db": 35.8, "uncorrectables": 3460 }
+  ],
+  "recent_t3_timeouts": 24,
+  "event_log_window_minutes": 60
+}
+```
+
+**Health classification:** SNR/power/uncorrectable thresholds should mirror the reference
+ranges established from the Aug 18 read (upstream power ~35–49 dBmV nominal; downstream OFDM
+SNR floor ~35 dB, power roughly ±7 dBmV) rather than inventing new ones — exact thresholds
+still need tuning against a longer baseline before they're trustworthy enough to drive a
+`HEALTHY`/`DEGRADED`/`CRITICAL` verdict the way `wan.json`'s loss% does.
+
+**Relationship to WAN health:** this is corroborating detail, not a replacement for the
+loss%-based verdict above — `wan.json` (or its successor) stays the primary signal for
+"is the connection currently degraded," since it's what actually reflects usability. The
+modem provider answers the follow-up question once degradation is flagged: *is this the
+plant/CMTS, or something else*. Whether `recent_t3_timeouts` should factor into
+`WAN`'s own classification (not just sit alongside it as reference data) is open — it's
+tempting since T3 timeouts are a leading indicator, but conflating two providers'
+classification logic repeats the mistake fixed in `fetch_pfsense.sh`'s inline
+`gate_status()` duplication (see [pfSense Provider Status](pfsense-provider-status.md)).
+
+**Display:** resolved as a conditional line under `WAN`, shown only during
+`DEGRADED`/`CRITICAL` — see "Display Layout — Resolved" above.
+
+### Open Items
+
+- Sampling interval and packet count per cycle not yet tuned — needs to be frequent enough
+  to catch onset quickly without adding meaningful load or SSH/probe overhead.
+- Whether this lives as its own provider (`network-health`) or as an extension of the
+  existing `pfsense` provider's schema is undecided; keeping it separate follows the same
+  reasoning as keeping VPN health separate from pfSense health — different failure domains,
+  different polling cadence.
+- Historical retention (e.g. rolling last-N-hours buffer for a mini sparkline) not yet
+  designed — the overnight incident data above was only reconstructable because a
+  hand-run `mtr` log happened to be capturing at the time; the engine version should not
+  depend on that being manually started.
+- Sustained-critical trigger duration not yet set — see auto-trigger section above.
+- Auto-triggered capture's own lifetime/stop condition needs a cap (e.g. max runtime even
+  if `CRITICAL` never clears) so a truly prolonged outage doesn't grow an unbounded logfile.
+- Modem provider (`fetch_modem.sh`) reconnaissance is complete for both `DocsisStatus.asp`
+  and `EventLog.asp` (URL map, table/XML structure, auth flow — see above); the script
+  itself is still unbuilt.
+- Modem provider polling adds a second outbound NAT-translated path through pfSense
+  (distinct from the existing SSH-based pfSense provider) — worth confirming this doesn't
+  interact with the `pf-ssh-gate.sh` circuit breaker in an unexpected way, since it's a
+  different transport (HTTP via NAT vs. SSH) hitting a different device.
+- **Resolved (Aug 18, 2026):** PIA VPN policy routing was pulling traffic to
+  `192.168.100.1` into the WireGuard tunnel (or the killswitch blackhole) instead of
+  reaching pfSense's LAN gateway — found in practice on Titan. Fixed by adding
+  `192.168.100.0/24` as a "bypass VPN" IP/subnet rule under PIA's Split Tunnel settings
+  (Titan-specific config — see `cable-modem-admin-access.md` for the exact steps). If Pi5
+  (the proposed always-on host for `fetch_modem.sh`) runs PIA, it needs the same split-tunnel
+  rule added separately — Split Tunnel config is per-device, not account-wide.

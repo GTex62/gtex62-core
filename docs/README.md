@@ -24,6 +24,18 @@ orchestration. Suites own visual identity, layout, and rendering.
 
 - [Legacy Suite Conversion Guide](legacy-suite-conversion-guide.md) — phased guide for converting standalone suites to core-native
 
+## SitRep Migration
+
+Split from one monolithic doc (`sitrep-engine-migration.md`, retired) into four, so
+architecture, provider status, relocation mechanics, and unrelated roadmap items stop
+mixing together. Full prose history predating the split is in
+[archive/sitrep-engine-migration-2026-08-18.md](archive/sitrep-engine-migration-2026-08-18.md).
+
+- [SitRep Architecture](sitrep-architecture.md) — stable design: purpose, core principle, current/future data-flow diagrams, device inventory
+- [pfSense Provider Status](pfsense-provider-status.md) — current state of the core `pfsense` provider: domain schemas, gate-per-domain pattern, remaining work
+- [SitRep Relocation Plan](sitrep-relocation-plan.md) — moving `sitrep.lua` out of `gtex62-tech-hud` into the engine: Part 0 audit, blocker, resume checklist, guardrails
+- [Network Providers Roadmap](network-providers-roadmap.md) — unrelated proposed providers (VPN, WAN health, modem) drafted alongside the above, not started
+
 ## Archive
 
 Superseded planning and design documents are in [archive/](archive/).
