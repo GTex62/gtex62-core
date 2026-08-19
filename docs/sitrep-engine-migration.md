@@ -116,7 +116,7 @@ The following data domains from the legacy `pf-fetch-basic.sh` are **not yet por
 
 | Domain | Legacy Mode | Status |
 | --- | --- | --- |
-| System (uptime, load, version, BIOS, hw model) | `medium` | Not yet ported |
+| System (uptime, load, version, BIOS, hw model) | `medium` | ✓ Implemented — `fetch_router.sh`, writes `router.json` (Aug 18, 2026) |
 | pfBlockerNG (IP blocks, DNSBL hits, query total) | `slow` | ✓ Implemented — `fetch_pfblockerng.sh` (Aug 18, 2026) |
 | Pi-hole (active, totals, blocked, domains) | `slow` (pi5 SSH) | ✓ Implemented — `fetch_pihole.sh` (Aug 18, 2026) |
 | ARP table | — | New — not in any legacy script |
@@ -234,7 +234,7 @@ All paths relative to `~/.cache/gtex62-core/`.
 | Data | Cache File | Cadence | Status |
 | --- | --- | --- | --- |
 | Interfaces, CPU%, MEM%, gateway | `shared/pfsense/[profile]/status.json` | 60s | ✓ Implemented |
-| System (uptime, load, version, BIOS) | `shared/pfsense/[profile]/system.json` | 60s | Pending |
+| Router uptime, load, firmware, hw model, BIOS | `shared/pfsense/[profile]/router.json` | 60s | ✓ Implemented |
 | pfBlockerNG | `shared/pfsense/[profile]/pfblockerng.json` | 5m | ✓ Implemented |
 | Pi-hole | `shared/pfsense/[profile]/pihole.json` | 5m | ✓ Implemented |
 | ARP table | `shared/pfsense/[profile]/arp.json` | 2–5m | Pending |
@@ -329,20 +329,32 @@ or a `--state-dir` parameter.
 
 ---
 
-## Pending: system.json
+## System Domain — Implemented as router.json, not system.json (Aug 18, 2026)
 
-Commands to add to `fetch_pfsense.sh` for the system domain. These were in `pf-fetch-basic.sh`
-`medium` mode and should be batched into the existing SSH session:
+**Naming resolved:** this domain was originally proposed below as `system.json`, but
+shipped as **`router.json`** instead. `gtex62-core/providers/system/` already owns
+`current.json` for the *host* machine (CPU/mem/GPU/board/bios via `fetch_system.sh`).
+`system.json` under `shared/pfsense/{profile}/` would collide with that naming
+convention in casual conversation even though the two live in different cache
+directories (`shared/pfsense/{profile}/` vs `shared/system/{profile}/`) — `router.json`
+avoids the confusion entirely: it's pfSense's own router-side data, a different machine
+and domain. See the "pfSense Provider Session — Router Domain" section near the end of
+this doc for the implemented schema, verification, and a parsing bug found and fixed
+during porting. The original proposal below is kept for history; the commands it lists
+were ported into `fetch_router.sh` largely as-is.
+
+Commands added, batched into their own SSH session (own gate, see below — not batched
+into `fetch_pfsense.sh`'s existing session):
 
 ```bash
-uname -a
 uptime
 sysctl -n kern.boottime hw.model hw.ncpu hw.physmem
 cat /etc/version
 kenv smbios.bios.version smbios.bios.vendor smbios.bios.reldate 2>/dev/null
 ```
 
-Output writes to `shared/pfsense/{profile}/system.json`. Suggested schema:
+Original suggested schema (see the implemented session section below for the actual
+shipped schema — same shape, `router.json` filename, `collector: "router"`):
 
 ```json
 {
@@ -599,7 +611,7 @@ The cleaned engine-resident `widgets/sitrep/sitrep.lua` contains only:
 
 **Data layer** (replace with engine cache reads):
 - `parse_kv()` — remove once data source is JSON cache
-- `pf_data_full()` — replace with `jq` reads from `status.json`, `system.json`
+- `pf_data_full()` — replace with `jq` reads from `status.json`, `router.json`
 - `ap_cached_output()` — remove; engine provider writes cache directly
 - `parse_ap_status()` — remove; engine provides structured `ap_status.json`
 - `parse_ap_clients_named()` — remove; engine provides structured `ap_clients.json`
@@ -623,10 +635,10 @@ Every data read in `conky_draw_sitrep()` maps to an engine cache file:
 | Current Read | Pattern | Engine Cache | JSON Path |
 | --- | --- | --- | --- |
 | Gateway online | `pf-fetch-basic.sh medium` via execi | `status.json` | `.gateway.online` |
-| pfSense version | `pf-fetch-basic.sh full` cached | `system.json` | `.version` |
-| pfSense BIOS | same | `system.json` | `.bios_version` |
-| Load average | same | `system.json` | `.load.l5` |
-| CPU core count | same | `system.json` | `.ncpu` |
+| pfSense version | `pf-fetch-basic.sh full` cached | `router.json` | `.version` |
+| pfSense BIOS | same | `router.json` | `.bios_version` |
+| Load average | same | `router.json` | `.load.l5` |
+| CPU core count | same | `router.json` | `.ncpu` |
 | Interface ibytes | same | `status.json` | `.interfaces.WAN.ibytes` |
 | Interface obytes | same | `status.json` | `.interfaces.WAN.obytes` |
 | pfBlockerNG IP count | same | `pfblockerng.json` | `.pfb_ip_total` |
@@ -853,7 +865,9 @@ remain in `scripts/dev/` for manual testing.
 - [x] Interfaces (ibytes/obytes per VLAN) → `status.json`
 - [x] CPU%, MEM% → `status.json`
 - [x] Gateway online/IP → `status.json`
-- [ ] System info (uptime, load, version, BIOS) → `system.json`
+- [x] System info (uptime, load, version, BIOS) → `router.json`, not `system.json`
+      — see "System Domain — Implemented as router.json" above for the naming
+      rationale (`fetch_router.sh`, Aug 18, 2026)
 - [x] pfBlockerNG (IP blocks, DNSBL, query total) → `pfblockerng.json` (same `pf` SSH
       target as `fetch_pfsense.sh`, own gate state — `fetch_pfblockerng.sh`, Aug 18, 2026)
 - [x] Pi-hole (active, totals, blocked, domains) → `pihole.json` (separate `pi5` SSH,
@@ -1637,10 +1651,12 @@ SitRep is untouched and keeps running via `~/.local/bin/sitrep` as before.
 
 **To resume this migration in a future session:**
 
-1. Finish the core `pfsense` provider's remaining pending domains (system, ARP,
-   DHCP — see "Migration Checklist" → "pfSense Provider" above). Pi-hole
-   (`fetch_pihole.sh`) and pfBlockerNG (`fetch_pfblockerng.sh`) are done, both
-   Aug 18, 2026 — see below.
+1. Finish the core `pfsense` provider's remaining pending domains (ARP, DHCP — see
+   "Migration Checklist" → "pfSense Provider" above). Pi-hole (`fetch_pihole.sh`),
+   pfBlockerNG (`fetch_pfblockerng.sh`), and the router/system domain
+   (`fetch_router.sh`, writing `router.json` — not `system.json`, see "System
+   Domain — Implemented as router.json" above) are all done, Aug 18, 2026 — see
+   below for each.
 2. Build the AP provider (`providers/pfsense/fetch_ap.sh`) producing `ap_status.json`
    and `ap_clients.json` (see "Migration Checklist" → "AP Provider" above).
 3. Only then re-run Part 0 of a relocation session — the Part 0 findings above (section
@@ -1808,4 +1824,128 @@ same pattern `pihole.json`'s `blocked_pct` set precedent for) rather than a raw 
 - `providers/pfsense/fetch_pfblockerng.sh` — new
 - This doc — checklist/table updates above
 
-System domain remains pending; AP provider not started.
+System (router) domain remains pending; AP provider not started.
+
+---
+
+## pfSense Provider Session — Router (System) Domain (Aug 18, 2026)
+
+Last of the three remaining `pfsense` provider domains from item 1 of the resume
+checklist above (Pi-hole → pfBlockerNG → system, easy to hard). AP provider is a
+separate, later effort — not started this session.
+
+### Naming — router.json, not system.json
+
+Flagged up front and confirmed before writing any code: `gtex62-core/providers/system/`
+already owns `current.json` for the *host* machine (CPU/mem/GPU/board/bios via
+`fetch_system.sh`). This domain is pfSense's own router-side data (uptime, load,
+firmware version, hardware model, BIOS) — a completely different machine that happens
+to share a generic name in casual conversation. The output file is **`router.json`**,
+collector field `"router"`, to avoid that collision entirely — even though the two
+providers' caches already live in different directories (`shared/pfsense/{profile}/`
+vs `shared/system/{profile}/`). See "System Domain — Implemented as router.json" earlier
+in this doc for the original `system.json` proposal this replaces.
+
+### Gate architecture decision — Router Domain
+
+Same host as `fetch_pfsense.sh` (`pf`), same reasoning as `fetch_pfblockerng.sh`: gated
+independently via `GATE_STATE_DIR=$CACHE_ROOT/runtime/router`, not `runtime/pfsense`.
+An unrelated poll on this host must not trip or be tripped by the fast
+interfaces/CPU/MEM poll `fetch_pfsense.sh` already runs. `fetch_pfsense.sh` itself was
+not touched.
+
+### fetch_router.sh
+
+New script: `providers/pfsense/fetch_router.sh`. Reuses `fetch_pfsense.sh`'s TOML
+parsing helpers, `SSH_OPTS`, and atomic-write (`python3` + `os.replace()`) conventions.
+SSH target resolves from an optional `[router]` section override in
+`profiles/pfsense/{profile}.toml`, falling back to the same chain
+`fetch_pfblockerng.sh` uses (profile root `ssh_target` → `site.toml` root →
+`site.toml`'s `[pfsense] ssh_target`), since it targets the same router. Gated via
+`GATE_STATE_DIR=$CACHE_ROOT/runtime/router pf-ssh-gate.sh`. Cache TTL defaults to 60s
+per this doc's "Planned Cache Files" cadence (system data is lighter to sample than
+pfBlockerNG's `pfctl`/`sqlite3` reads, so a faster cadence than pfBlockerNG/Pi-hole's
+300s is appropriate). Query logic ported from `gtex62-tech-hud`'s legacy
+`pf-fetch-basic.sh` `medium` mode's `section=system` block (`uptime`, `sysctl -n
+kern.boottime hw.model hw.ncpu hw.physmem`, `cat /etc/version`, `kenv smbios.bios.*`),
+rewritten to the new provider's tab-delimited raw-output → Python-JSON-assembly
+convention instead of the legacy script's flat `key=value` stdout.
+
+**Deliberately not ported:** the legacy `section=system` block also samples `top -b -n
+1` for `cpu_user`/`cpu_idle`/etc. and derives `mem_used_pct` from it. This is dropped
+entirely — `fetch_pfsense.sh` already samples `top` for `cpu_pct`/`mem_pct` into
+`status.json` on its own (faster) cadence. Porting it into `router.json` too would
+create a second source of truth for the same numbers, which is exactly what "reuse,
+don't duplicate" rules out.
+
+### Bug found and fixed during porting: uptime_seconds
+
+The legacy script's boot-time extraction —
+`sed -E "s/.*sec[[:space:]]*=[[:space:]]*([0-9]+).*/\1/"` against `sysctl -n
+kern.boottime`'s `{ sec = 1781647616, usec = 834692 }` output — is buggy. The greedy
+`.*sec` matches the *later* `sec` substring inside `usec`, extracting the microseconds
+field instead of the boot epoch. Confirmed directly with a standalone `sed` test against
+live output, and by running the legacy `pf-fetch-basic.sh medium` script itself: it
+reports `uptime_seconds=1786277024` (≈56 years) while the router's actual uptime per its
+own `uptime` command is `63 days, 5:48`.
+
+Flagged per this session's guardrail (stop rather than guess on anything harder to port
+than Pi-hole/pfBlockerNG) and confirmed with the user before proceeding. Decision: fix
+it in `fetch_router.sh` — anchor the pattern to `s/^\{ sec = ([0-9]+),.*/\1/` — rather
+than port the bug for exact parity. The legacy script's own copy of this bug is left
+documented (this note) but unpatched: `gtex62-tech-hud` is read-only and headed for full
+replacement by this migration, not further maintenance. With the anchored pattern,
+`router.json`'s `uptime_seconds` (5464088s ≈ 63.24 days) matches the router's own
+`uptime` output.
+
+### router.json schema (implemented)
+
+```json
+{
+  "state": "ok",
+  "profile": "main_router",
+  "collector": "router",
+  "generated_at": "2026-08-19T03:55:04Z",
+  "ssh_target": "pf",
+  "ssh_gate": { "status": "OK", "tripped": false, "left_seconds": 0, "reason": "" },
+  "uptime_seconds": 5464088,
+  "load": { "l1": 0.24, "l5": 0.23, "l15": 0.15 },
+  "version": "2.8.1-RELEASE",
+  "hw_model": "Intel(R) Celeron(R) N5105 @ 2.00GHz",
+  "ncpu": 4,
+  "physmem_bytes": 8406269952,
+  "bios_version": "3mdeb Dasharo (coreboot+UEFI) v0.9.3 (09/06/2024)"
+}
+```
+
+Field names and shape match the original `system.json` proposal above and the "Data
+Read Migration Map" table's `.version`/`.bios_version`/`.load.l5`/`.ncpu` paths — only
+the filename and `collector` value changed (`router.json`/`"router"`, not
+`system.json`/`"system"`). `uptime_seconds`, `physmem_bytes`, and `ncpu` are `null` on
+parse failure (same sentinel convention as `fetch_pfsense.sh`'s `cpu_pct`/`mem_pct`);
+`version`, `hw_model`, and `bios_version` default to `""`; `load` defaults to
+`{"l1":0.0,"l5":0.0,"l15":0.0}` (same convention `pihole.json`'s `load` field set).
+
+### Verification — Router Domain
+
+- **Mechanical:** ran `fetch_router.sh main_router` directly with no prior cache; `jq .`
+  parses the output cleanly; all fields above populated with live values, `state: "ok"`.
+- **Cross-check:** ran `gtex62-tech-hud/scripts/pf-fetch-basic.sh medium` directly
+  (read-only reference, untouched) for its `section=system` block against the same live
+  pfSense host, back-to-back with the new script. `physmem_bytes` (8406269952), `ncpu`
+  (4), `hw_model`, `version`, and `bios_version` matched **exactly** on both sides.
+  `load_1`/`load_5`/`load_15` differed by ~0.01–0.02 — expected sampling noise between
+  two independent reads a few seconds apart, same class of drift as Pi-hole's load
+  average. `uptime_seconds` differed structurally (1786277024 vs 5464088) — not sampling
+  drift; this is the legacy bug described above, not a porting error in the new script
+  (the new script's value matches the router's own live `uptime` output; the legacy
+  script's does not).
+
+### Files touched — Router Domain
+
+- `providers/pfsense/fetch_router.sh` — new
+- This doc — checklist/table updates, this session-log section
+
+All three `pfsense` provider domains from the resume checklist (Pi-hole, pfBlockerNG,
+router/system) are now done. ARP, DHCP, and the AP provider remain pending — AP is a
+separate, later effort per this session's guardrails.
