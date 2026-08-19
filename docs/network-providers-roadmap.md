@@ -2,8 +2,9 @@
 
 Proposed engine providers unrelated to pfSense's SSH-gated domains: `vpn` (local
 `piactl`/`wg` polling, no SSH), `network-health` (WAN loss/latency sampling), and `modem`
-(HTTP scrape of the cable modem's admin UI via a pfSense NAT path). None are started.
-They're grouped here because they were drafted in the same investigation session, not
+(HTTP scrape of the cable modem's admin UI via a pfSense NAT path). `vpn` was built and
+verified Aug 19, 2026 (see its Session Log below); `network-health` and `modem` are not
+started. They're grouped here because they were drafted in the same investigation session, not
 because they share a transport, host, or gate with each other or with the `pfsense`
 provider — see [pfSense Provider Status](pfsense-provider-status.md) for that.
 
@@ -12,12 +13,42 @@ Full prose history predating this split:
 
 ---
 
-## VPN Provider (Proposed)
+## VPN Provider (Built — Aug 19, 2026)
 
 A new, simpler provider class — no SSH target, no gate. `piactl` and `wg` are local
 commands; `fetch_vpn.sh` polls them directly and writes via the same atomic-write pattern
 as `fetch_pfsense.sh`. Cadence can be tighter than the SSH-based providers since there's
 no remote round-trip cost — 10–15s is reasonable.
+
+### Session Log — Aug 19, 2026 (Build + Verification)
+
+- Built `providers/vpn/fetch_vpn.sh` — no SSH gate, reusing `fetch_pfsense.sh`/
+  `fetch_pihole.sh`'s TOML-parsing helpers, atomic-write pattern, and envelope
+  (`state`/`profile`/`collector`/`generated_at`/`note`), per the "Data Sources — Resolved"
+  and "Killswitch Detection" sections above.
+- Added `health` field to the schema (see correction on the schema block above).
+- Installed the sudoers rule (see "Resolved" note under "Data Sources — Resolved" above),
+  confirmed working live.
+- Bootstrapped the new profile TOML (`profiles/vpn/local.toml.example` →
+  `~/.config/gtex62-core/profiles/vpn/local.toml`) via
+  `gtex62-core-bootstrap-runtime` — no bootstrap gap left behind.
+- Mechanical verification: `jq .` valid, all fields populated in the Connected state;
+  wg-sourced fields correctly go `null` (with a `note`) when `wg dump` is denied, without
+  failing the whole fetch — tested via an unauthorized interface name, not by touching the
+  real sudoers rule.
+- Cross-check verification: manually diffed `fetch_vpn.sh`'s output against raw
+  `sudo wg show wgpia0 dump` and `ip route show table piavpnFwdrt` — structurally matched;
+  only sampling drift (handshake age, transfer counters) between runs, as expected.
+  TTL gating (`cache_ttl_sec`) confirmed to skip back-to-back calls and refresh once stale.
+- Killswitch-enabled + forced-drop re-confirmed live (already-documented row), plus a new
+  detail: PIA's reconnect fully tears down and recreates the `wgpia0` netdev rather than
+  just re-establishing the link — see "Killswitch Detection" above.
+- **Killswitch-disabled + forced-drop — previously untested — verified this session.**
+  See "Resolved" note under "Killswitch Detection — Verified Mechanism" above. Classification
+  logic in `fetch_vpn.sh` holds correctly.
+- Not done this session: wiring `vpn.json` into OSA's display/layout (`PIA` status line,
+  VLAN table `VPN` column) — out of scope per this session's guardrails
+  (`gtex62-osa`/`gtex62-tech-hud` stayed read-only throughout). Still a later task.
 
 ### Output Schema — vpn.json
 
@@ -33,9 +64,14 @@ no remote round-trip cost — 10–15s is reasonable.
   "latest_handshake_seconds": 55,
   "keepalive_interval_seconds": 25,
   "transfer": { "rx_bytes": 1593344, "tx_bytes": 454522 },
-  "killswitch": true
+  "killswitch": true,
+  "health": "HEALTHY"
 }
 ```
+
+(Envelope fields `state`, `profile`, `collector`, `generated_at`, `note` — same precedent
+as `status.json`/`pihole.json` — are omitted from this sample for brevity but are present
+in the real output; see the actual `vpn.json` samples in the build session log below.)
 
 All fields are collected regardless of whether SitRep surfaces all of them at any given
 moment — handshake age and killswitch state are the two fields most likely to drive
@@ -81,10 +117,17 @@ come from `piactl`:
 
 | Field | Source | Command |
 | --- | --- | --- |
-| `connectionstate`, `region` | PIA app | `piactl get connectionstate` / `piactl get region` |
-| `interface`, `vpnip` | WireGuard kernel module | `wg show wgpia0 dump` |
-| `latest_handshake_seconds`, `transfer` | WireGuard kernel module | `wg show wgpia0 dump` |
+| `connectionstate`, `region`, `protocol`, `vpnip` | PIA app | `piactl get connectionstate` / `region` / `protocol` / `vpnip` |
+| `interface`, `latest_handshake_seconds`, `transfer`, `endpoint` | WireGuard kernel module | `wg show wgpia0 dump` |
 | `killswitch` | PIA policy routing tables (see below) | `ip route show table piavpnFwdrt` |
+
+**Correction (build session, Aug 19, 2026):** `vpnip` was originally assumed to come from
+`wg show dump`, but that command doesn't actually carry the interface's local tunnel
+address — only peer/handshake/transfer data. `piactl get vpnip` returns it directly and is
+what `fetch_vpn.sh` actually uses (same source `fetch_net.sh` already relies on for its own
+VPN-aware WAN IP lookup). `protocol` also turned out to be directly available via
+`piactl get protocol` (confirmed live, returns `wireguard`) rather than needing to be
+hardcoded as originally planned.
 
 `piactl get killswitch` and `piactl get publicip` were tested directly and confirmed
 **not supported** — both return `Unknown type`. A third-party command reference claimed
@@ -96,12 +139,19 @@ Because the wg-sourced fields are generic WireGuard facts rather than PIA-specif
 schema change — the piactl-sourced fields would simply be absent/null for that tunnel. No
 fallback branch is needed; this resolves the original open question.
 
-**Open item:** `wg show` requires root (confirmed directly — without `sudo` it returns
-`Unable to access interface: Operation not permitted`). `fetch_vpn.sh` runs as the regular
-user alongside the other providers, so this needs either a narrowly-scoped passwordless
-sudoers rule for `wg show wgpia0 dump` specifically (read-only, interface-specific — much
-safer than broad sudo access), or confirmation that PIA's daemon socket exposes equivalent
-data without raw WireGuard access. To be resolved before the provider is built.
+**Resolved (build session, Aug 19, 2026):** `wg show` requires root (confirmed directly —
+without `sudo` it returns `Unable to access interface: Operation not permitted`). A
+narrowly-scoped passwordless sudoers rule was installed at
+`/etc/sudoers.d/gtex62-core-vpn`:
+
+```
+gtex62 ALL=(root) NOPASSWD: /usr/bin/wg show wgpia0 dump
+```
+
+Exact-string match — sudoers has no wildcards here, so only this literal command with
+these literal arguments is authorized; changing the interface name in the profile TOML
+away from `wgpia0` will make this sudo call start failing until the rule is updated to
+match. Confirmed working end-to-end against the live tunnel.
 
 ### Killswitch Detection — Verified Mechanism
 
@@ -126,8 +176,8 @@ This was verified empirically across controlled states on the live system:
 | --- | --- |
 | `dev wgpia0` + `blackhole` | Connected, Kill Switch enabled |
 | `dev wgpia0` only | Connected, Kill Switch disabled |
-| `blackhole` only | Tunnel failed unexpectedly — Kill Switch enforcing, traffic dropped |
-| Empty | Voluntary disconnect — PIA tears down routing entirely, not enforced by design |
+| `blackhole` only | Tunnel failed unexpectedly, Kill Switch **enabled** — enforcing, traffic dropped |
+| Empty | Voluntary disconnect, **or** tunnel failed unexpectedly with Kill Switch **disabled** — not enforced either way |
 
 The last row matters for interpretation: a deliberate disconnect (GUI or `piactl
 disconnect`) clears this table regardless of the Kill Switch setting — by design, the
@@ -135,16 +185,35 @@ client doesn't block your traffic just because you asked to disconnect. This mea
 empty table is **indistinguishable from "killswitch off"** by inspection alone.
 `fetch_vpn.sh` should only read `killswitch` from this table while
 `connectionstate == "Connected"`; outside that, hold the last-known value rather than
-re-deriving it from an empty table.
+re-deriving it from an empty table. `fetch_vpn.sh` additionally holds the last-known value
+whenever the table reads empty even while `connectionstate == "Connected"` — an empty read
+during that state is treated as a transient race, not a fact worth trusting on its own.
 
-The "failed unexpectedly" row was confirmed by forcing `sudo ip link set wgpia0 down`
-without touching the PIA app — the `blackhole` route held and became the sole entry while
-the `wgpia0` route vanished, confirming the killswitch enforces during a real failure, not
-just at the configuration level.
+The "failed unexpectedly, KS enabled" row was confirmed by forcing `sudo ip link set
+wgpia0 down` without touching the PIA app — the `blackhole` route held and became the sole
+entry while the `wgpia0` route vanished, confirming the killswitch enforces during a real
+failure, not just at the configuration level. Re-confirmed a second time in the build
+session below, with the added detail that PIA's reconnect fully tears down and recreates
+the `wgpia0` netdev (new ifindex, new keypair) rather than just bringing the link back up —
+`wg show` correctly errors `No such device` for the few seconds the interface doesn't exist
+at all, independent of killswitch state.
 
-**Not yet tested:** Kill Switch disabled + forced unexpected drop. This is the actual
-unprotected-leak scenario and would show what real exposure looks like in this table —
-worth testing before fully trusting the "unprotected" classification end to end.
+**Resolved (build session, Aug 19, 2026):** Kill Switch disabled + forced unexpected drop —
+previously untested. Verified via `sudo ip link set wgpia0 down` with Kill Switch confirmed
+off beforehand (table read as `dev wgpia0` only, no `blackhole`, immediately prior). Result:
+`piavpnFwdrt` went completely **empty** the instant the link dropped and stayed empty for
+the entire outage (including through the interface teardown/recreate window) — `blackhole`
+never appeared at any point. This confirms the killswitch genuinely does not enforce when
+disabled (no leak-blocking route ever gets installed), and also confirms the row above:
+"disabled + failed" is empirically indistinguishable from "voluntary disconnect" by table
+inspection alone, same as the doc predicted for the disconnect case specifically. Raw log
+of the full sampled sequence (1s cadence, `ip link show` / `ip route show` / `ip route show
+table piavpnFwdrt` / `wg show wgpia0 dump`) is not retained past the session — the pattern
+above is the durable finding. `fetch_vpn.sh`'s carry-forward logic handles this correctly:
+since the table reads empty throughout, it never attempts to derive `killswitch` from
+content and instead holds the last-known value the whole time, which was already `false` —
+the correct answer, arrived at safely rather than by reading (and getting lucky with) an
+empty table.
 
 ### Health Classification
 
@@ -165,6 +234,18 @@ If the keepalive interval varies by server or region, `fetch_vpn.sh` should read
 `keepalive_interval_seconds` from the live `wg show` output rather than hardcoding 25s,
 and derive the thresholds as a multiple of it (e.g. `HEALTHY` ≤ 2× interval, `STALE` ≤
 6–8× interval) so the classification stays correct if PIA changes the interval server-side.
+
+**Implementation note (build session, Aug 19, 2026):** `fetch_vpn.sh` implements the
+60s/180s thresholds above verbatim, hardcoded — not the scaling-by-interval idea in the
+paragraph above. That idea is a hedge ("if the interval varies") with no exact multiplier
+specified, so turning it into a formula would be inventing a number the doc never actually
+verified; only 60s/180s are backed by the live-confirmed 25s keepalive. `keepalive_interval_
+seconds` is still read live and included in `vpn.json` for future use, but classification
+does not scale by it yet. **Revisit if `keepalive_interval_seconds` is ever observed to
+differ from 25** — that would be the trigger to work out and verify an actual formula,
+not before. `health` (`HEALTHY`/`STALE`/`DEAD`) was added as a field on `vpn.json` itself,
+computed in `fetch_vpn.sh` per this table — see the schema block above, now updated to
+include it.
 
 ### Proposed Display
 

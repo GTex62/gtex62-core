@@ -1,0 +1,11 @@
+profile_id = "local"
+enabled = true
+# Cadence can be tighter than SSH-based providers — no remote round-trip.
+cache_ttl_sec = 10
+
+[interface]
+# WireGuard interface name for the PIA tunnel. Only this exact name is
+# authorized by the /etc/sudoers.d/gtex62-core-vpn rule for `wg show <name>
+# dump` — changing this without updating that rule will make wg-sourced
+# fields (handshake, transfer) go null.
+name = "wgpia0"
