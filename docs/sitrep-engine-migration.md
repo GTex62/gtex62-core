@@ -117,7 +117,7 @@ The following data domains from the legacy `pf-fetch-basic.sh` are **not yet por
 | Domain | Legacy Mode | Status |
 | --- | --- | --- |
 | System (uptime, load, version, BIOS, hw model) | `medium` | Not yet ported |
-| pfBlockerNG (IP blocks, DNSBL hits, query total) | `slow` | Not yet ported |
+| pfBlockerNG (IP blocks, DNSBL hits, query total) | `slow` | ✓ Implemented — `fetch_pfblockerng.sh` (Aug 18, 2026) |
 | Pi-hole (active, totals, blocked, domains) | `slow` (pi5 SSH) | ✓ Implemented — `fetch_pihole.sh` (Aug 18, 2026) |
 | ARP table | — | New — not in any legacy script |
 | DHCP leases | — | New — not in any legacy script |
@@ -235,7 +235,7 @@ All paths relative to `~/.cache/gtex62-core/`.
 | --- | --- | --- | --- |
 | Interfaces, CPU%, MEM%, gateway | `shared/pfsense/[profile]/status.json` | 60s | ✓ Implemented |
 | System (uptime, load, version, BIOS) | `shared/pfsense/[profile]/system.json` | 60s | Pending |
-| pfBlockerNG | `shared/pfsense/[profile]/pfblockerng.json` | 5m | Pending |
+| pfBlockerNG | `shared/pfsense/[profile]/pfblockerng.json` | 5m | ✓ Implemented |
 | Pi-hole | `shared/pfsense/[profile]/pihole.json` | 5m | ✓ Implemented |
 | ARP table | `shared/pfsense/[profile]/arp.json` | 2–5m | Pending |
 | DHCP leases | `shared/pfsense/[profile]/leases.json` | 2–5m | Pending |
@@ -854,7 +854,8 @@ remain in `scripts/dev/` for manual testing.
 - [x] CPU%, MEM% → `status.json`
 - [x] Gateway online/IP → `status.json`
 - [ ] System info (uptime, load, version, BIOS) → `system.json`
-- [ ] pfBlockerNG (IP blocks, DNSBL, query total) → `pfblockerng.json`
+- [x] pfBlockerNG (IP blocks, DNSBL, query total) → `pfblockerng.json` (same `pf` SSH
+      target as `fetch_pfsense.sh`, own gate state — `fetch_pfblockerng.sh`, Aug 18, 2026)
 - [x] Pi-hole (active, totals, blocked, domains) → `pihole.json` (separate `pi5` SSH,
       separate gate state — `fetch_pihole.sh`, Aug 18, 2026)
 - [ ] ARP table → `arp.json`
@@ -1636,9 +1637,10 @@ SitRep is untouched and keeps running via `~/.local/bin/sitrep` as before.
 
 **To resume this migration in a future session:**
 
-1. Finish the core `pfsense` provider's remaining pending domains (system, pfBlockerNG,
-   ARP, DHCP — see "Migration Checklist" → "pfSense Provider" above). Pi-hole is done
-   (`fetch_pihole.sh`, Aug 18, 2026 — see below).
+1. Finish the core `pfsense` provider's remaining pending domains (system, ARP,
+   DHCP — see "Migration Checklist" → "pfSense Provider" above). Pi-hole
+   (`fetch_pihole.sh`) and pfBlockerNG (`fetch_pfblockerng.sh`) are done, both
+   Aug 18, 2026 — see below.
 2. Build the AP provider (`providers/pfsense/fetch_ap.sh`) producing `ap_status.json`
    and `ap_clients.json` (see "Migration Checklist" → "AP Provider" above).
 3. Only then re-run Part 0 of a relocation session — the Part 0 findings above (section
@@ -1726,3 +1728,84 @@ provider-side percentage derivation.
 - This doc — checklist/table updates above
 
 pfBlockerNG and system domains remain pending; AP provider not started.
+
+---
+
+## pfSense Provider Session — pfBlockerNG Domain (Aug 18, 2026)
+
+Second of the three remaining `pfsense` provider domains from item 1 of the resume
+checklist above (Pi-hole → pfBlockerNG → system, easy to hard). pfBlockerNG only this
+session; system is a separate future session.
+
+### Gate architecture decision — pfBlockerNG Domain
+
+Unlike Pi-hole, pfBlockerNG runs on the **same** SSH target (`pf`) as
+`fetch_pfsense.sh` — but it is still gated independently via a new
+`GATE_STATE_DIR=$CACHE_ROOT/runtime/pfblockerng` state dir, not the existing
+`runtime/pfsense` one. Reasoning: the pfBlockerNG queries (`pfctl -vvsr` rule walk plus
+two `sqlite3` reads) are heavier and run on a slower cadence than the fast
+interfaces/CPU/MEM poll in `fetch_pfsense.sh`; sharing a gate would let a pfBlockerNG
+timeout trip the circuit breaker for the unrelated fast poll, or vice versa. Same
+independent-failure-domain reasoning as the Pi-hole gate, applied to a same-host case
+instead of a separate-host one. `fetch_pfsense.sh` itself was not touched.
+
+### fetch_pfblockerng.sh
+
+New script: `providers/pfsense/fetch_pfblockerng.sh`. Reuses `fetch_pfsense.sh`'s TOML
+parsing helpers, `SSH_OPTS`, and atomic-write (`python3` + `os.replace()`) conventions.
+SSH target resolves from an optional `[pfblockerng]` section override in
+`profiles/pfsense/{profile}.toml`, falling back to the same chain `fetch_pfsense.sh`
+uses (profile root `ssh_target` → `site.toml` root → `site.toml`'s `[pfsense]
+ssh_target`) since it targets the same router. Gated via
+`GATE_STATE_DIR=$CACHE_ROOT/runtime/pfblockerng pf-ssh-gate.sh`. Cache TTL defaults to
+300s per this doc's "Planned Cache Files" cadence. Query/parsing logic ported from
+`gtex62-tech-hud`'s legacy `pf-fetch-basic.sh` `slow` mode's `section=pfblockerng`
+block (`pfctl -vvsr` USER_RULE evaluation-packet sum for IP blocks, `sqlite3` sums
+against `/var/unbound/pfb_py_dnsbl.sqlite` and `/var/unbound/pfb_py_resolver.sqlite`
+for DNSBL hits and resolver query total), rewritten to the new provider's tab-delimited
+raw-output → Python-JSON-assembly convention instead of the legacy script's flat
+`key=value` stdout.
+
+### pfblockerng.json schema (proposed and implemented — no prior schema existed in this doc)
+
+```json
+{
+  "state": "ok",
+  "profile": "main_router",
+  "collector": "pfblockerng",
+  "generated_at": "2026-08-19T03:36:41Z",
+  "ssh_target": "pf",
+  "ssh_gate": { "status": "OK", "tripped": false, "left_seconds": 0, "reason": "" },
+  "pfb_ip_total": 2335487,
+  "pfb_dnsbl_total": 21120,
+  "pfb_dnsbl_pct": 0.13,
+  "resolver_total": 16083636
+}
+```
+
+Field names match the JSON paths this doc's own "Data Read Migration Map" table already
+specified (`.pfb_ip_total`, `.pfb_dnsbl_total`, `.pfb_dnsbl_pct`, `.resolver_total`), so
+no ambiguity to resolve. `pfb_ip_total` is the summed `Packets:` evaluation count across
+all `USER_RULE: pfB_*` rules excluding `pfB_DNSBL_*` (IP-block rules only, DNSBL handled
+separately). `pfb_dnsbl_total` is `SUM(counter)` from the DNSBL sqlite table.
+`resolver_total` is `totalqueries + queries` from the resolver sqlite table's `row=0`
+entry. `pfb_dnsbl_pct` is derived (`pfb_dnsbl_total / resolver_total * 100`, provider-side,
+same pattern `pihole.json`'s `blocked_pct` set precedent for) rather than a raw field.
+
+### Verification — pfBlockerNG Domain
+
+- **Mechanical:** ran `fetch_pfblockerng.sh main_router` directly with no prior cache;
+  `jq .` parses the output cleanly; all fields above populated with live values,
+  `state: "ok"`.
+- **Cross-check:** ran `gtex62-tech-hud/scripts/pf-fetch-basic.sh slow` directly
+  (read-only reference, untouched) for its `section=pfblockerng` block against the same
+  live pfSense host, back-to-back with the new script. `pfb_ip_total`, `pfb_dnsbl_total`,
+  `resolver_total`, and `pfb_dnsbl_pct` matched **exactly** (2335487 / 21120 / 16083636 /
+  0.13 on both sides) — no drift, no structural mismatch.
+
+### Files touched — pfBlockerNG Domain
+
+- `providers/pfsense/fetch_pfblockerng.sh` — new
+- This doc — checklist/table updates above
+
+System domain remains pending; AP provider not started.
