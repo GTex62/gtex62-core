@@ -6,9 +6,10 @@ findings, why Part 1 is currently blocked, the resume checklist, and the target 
 split/layout.
 
 Companion docs: [SitRep Architecture](sitrep-architecture.md) (the stable design this
-relocation implements), [pfSense Provider Status](pfsense-provider-status.md) (the data
-source this widget must become a pure consumer of — currently the actual blocker, see Part
-0 Audit below). Full prose history predating this split:
+relocation implements), [pfSense Provider Status](pfsense-provider-status.md) and
+[AP Provider Status](ap-provider-status.md) (the data sources this widget must become a
+pure consumer of — ARP/DHCP collection is the remaining blocker, see Part 0 Audit below).
+Full prose history predating this split:
 [archive/sitrep-engine-migration-2026-08-18.md](archive/sitrep-engine-migration-2026-08-18.md).
 
 ---
@@ -564,9 +565,11 @@ running via `~/.local/bin/sitrep` as before.
    pfBlockerNG, router/system)~~ — **done, Aug 18, 2026.** See
    [pfSense Provider Status](pfsense-provider-status.md) § Session History. ARP and DHCP
    collection remain pending there.
-2. Build the AP provider (`providers/pfsense/fetch_ap.sh`) producing `ap_status.json`
-   and `ap_clients.json` — see [pfSense Provider Status](pfsense-provider-status.md)
-   § AP Provider (next).
+2. ~~Build the AP provider producing `ap_status.json` and `ap_clients.json`~~ —
+   **done, Aug 19, 2026.** Shipped as `providers/ap/fetch_ap.sh` (own directory, not
+   `providers/pfsense/` as originally sketched here — new device class, new auth model).
+   See [AP Provider Status](ap-provider-status.md), now split out of
+   [pfSense Provider Status](pfsense-provider-status.md) as its own doc.
 3. Only then re-run Part 0 of a relocation session — the Part 0 findings above (section
    A) are still accurate and don't need re-auditing, just re-confirm nothing has drifted
    in `gtex62-tech-hud`'s files since Aug 18, 2026.
@@ -577,5 +580,6 @@ running via `~/.local/bin/sitrep` as before.
    — not after it, so the relocated widget is a true cache consumer from the day it
    lands in `gtex62-core/widgets/sitrep/`.
 
-ARP/DHCP and the AP provider are still pending, so this relocation remains blocked as of
-this doc split (Aug 18, 2026) — the split itself changes nothing about that status.
+**Update (Aug 19, 2026):** the AP provider is now done — see Resume Checklist item 2 above
+and [AP Provider Status](ap-provider-status.md). ARP/DHCP collection is still pending, so
+this relocation remains blocked on that alone; re-run Part 0 (item 3 above) once it lands.

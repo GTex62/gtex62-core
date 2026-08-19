@@ -9,7 +9,10 @@ Companion docs: [SitRep Architecture](sitrep-architecture.md) (design, stays sta
 [SitRep Relocation Plan](sitrep-relocation-plan.md) (moving the widget itself, currently
 blocked on this provider's remaining work), [Network Providers Roadmap](network-providers-roadmap.md)
 (unrelated future providers — VPN, WAN health, modem — that happen to have been drafted
-alongside this one). Full prose history predating this split:
+alongside this one), [AP Provider Status](ap-provider-status.md) (the Zyxel AP domain —
+split into its own doc since Aug 19, 2026: different device class, different auth model,
+own provider directory; only shares this doc's cache directory convention). Full prose
+history predating this split:
 [archive/sitrep-engine-migration-2026-08-18.md](archive/sitrep-engine-migration-2026-08-18.md).
 
 ---
@@ -51,8 +54,8 @@ Accepts a `GATE_STATE_DIR` override so other domains can point it at their own s
 | Pi-hole: active, totals, blocked, domains | `pf-fetch-basic.sh slow`, `section=pihole` (pi5 SSH) | `pihole.json` | 5m | ✓ Implemented (Aug 18, 2026) |
 | ARP table | — | `arp.json` | 2–5m | Pending — new, not in any legacy script |
 | DHCP leases | — | `leases.json` | 2–5m | Pending — new, not in any legacy script |
-| AP status (model, CPU%, client count) | `ap_status_all_clients.sh` | `ap_status.json` | 2m | Pending — separate provider, not started |
-| AP clients (named, per AP) | `ap_clients_named.sh` | `ap_clients.json` | 2m | Pending — separate provider, not started |
+| AP status (model, CPU%, client count) | `ap_status_all_clients.sh` | `ap_status.json` | 2m | ✓ Implemented (Aug 19, 2026) — see [AP Provider Status](ap-provider-status.md) |
+| AP clients (named, per AP) | `ap_clients_named.sh` | `ap_clients.json` | 2m | ✓ Implemented (Aug 19, 2026) — see [AP Provider Status](ap-provider-status.md) |
 
 ---
 
@@ -294,8 +297,8 @@ All paths relative to `~/.cache/gtex62-core/`.
 | Pi-hole | `shared/pfsense/[profile]/pihole.json` | 5m | ✓ Implemented |
 | ARP table | `shared/pfsense/[profile]/arp.json` | 2–5m | Pending |
 | DHCP leases | `shared/pfsense/[profile]/leases.json` | 2–5m | Pending |
-| AP status (model, CPU%, client count) | `shared/pfsense/[profile]/ap_status.json` | 2m | Pending |
-| AP clients (named, per AP) | `shared/pfsense/[profile]/ap_clients.json` | 2m | Pending |
+| AP status (model, CPU%, client count) | `shared/pfsense/[profile]/ap_status.json` | 2m | ✓ Implemented |
+| AP clients (named, per AP) | `shared/pfsense/[profile]/ap_clients.json` | 2m | ✓ Implemented |
 
 ---
 
@@ -348,54 +351,16 @@ them against `devices.toml` and writes the classified device list — see
 [SitRep Architecture](sitrep-architecture.md) § Device Inventory for the target schema and
 status classification.
 
-### AP Provider (next)
+### AP Provider ✓ IMPLEMENTED (Aug 19, 2026)
 
-Separate provider, separate device class (Zyxel WBE530, not pfSense) — see
-[SitRep Architecture](sitrep-architecture.md) § Scripts in Production for the legacy
-scripts it replaces.
-
-**Session optimization** — current `ap_status_all_clients.sh` opens 3 SSH sessions per AP
-(version, CPU, station info) = 9 connections for 3 APs. Target is 1 session per AP:
-
-```bash
-zyxel_cmd.sh "$ip" $'show version\nshow cpu status\nshow wireless-hal station info\nexit'
-```
-
-**Output Schema — ap_status.json**
-
-```json
-{
-  "generated_at": "2025-08-01T14:23:00Z",
-  "aps": [
-    { "label": "CLOSET",     "ip": "192.168.40.4", "model": "WBE530", "cpu_pct": 5, "clients": 7 },
-    { "label": "OFFICE",     "ip": "192.168.40.5", "model": "WBE530", "cpu_pct": 4, "clients": 6 },
-    { "label": "GREAT ROOM", "ip": "192.168.40.6", "model": "WBE530", "cpu_pct": 7, "clients": 15 }
-  ]
-}
-```
-
-**Output Schema — ap_clients.json**
-
-```json
-{
-  "generated_at": "2025-08-01T14:23:00Z",
-  "aps": [
-    {
-      "label": "CLOSET",
-      "ip":    "192.168.40.4",
-      "clients": [
-        { "mac": "aa:bb:cc:dd:ee:ff", "ip": "192.168.20.12", "name": "Ka Nght Stnd" },
-        { "mac": "11:22:33:44:55:66", "ip": "192.168.20.13", "name": "Ka Piano" }
-      ],
-      "unknown": []
-    }
-  ]
-}
-```
-
-Clients with no matching entry in `devices.toml` appear in the `unknown` array as raw IPs.
-The join happens in the provider, not in SitRep. Use the `runtime/ap` gate (see
-Gate-Per-Domain Pattern above).
+Moved to its own doc — [AP Provider Status](ap-provider-status.md) — since it's a genuinely
+separate provider (own `providers/ap/` directory, different device class, different auth
+model), not a pfSense-host domain like the sections above it. The schemas and session-batching
+sketch that used to live in this section are now out of date and have been superseded there;
+see that doc for the shipped `ap_status.json`/`ap_clients.json` schemas, the MAC↔IP join
+design, and full cross-check results against both legacy scripts. Uses the `runtime/ap` gate
+(see Gate-Per-Domain Pattern above), reusing `pf-ssh-gate.sh` directly rather than duplicating
+it.
 
 ---
 
@@ -407,7 +372,7 @@ Gate-Per-Domain Pattern above).
 - [x] pfSense gate deployed: `runtime/pfsense/ssh_state`
 - [x] Per-domain gate pattern proven out: `runtime/pihole`, `runtime/pfblockerng`,
       `runtime/router` all live (Aug 18, 2026)
-- [ ] AP gate deployed: `runtime/ap/ssh_state`
+- [x] AP gate deployed: `runtime/ap/ssh_state` (Aug 19, 2026)
 - [x] Resolve inline `gate_status()` duplication in `fetch_pfsense.sh` — replaced with
       call to `pf-ssh-gate.sh status` (Aug 18, 2026, see Implementation Status above)
 
@@ -426,11 +391,13 @@ Gate-Per-Domain Pattern above).
 
 ### AP Provider
 
-- [ ] Create `providers/pfsense/fetch_ap.sh`
-- [ ] Collapse 3-session poll to 1 session per AP
-- [ ] Join client IPs against `devices.toml`
-- [ ] Output `ap_status.json` and `ap_clients.json`
-- [ ] Use `runtime/ap/ssh_state` gate
+- [x] Create `providers/ap/fetch_ap.sh` — own directory, not `providers/pfsense/`
+      (see [AP Provider Status](ap-provider-status.md) for why)
+- [x] Collapse 3-session poll to 1 session per AP
+- [x] Join client MAC+IP against `ap_ipmap.csv` (core-owned copy; `devices.toml` migration
+      still pending below)
+- [x] Output `ap_status.json` and `ap_clients.json`
+- [x] Use `runtime/ap/ssh_state` gate
 
 ### Device Inventory
 
@@ -457,6 +424,15 @@ output) is in [archive/sitrep-engine-migration-2026-08-18.md](archive/sitrep-eng
   fixed a real bug in the legacy reference script's uptime parsing (greedy regex matched
   `usec` instead of `sec`). Cross-checked exact match on all fields except the now-fixed
   uptime.
+- **Aug 19, 2026 — AP provider.** `providers/ap/fetch_ap.sh` shipped in its own directory —
+  new territory (new device class, password auth via `sshpass`, no existing core provider to
+  extend). Full detail split to [AP Provider Status](ap-provider-status.md) rather than kept
+  here (own auth model, own directory — not a pfSense-host domain like the three above).
+  Collapsed the legacy 3-sessions-per-AP poll to 1. Cross-checked live against both legacy
+  scripts: model/CPU%/client-count and all known-client names matched exactly across all 3
+  APs, including a raw-vs-filtered client-count discrepancy that reproduced identically on
+  both old and new code (not a porting bug — preserved as-is).
 
 All three domains from the original resume checklist (Pi-hole, pfBlockerNG, router/system)
-are done. ARP, DHCP, and the AP provider remain — AP is next.
+are done, and the AP provider that was next after them is now done too. ARP and DHCP
+collection remain.
