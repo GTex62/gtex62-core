@@ -111,6 +111,7 @@ These functions and variables are defined but never called in the `conky_draw_si
 draw path. They are remnants of the original gauge/arc-based SitRep design:
 
 **Arc drawing infrastructure** — used only by system/network circle widgets, not SitRep:
+
 - `draw_arc_meter()`
 - `draw_text_arc()`
 - `polar()`
@@ -118,27 +119,33 @@ draw path. They are remnants of the original gauge/arc-based SitRep design:
 - `arc_span_cw()`
 
 **Graphical meter functions** — defined, never called in sitrep draw path:
+
 - `draw_meters()` — vertical bar meters for VRM/GPU/RAM/CPU
 - `draw_pfsense_meters()` — paired in/out bar meters per VLAN; references a
   `conky_pf_rates()` function from the old pfSense arc widget era
 
 **Network EMA smoothing** — belongs to `draw_network_impl`, not SitRep:
+
 - `net_ema` table
 - All EMA update logic inside `draw_network_impl`
 
 **Unused summary function:**
+
 - `pf_summary()` — defined, never called; superseded by `pf_data_full()`
 
 **WAN IP helpers** — used only by `draw_network_impl`:
+
 - `wan_ip_label_short()`
 - `refresh_wan_ip()`
 
 **OS version and age display** — used only by `draw_system_impl`:
+
 - `os_label_text()`
 - `get_root_birth_ts()`
 - `OS_AGE_CACHE` table
 
 **Seasonal tint system** — used only by system/network circle widgets:
+
 - `current_season_label()`
 - `read_seasonal_vars()`
 - `day_of_year_for_date()`
@@ -150,14 +157,14 @@ draw path. They are remnants of the original gauge/arc-based SitRep design:
 `draw_system_impl()`, `conky_draw_system()`, and `conky_draw_system_embed()` are a
 complete self-contained Cairo widget. Move to:
 
-```
+```text
 gtex62-tech-hud/lua/widgets/system.lua
 ```
 
 `draw_network_impl()`, `conky_draw_network()`, and `conky_draw_network_embed()` are a
 complete self-contained Cairo widget. Move to:
 
-```
+```text
 gtex62-tech-hud/lua/widgets/network.lua
 ```
 
@@ -170,14 +177,17 @@ design and belong in the suite, not the engine.
 The cleaned engine-resident `widgets/sitrep/sitrep.lua` contains only:
 
 **Utility functions** (keep as-is):
+
 - `trim()`, `to_num()`, `clamp()`, `cparse()`
 - `draw_text_right()`, `text_width()`, `draw_round_rect()`
 - `fmt_bytes_iec()`, `fmt_int_commas()`, `fmt_uptime()`
 
 **Theme loader** (keep, update path):
+
 - `get_sitrep_theme()` — update to resolve from `GTEX62_CORE_DIR`, not `CONKY_SUITE_DIR`
 
 **Data layer** (replace with engine cache reads):
+
 - `parse_kv()` — remove once data source is JSON cache
 - `pf_data_full()` — replace with `jq` reads from `status.json`, `router.json`
 - `ap_cached_output()` — remove; engine provider writes cache directly
@@ -186,6 +196,7 @@ The cleaned engine-resident `widgets/sitrep/sitrep.lua` contains only:
 - `ap_blocks()` — replace with `jq` reads from `ap_status.json`, `ap_clients.json`
 
 **Draw functions** (keep as-is — pure Cairo, no data coupling):
+
 - `draw_pfsense_totals()`
 - `draw_pfsense_status()`
 - `draw_centered_segments()`
@@ -193,6 +204,7 @@ The cleaned engine-resident `widgets/sitrep/sitrep.lua` contains only:
 - AP block renderer inside `conky_draw_sitrep()`
 
 **Main entrypoint** (keep, update data reads):
+
 - `conky_draw_sitrep()` — update all data reads from `parse_kv/cparse/execi` pattern
   to `jq(cache_path, filter)` pattern
 
@@ -245,7 +257,7 @@ file:
 
 ### Current Location and Problem
 
-```
+```text
 ~/.config/conky/gtex62-tech-hud/widgets/sitrep.conky.conf
 ```
 
@@ -265,7 +277,7 @@ violates the core principle: SitRep must work regardless of which suite is activ
 
 ### Target Location
 
-```
+```text
 ~/.config/conky/gtex62-core/widgets/sitrep/
 ├── sitrep.conky.conf       ← decoupled config
 ├── sitrep.lua              ← Cairo draw entrypoint (file-split/dead-code work covered above)

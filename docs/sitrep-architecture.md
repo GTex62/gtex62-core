@@ -41,7 +41,7 @@ OSA is active — or nothing is active — the command `sitrep` must work in any
 
 SitRep currently acts as all four layers simultaneously:
 
-```
+```text
 Collector + Database + Analysis Engine + Display
 ```
 
@@ -74,7 +74,7 @@ Read at runtime by `ap_clients_named.sh` into a bash associative array for the j
 
 ### Current Data Flow
 
-```
+```text
 ap_ipmap.csv  ─────────────────────────────────────┐
                                                     ▼
 WBE530 SSH ──► zyxel_cmd.sh ──► ap_status_all_clients.sh ──► display
@@ -88,7 +88,7 @@ pfSense SSH ──► pf-ssh-gate.sh (allow/trip/reset)
 
 ## Future Architecture
 
-```
+```text
 devices.toml          ──► static identity registry (MAC → name, type, location, VLAN)
 pfSense ARP table     ──► dynamic state (MAC → current IP, interface)
 pfSense DHCP leases   ──► corroborating data (MAC → hostname, lease TTL)
@@ -121,7 +121,7 @@ as the stable identity key — IP addresses are dynamic (DHCP), but MAC is perma
 
 ### Current CSV Format
 
-```
+```text
 # IP,Name
 192.168.10.3,Titan
 192.168.40.4,WBE530 (Closet)

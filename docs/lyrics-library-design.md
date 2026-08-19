@@ -34,7 +34,7 @@ one exception.
 
 ## Directory Structure
 
-```
+```text
 [configured local_dir]/                  persistent, user-editable, survives cache clears
   Artist - Title.txt                     sanitized filename (see sanitize_key in reference)
   Artist - Title.lrc                     LRC-timestamped variant, also supported

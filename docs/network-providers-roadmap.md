@@ -89,7 +89,7 @@ coincidental to this particular server, not a general rule.
 
 Confirmed directly via `sudo wg show wgpia0` on Titan:
 
-```
+```text
 interface: wgpia0
   public key: 0+OxgStESDbxHpPLt0sxrIFOxQBq1oyH9DyddZA1jjA=
   listening port: 47871
@@ -146,7 +146,7 @@ without `sudo` it returns `Unable to access interface: Operation not permitted`)
 narrowly-scoped passwordless sudoers rule was installed at
 `/etc/sudoers.d/gtex62-core-vpn`:
 
-```
+```text
 gtex62 ALL=(root) NOPASSWD: /usr/bin/wg show wgpia0 dump
 ```
 
@@ -160,7 +160,7 @@ match. Confirmed working end-to-end against the live tunnel.
 PIA's Linux killswitch is implemented as policy routing, not firewall rules. Custom route
 tables are registered in `/etc/iproute2/rt_tables`:
 
-```
+```text
 256  piavpnrt
 257  piavpnOnlyrt
 258  piavpnWgrt
@@ -217,7 +217,7 @@ content and instead holds the last-known value the whole time, which was already
 the correct answer, arrived at safely rather than by reading (and getting lucky with) an
 empty table.
 
-### Health Classification
+### Health Classification (VPN)
 
 `latest_handshake_seconds` is the leading indicator of tunnel health — a stale handshake
 often precedes `connectionstate` catching up to a dropped tunnel. The engine, not SitRep,
@@ -253,7 +253,7 @@ include it.
 
 A `PIA` status line, formatted consistently with the existing `SYSTEM PFSENSE` line:
 
-```
+```text
 PIA: HEALTHY
 VPN: CONNECTED | REGION: US-TEXAS | PROTO: WG
 LATENCY 25ms | HANDSHAKE 0:55 | KS ON
@@ -270,7 +270,7 @@ already in use.
 Rather than a dedicated block, `transfer.rx_bytes`/`tx_bytes` fold into the existing
 VLAN totals table as a `VPN` column after `CAM`, preserving the table's visual rhythm:
 
-```
+```text
 WAN    HOME    IoT   GUEST  INFRA  CAM    VPN
 593G   24G    11G   105M   45G    1.6G   12.4G
 51G   244G   345G   1.5G   32G    88M    3.2G
@@ -378,7 +378,7 @@ Proposed schema, `shared/network-health/wan.json`:
 }
 ```
 
-### Health Classification
+### Health Classification (WAN Loss)
 
 Same pattern as the PIA `HEALTHY`/`STALE`/`DEAD` verdict — a classified field layered on
 top of the raw `gateway.online` link-state boolean already in the pfSense provider, not a
@@ -396,7 +396,7 @@ A `WAN` status line, formatted consistently with the existing `PIA` and `SYSTEM 
 lines — raw link state and classified verdict shown side by side, same convention as
 `VPN: CONNECTED` (raw) vs. `PIA: HEALTHY` (classified):
 
-```
+```text
 WAN: DEGRADED
 GATEWAY LOSS 25% | AVG 20ms | ONLINE (link-up)
 ```
@@ -418,6 +418,7 @@ same visual accent so the two read as one unit:
 summary, not a raw passthrough of the schema below — `fetch_modem.sh` (or a display-layer
 step) needs to compute these, since the proposed `modem/status.json` schema only has raw
 per-channel arrays today:
+
 - `T3x<n> (1H)` — count of T3 ranging-timeout events in the trailing 1-hour window. This
   is `recent_t3_timeouts` as already defined in the schema below (summed from
   `docsDevEvCounts`, not a row count) — no new derivation needed here.
@@ -431,7 +432,7 @@ per-channel arrays today:
   step over locked channels only, since `Not Locked` channels report `0 dBmV` and would
   skew a naive average.
 
-```
+```text
 WAN: DEGRADED
 GATEWAY LOSS 25% | AVG 20ms | ONLINE (link-up)
 MODEM: T3x24 (1H) | DS2 SNR 35.8dB | US AVG 39.8dBmV

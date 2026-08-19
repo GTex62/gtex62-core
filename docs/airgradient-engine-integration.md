@@ -33,7 +33,7 @@ Unlike the SSH-based providers (pfSense, Zyxel APs), AirGradient exposes a local
 directly on the device — no SSH session, no gate/backoff state machine required. Confirmed
 live against the deployed unit:
 
-```
+```bash
 curl -s http://192.168.20.19/measures/current | jq .
 ```
 
@@ -72,7 +72,7 @@ values via the API).
 
 ## Future Architecture
 
-```
+```text
 AirGradient ONE local API (192.168.20.19:80/measures/current)
                     │
               engine poll (curl, no SSH)
