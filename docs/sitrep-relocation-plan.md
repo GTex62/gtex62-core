@@ -88,6 +88,52 @@ The `ONLINE` status slot in the top-right of the widget becomes cache-aware:
 | `ssh_gate.tripped == true` in cache | `SSH DOWN` |
 | `status.json` missing | `NO DATA` |
 
+### Provider Enable/Disable
+
+Since most users won't own all four network devices (pfSense, VPN, AP, cable modem) — and
+even within pfSense, Pi-hole and pfBlockerNG are optional packages some users won't have —
+each provider (and each pfSense sub-domain) can be independently enabled or disabled via a
+single central config file: `~/.config/gtex62-core/core.toml`.
+
+```toml
+[providers]
+vpn = false
+ap = false
+modem = false
+
+[providers.pfsense]
+status = false
+router = false
+pihole = false       # Note: Pi-hole runs on Pi5, not pfSense itself — nested here
+                      # to match fetch_pfsense.sh's existing four-output structure,
+                      # not because it's hosted on the pfSense box.
+pfblockerng = false
+```
+
+All flags default to `false`. A missing `core.toml` is equivalent to everything disabled —
+no provider (or sub-domain) polls anything the user hasn't explicitly enabled. Each
+provider's own `profiles/<domain>/local.toml` (credentials, IP, TTL) is unchanged by this —
+only read if enabled here.
+
+The scheduler/cron wrapper checks each flag before invoking or generating the corresponding
+output. SitRep's view model checks the same flags to determine display state, per provider
+and per pfSense sub-domain.
+
+#### Display States
+
+Extends the Staleness Indicator table above with two states that precede it, applied per
+top-level provider and per pfSense sub-domain independently:
+
+| State | Trigger | Display |
+| --- | --- | --- |
+| Disabled | `flag = false` | `DISABLED` (dimmed, fixed-label row — layout stays fixed-height, does not reflow) |
+| Unconfigured | `flag = true`, but profile missing or credentials still the placeholder value | `UNCONFIGURED` |
+| *(existing states above)* | `flag = true`, configured, fetch degraded | `STALE` / `NO DATA` / `SSH DOWN` |
+| Healthy | normal operation | `ONLINE` / `HEALTHY` etc. |
+
+`UNCONFIGURED` detection reuses each provider's existing degraded-path/placeholder-credential
+handling rather than new per-provider logic in SitRep itself.
+
 ---
 
 ## sitrep.lua — File Split and Dead Code Removal
