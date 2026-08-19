@@ -80,8 +80,96 @@ read_meminfo_field_kib() {
   awk -v key="$key" '$1 == key ":" {print $2; exit}' /proc/meminfo 2>/dev/null || true
 }
 
-read_cpu_usage_percent() {
-  top -bn1 2>/dev/null | awk -F'id,' '/Cpu\(s\)/ {gsub(/.*,/,"",$1); gsub(/[^0-9.]/,"",$1); if ($1 != "") printf "%.2f\n", 100 - $1; exit}'
+# Interval-based CPU sampling: overall CPU% (printed to stdout) plus the
+# top-N process tables written to processes.json. Percentages are jiffies
+# deltas against the previous provider run (state kept in tmp), normalized
+# to total capacity across all cores — the same convention as Conky's
+# ${top cpu}. A first run with no usable state takes a short two-point
+# sample instead of reporting since-boot averages.
+sample_cpu_and_processes() {
+  python3 - "$CPU_STATE_FILE" "$PROCESSES_JSON" <<'PY'
+import json, os, sys, time
+
+state_path, out_path = sys.argv[1], sys.argv[2]
+TOP_N = 10
+page = os.sysconf("SC_PAGE_SIZE")
+
+def read_totals():
+    with open("/proc/stat") as f:
+        vals = [int(x) for x in f.readline().split()[1:]]
+    idle = vals[3] + (vals[4] if len(vals) > 4 else 0)
+    return sum(vals), idle
+
+def read_procs():
+    procs = {}
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        try:
+            with open("/proc/%s/stat" % pid) as f:
+                raw = f.read()
+            comm = raw[raw.index("(") + 1:raw.rindex(")")]
+            fields = raw[raw.rindex(")") + 2:].split()
+            jiff = int(fields[11]) + int(fields[12])  # utime + stime
+            with open("/proc/%s/statm" % pid) as f:
+                rss = int(f.read().split()[1]) * page
+            procs[pid] = {"comm": comm, "jiff": jiff, "rss": rss}
+        except (OSError, ValueError, IndexError):
+            continue
+    return procs
+
+try:
+    with open(state_path) as f:
+        prev = json.load(f)
+except (OSError, ValueError):
+    prev = None
+
+total, idle = read_totals()
+procs = read_procs()
+
+if not prev or prev.get("total", 0) >= total:
+    time.sleep(0.3)
+    prev = {"total": total, "idle": idle,
+            "pids": {pid: p["jiff"] for pid, p in procs.items()}}
+    total, idle = read_totals()
+    procs = read_procs()
+
+d_total = total - prev.get("total", 0)
+d_idle = idle - prev.get("idle", 0)
+cpu_pct = 0.0
+if d_total > 0:
+    cpu_pct = max(0.0, min(100.0, 100.0 * (d_total - d_idle) / d_total))
+
+prev_pids = prev.get("pids", {})
+top_cpu = []
+for pid, p in procs.items():
+    d = p["jiff"] - prev_pids.get(pid, p["jiff"])  # unseen pid: 0 this interval
+    if d_total > 0 and d >= 0:
+        top_cpu.append({"name": p["comm"],
+                        "cpu_percent": round(100.0 * d / d_total, 2)})
+top_cpu.sort(key=lambda r: r["cpu_percent"], reverse=True)
+
+top_mem = sorted(
+    ({"name": p["comm"], "rss_bytes": p["rss"]} for p in procs.values()),
+    key=lambda r: r["rss_bytes"], reverse=True)
+
+payload = {
+    "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    "top_cpu": top_cpu[:TOP_N],
+    "top_mem": top_mem[:TOP_N],
+}
+with open(out_path + ".tmp", "w") as f:
+    json.dump(payload, f, indent=2)
+    f.write("\n")
+os.replace(out_path + ".tmp", out_path)
+
+with open(state_path + ".tmp", "w") as f:
+    json.dump({"total": total, "idle": idle,
+               "pids": {pid: p["jiff"] for pid, p in procs.items()}}, f)
+os.replace(state_path + ".tmp", state_path)
+
+print("%.2f" % cpu_pct)
+PY
 }
 
 read_ram_usage_percent() {
@@ -134,16 +222,23 @@ read_cpu_temp_celsius() {
   fi
 }
 
-read_gpu_name() {
+# One nvidia-smi call for the full GPU snapshot:
+# name, driver, util%, vram used/total (MiB), temp (C), power draw (W)
+read_gpu_info() {
   if command -v nvidia-smi >/dev/null 2>&1; then
-    nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -n1 || true
+    nvidia-smi --query-gpu=name,driver_version,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw \
+      --format=csv,noheader,nounits 2>/dev/null | head -n1 || true
   fi
 }
 
-read_gpu_driver() {
-  if command -v nvidia-smi >/dev/null 2>&1; then
-    nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -n1 || true
-  fi
+# Echo $1 if it is a plain number, else $2 (nvidia-smi may emit "[N/A]").
+num_or() {
+  local v
+  v="$(printf '%s' "$1" | tr -d '[:space:]')"
+  case "$v" in
+    ''|*[!0-9.]*) printf '%s\n' "$2" ;;
+    *)            printf '%s\n' "$v" ;;
+  esac
 }
 
 storage_row_json() {
@@ -217,17 +312,52 @@ if [[ -n "${UPTIME_SECONDS:-}" ]]; then
   UPTIME_DISPLAY="$(human_uptime "$UPTIME_SECONDS")"
 fi
 
-GPU_NAME="$(read_gpu_name | normalize_spaces || true)"
-GPU_DRIVER="$(read_gpu_driver | normalize_spaces || true)"
+HOSTNAME_VALUE="$(uname -n 2>/dev/null | normalize_spaces || true)"
+USER_VALUE="$(id -un 2>/dev/null | normalize_spaces || true)"
+KERNEL_RELEASE_FULL="$(uname -r 2>/dev/null || true)"
+
+GPU_LINE="$(read_gpu_info || true)"
+GPU_NAME=""
+GPU_DRIVER=""
+GPU_UTIL=0
+GPU_MEM_USED=0
+GPU_MEM_TOTAL=0
+GPU_TEMP=0
+GPU_POWER=0
+if [[ -n "$GPU_LINE" ]]; then
+  IFS=',' read -r GF_NAME GF_DRIVER GF_UTIL GF_MEM_USED GF_MEM_TOTAL GF_TEMP GF_POWER <<< "$GPU_LINE"
+  GPU_NAME="$(printf '%s' "${GF_NAME:-}" | normalize_spaces)"
+  GPU_DRIVER="$(printf '%s' "${GF_DRIVER:-}" | normalize_spaces)"
+  GPU_UTIL="$(num_or "${GF_UTIL:-}" 0)"
+  GPU_MEM_USED="$(num_or "${GF_MEM_USED:-}" 0)"
+  GPU_MEM_TOTAL="$(num_or "${GF_MEM_TOTAL:-}" 0)"
+  GPU_TEMP="$(num_or "${GF_TEMP:-}" 0)"
+  GPU_POWER="$(num_or "${GF_POWER:-}" 0)"
+fi
+
+MEM_TOTAL_KIB="$(read_meminfo_field_kib MemTotal || true)"
+MEM_AVAIL_KIB="$(read_meminfo_field_kib MemAvailable || true)"
+MEM_TOTAL_BYTES=0
+MEM_USED_BYTES=0
+MEM_PCT=0
+if [[ -n "${MEM_TOTAL_KIB:-}" && "${MEM_TOTAL_KIB:-0}" -gt 0 ]]; then
+  MEM_TOTAL_BYTES=$(( MEM_TOTAL_KIB * 1024 ))
+  MEM_USED_BYTES=$(( (MEM_TOTAL_KIB - ${MEM_AVAIL_KIB:-0}) * 1024 ))
+  MEM_PCT="$(read_ram_usage_percent || true)"
+  MEM_PCT="${MEM_PCT:-0}"
+fi
+
+CPU_TEMP="$(read_cpu_temp_celsius || true)"
+CPU_TEMP="$(num_or "${CPU_TEMP:-}" 0)"
 
 BOARD_NAME="$(cat /sys/class/dmi/id/board_name 2>/dev/null | normalize_spaces || true)"
 BIOS_VERSION="$(cat /sys/class/dmi/id/bios_version 2>/dev/null | normalize_spaces || true)"
 
 write_storage_json
 
-jq -n \
-  --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  '{generated_at:$generated_at, top_cpu:[]}' > "$PROCESSES_JSON"
+CPU_STATE_FILE="$TMP_DIR/system_${PROFILE_ID}_cpu.state"
+CPU_USAGE="$(sample_cpu_and_processes || true)"
+CPU_USAGE="$(num_or "${CPU_USAGE:-}" 0)"
 
 TMP_CURRENT="$TMP_DIR/system_${PROFILE_ID}_current.tmp"
 jq -n \
@@ -243,26 +373,56 @@ jq -n \
   --arg bios_version "$BIOS_VERSION" \
   --arg gpu_name "$GPU_NAME" \
   --arg gpu_driver "$GPU_DRIVER" \
+  --arg hostname "$HOSTNAME_VALUE" \
+  --arg user_name "$USER_VALUE" \
+  --arg kernel_release_full "$KERNEL_RELEASE_FULL" \
   --argjson uptime_seconds "${UPTIME_SECONDS:-0}" \
+  --argjson cpu_usage "$CPU_USAGE" \
+  --argjson cpu_temp "$CPU_TEMP" \
+  --argjson mem_used "$MEM_USED_BYTES" \
+  --argjson mem_total "$MEM_TOTAL_BYTES" \
+  --argjson mem_pct "$MEM_PCT" \
+  --argjson gpu_util "$GPU_UTIL" \
+  --argjson gpu_temp "$GPU_TEMP" \
+  --argjson gpu_power "$GPU_POWER" \
+  --argjson gpu_mem_used "$GPU_MEM_USED" \
+  --argjson gpu_mem_total "$GPU_MEM_TOTAL" \
   '{
     generated_at:$generated_at,
     profile:$profile,
+    hostname:$hostname,
+    user:$user_name,
     os:{
       name:$os_name,
       codename:$os_codename,
       version_id:$os_version_id
     },
     kernel:{
-      release:$kernel_release
+      release:$kernel_release,
+      release_full:$kernel_release_full
     },
     uptime_seconds:$uptime_seconds,
     uptime_display:$uptime_display,
     cpu:{
-      model:$cpu_model
+      model:$cpu_model,
+      usage_percent:$cpu_usage,
+      temperature_c:$cpu_temp
+    },
+    memory:{
+      used_bytes:$mem_used,
+      total_bytes:$mem_total,
+      usage_percent:$mem_pct
     },
     gpu:{
       model:$gpu_name,
-      driver_version:$gpu_driver
+      driver_version:$gpu_driver,
+      usage_percent:$gpu_util,
+      temperature_c:$gpu_temp,
+      power_w:$gpu_power,
+      memory:{
+        used_mb:$gpu_mem_used,
+        total_mb:$gpu_mem_total
+      }
     },
     motherboard:{
       name:$board_name

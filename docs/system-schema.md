@@ -215,6 +215,21 @@ Required:
 
 - `version`
 
+## Additive fields (2026-07-19, for clean-suite-e `SYS`)
+
+Emitted alongside the required fields; consumers that don't need them ignore them:
+
+- `hostname` — `uname -n`
+- `user` — collector user (`id -un`)
+- `kernel.release_full` — raw `uname -r`. `kernel.release` keeps the
+  `-generic` → `-G` abbreviation OSA renders; suites that want the full
+  string read `release_full`.
+
+As of the same date the collector actually populates `cpu.usage_percent`,
+`cpu.temperature_c`, `memory`, and the live `gpu` fields (util/temp/power/vram)
+that this schema always required — previously it emitted identity fields only
+and left live telemetry to the OSA fast lane.
+
 ## `refs`
 
 ```json
@@ -239,6 +254,12 @@ This is optional convenience metadata for suites and debug tools.
       "name": "code",
       "cpu_percent": 92.9
     }
+  ],
+  "top_mem": [
+    {
+      "name": "thunderbird-bin",
+      "rss_bytes": 914415616
+    }
   ]
 }
 ```
@@ -253,7 +274,14 @@ Each `top_cpu` row should include:
 - `name`
 - `cpu_percent`
 
-OSA currently consumes this as the source for the CPU-side process table in `SYS`.
+`cpu_percent` is an interval average since the previous collector run,
+normalized to total capacity across all cores (Conky `${top cpu}` convention).
+
+Optional (added 2026-07-19 for clean-suite-e `SYS`):
+
+- `top_mem` — rows of `name` + `rss_bytes`, sorted by resident size descending
+
+OSA currently consumes `top_cpu` as the source for the CPU-side process table in `SYS`.
 
 ---
 
