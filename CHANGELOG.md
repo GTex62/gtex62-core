@@ -14,6 +14,43 @@ not yet backfilled here.
 
 ---
 
+## Unreleased
+
+- **Provider enable/disable schema** — `[providers]` / `[providers.pfsense]`
+  added to `core.toml` (and `examples/runtime/core.toml.example`): top-level
+  `vpn`/`ap`/`modem` flags, nested `status`/`router`/`pihole`/`pfblockerng`
+  flags for the pfSense sub-domains. All default `false`; a missing
+  `core.toml` behaves identically to all-false. Portability feature — most
+  users of this widget won't own all four device classes, and even within
+  pfSense, Pi-hole/pfBlockerNG are optional packages some won't have.
+  Only `providers.pfsense.status` is actually wired up yet: `bin/gtex62-core-
+  launch` now reads it and skips both the `initial_refresh` and
+  `refresh_loop` calls for `fetch_pfsense.sh` entirely when `false` — not
+  fetched-and-discarded, not invoked at all. `fetch_pfsense.sh` itself is
+  unchanged; the gate lives solely at the launcher's call site. The other
+  six flags (`vpn`/`ap`/`modem`/`router`/`pihole`/`pfblockerng`) are schema-
+  only for now — `fetch_router.sh`, `fetch_pfblockerng.sh`, `fetch_pihole.sh`,
+  `fetch_vpn.sh`, `fetch_modem.sh`, and `fetch_ap.sh` are built and verified
+  (see their own sessions above) but were never wired into
+  `gtex62-core-launch` in the first place, so there's nothing yet for those
+  flags to gate — a separate task. See
+  [docs/pfsense-provider-status.md](docs/pfsense-provider-status.md) §
+  Provider Enable/Disable for detail and
+  [docs/sitrep-relocation-plan.md](docs/sitrep-relocation-plan.md) § Provider
+  Enable/Disable for the SitRep-side display-state design (four states —
+  Disabled/Unconfigured/degraded-states/Healthy — not yet implementable in
+  code since `lua/suite/pf.lua` doesn't exist and the relocation is still
+  blocked on ARP/DHCP collection).
+- **Parser note found during verification:** the shared `parse_toml_section_
+  value` awk helper (used by `gtex62-core-launch` and others) does not strip
+  trailing `#` comments — `key = false # comment` parses as
+  `"false       # comment"`, not a clean `false`. Not a problem for anything
+  wired up today (only the comment-free `status` key is read), but worth
+  knowing before wiring the `pihole` flag later: the comment noting Pi-hole's
+  Pi5 hosting was placed on its own line above `pihole = false` in both
+  `core.toml` files specifically to avoid this, rather than trailing the
+  line as first drafted.
+
 ## 0.2.0 — 2026-08-19
 
 New provider domains: VPN and modem. Minor bump — new functionality, no

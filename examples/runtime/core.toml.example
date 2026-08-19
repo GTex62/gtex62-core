@@ -19,3 +19,17 @@ enabled = true
 [launcher]
 default_suite = "osa"
 allow_legacy_suites = true
+
+[providers]
+vpn = false
+ap = false
+modem = false
+
+[providers.pfsense]
+status = false
+router = false
+# Note: Pi-hole runs on Pi5, not pfSense itself — nested here to match
+# fetch_pfsense.sh's existing four-output structure, not because it's
+# hosted on the pfSense box.
+pihole = false
+pfblockerng = false

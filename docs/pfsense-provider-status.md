@@ -90,6 +90,44 @@ trip the circuit breaker for a faster, unrelated poll on the same box.
 
 ---
 
+## Provider Enable/Disable
+
+Full design (schema, missing-file behavior, SitRep display states) lives in
+[SitRep Relocation Plan](sitrep-relocation-plan.md) § Provider Enable/Disable
+— that section was the design source for this feature and still holds.
+This section tracks implementation state only.
+
+**Shipped (Aug 19, 2026):** `[providers]` / `[providers.pfsense]` added to
+`~/.config/gtex62-core/core.toml` (and `examples/runtime/core.toml.example`).
+`bin/gtex62-core-launch` reads `providers.pfsense.status` and skips both the
+`initial_refresh` and `refresh_loop` calls for `fetch_pfsense.sh` entirely
+when it's `false` (or the key/section/file is absent) — the domain is not
+fetched at all, not fetched-and-discarded. `fetch_pfsense.sh` itself was not
+touched; the gate is purely at the launcher's call site.
+
+**Not yet wired (schema-only):** `vpn`, `ap`, `modem`, `router`, `pihole`,
+`pfblockerng`. These flags exist in `core.toml` and are semantically
+correct, but `gtex62-core-launch` currently only ever invokes
+`fetch_pfsense.sh` — `fetch_router.sh`, `fetch_pfblockerng.sh`,
+`fetch_pihole.sh`, `fetch_vpn.sh`, `fetch_modem.sh`, and `fetch_ap.sh` are
+built and verified (see their own domain sections/session history) but were
+never wired into the launcher in the first place. Flipping any of those six
+flags to `true` does nothing today; wiring each script in (profile
+resolution, TTL, stamp/pid files, gated `initial_refresh`/`refresh_loop`
+calls — same shape as the `pfsense.status` change above) is a separate,
+not-yet-scheduled task.
+
+**SitRep display states** (Disabled / Unconfigured / existing degraded
+states / Healthy) are a design note only — `lua/suite/pf.lua` doesn't exist
+yet and the relocation is still blocked (see
+[SitRep Relocation Plan](sitrep-relocation-plan.md), Part 0 Audit). The
+design itself (four-state table, `UNCONFIGURED` reusing each provider's
+existing missing-profile/placeholder-credential detection rather than new
+per-provider logic in SitRep) is already fully specified there and doesn't
+need re-deciding once `pf.lua` is written — just implementing.
+
+---
+
 ## Domain Schemas
 
 ### status.json
@@ -436,3 +474,15 @@ output) is in [archive/sitrep-engine-migration-2026-08-18.md](archive/sitrep-eng
 All three domains from the original resume checklist (Pi-hole, pfBlockerNG, router/system)
 are done, and the AP provider that was next after them is now done too. ARP and DHCP
 collection remain.
+
+- **Aug 19, 2026 — Provider enable/disable.** `[providers]`/`[providers.pfsense]`
+  schema shipped in `core.toml`; `gtex62-core-launch` gates the one call it
+  already makes (`fetch_pfsense.sh`, on `providers.pfsense.status`). Scoped
+  deliberately narrow: the other six flags are schema-only since the scripts
+  they'd gate (`router`/`pfblockerng`/`pihole`/`vpn`/`modem`/`ap`) were never
+  wired into the launcher to begin with — wiring them in is separate,
+  larger-diff work against the shared launcher, left for its own session.
+  Found and worked around a real parser limitation during verification (see
+  § Provider Enable/Disable above and CHANGELOG.md): the shared TOML-section
+  parser doesn't strip trailing comments, so the Pi-hole hosting note was
+  placed on its own line rather than trailing `pihole = false`.

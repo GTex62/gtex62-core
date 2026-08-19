@@ -80,6 +80,16 @@ elif [[ -f "$LEGACY_ENGINE_TOML" ]]; then
 fi
 CACHE_ROOT="${CACHE_ROOT:-$(resolve_root "" "" "$HOME/.cache/gtex62-core" "$HOME/.cache/gtex62-conky")}"
 
+# Provider enable/disable (core.toml [providers.pfsense]). Missing file, missing
+# section, or missing key all fall through to "false" — a missing core.toml is
+# equivalent to everything disabled. Only the pfsense "status" domain (the one
+# fetch_pfsense.sh call already wired into this launcher) is gated today; the
+# other core.toml provider flags (vpn/ap/modem/router/pihole/pfblockerng) are
+# schema-only until those scripts are wired in as a separate task — see
+# docs/pfsense-provider-status.md.
+PFSENSE_STATUS_ENABLED="$(parse_toml_section_value "$CORE_TOML" providers.pfsense status || true)"
+PFSENSE_STATUS_ENABLED="${PFSENSE_STATUS_ENABLED:-false}"
+
 SUITE_DIR="$(parse_toml_value "$SUITE_TOML" suite_repo)"
 WEATHER_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles weather || true)"
 AIR_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles air || true)"
@@ -408,7 +418,9 @@ initial_refresh "time-${TIME_PROFILE}" "$TIME_STAMP" "$CORE_DIR/providers/time/f
 initial_refresh "astro-${ASTRO_PROFILE}" "$ASTRO_STAMP" "$CORE_DIR/providers/astro/fetch_astro.sh" "$ASTRO_PROFILE"
 initial_refresh "network-${NETWORK_PROFILE}" "$NETWORK_STAMP" "$CORE_DIR/providers/network/fetch_network.sh" "$NETWORK_PROFILE"
 initial_refresh "connectivity-${CONNECTIVITY_PROFILE}" "$CONNECTIVITY_STAMP" "$CORE_DIR/providers/connectivity/fetch_connectivity.sh" "$CONNECTIVITY_PROFILE"
-initial_refresh "pfsense-${PFSENSE_PROFILE}" "$PFSENSE_STAMP" "$CORE_DIR/providers/pfsense/fetch_pfsense.sh" "$PFSENSE_PROFILE"
+if [[ "$PFSENSE_STATUS_ENABLED" == "true" ]]; then
+  initial_refresh "pfsense-${PFSENSE_PROFILE}" "$PFSENSE_STAMP" "$CORE_DIR/providers/pfsense/fetch_pfsense.sh" "$PFSENSE_PROFILE"
+fi
 initial_refresh "net-${NET_PROFILE}" "$NET_STAMP" "$CORE_DIR/providers/net/fetch_net.sh" "$NET_PROFILE"
 initial_refresh "orb-${ORB_PROFILE}" "$ORB_STAMP" "$CORE_DIR/providers/orb/fetch_orb.sh" "$ORB_PROFILE"
 
@@ -421,7 +433,9 @@ refresh_loop "calendar-${CALENDAR_PROFILE}" "$CALENDAR_TTL" "$CALENDAR_STAMP" "$
 refresh_loop "time-${TIME_PROFILE}" "$TIME_TTL" "$TIME_STAMP" "$TIME_LOOP_PID_FILE" "$CORE_DIR/providers/time/fetch_time.sh" "$TIME_PROFILE"
 refresh_loop "astro-${ASTRO_PROFILE}" "$ASTRO_TTL" "$ASTRO_STAMP" "$ASTRO_LOOP_PID_FILE" "$CORE_DIR/providers/astro/fetch_astro.sh" "$ASTRO_PROFILE"
 refresh_loop "network-${NETWORK_PROFILE}" "$NETWORK_TTL" "$NETWORK_STAMP" "$NETWORK_LOOP_PID_FILE" "$CORE_DIR/providers/network/fetch_network.sh" "$NETWORK_PROFILE"
-refresh_loop "pfsense-${PFSENSE_PROFILE}" "$PFSENSE_TTL" "$PFSENSE_STAMP" "$PFSENSE_LOOP_PID_FILE" "$CORE_DIR/providers/pfsense/fetch_pfsense.sh" "$PFSENSE_PROFILE"
+if [[ "$PFSENSE_STATUS_ENABLED" == "true" ]]; then
+  refresh_loop "pfsense-${PFSENSE_PROFILE}" "$PFSENSE_TTL" "$PFSENSE_STAMP" "$PFSENSE_LOOP_PID_FILE" "$CORE_DIR/providers/pfsense/fetch_pfsense.sh" "$PFSENSE_PROFILE"
+fi
 refresh_loop "net-${NET_PROFILE}" "$NET_TTL" "$NET_STAMP" "$NET_LOOP_PID_FILE" "$CORE_DIR/providers/net/fetch_net.sh" "$NET_PROFILE"
 refresh_loop "orb-${ORB_PROFILE}" "$ORB_TTL" "$ORB_STAMP" "$ORB_LOOP_PID_FILE" "$CORE_DIR/providers/orb/fetch_orb.sh" "$ORB_PROFILE"
 

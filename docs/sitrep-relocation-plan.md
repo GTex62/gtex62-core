@@ -134,6 +134,15 @@ top-level provider and per pfSense sub-domain independently:
 `UNCONFIGURED` detection reuses each provider's existing degraded-path/placeholder-credential
 handling rather than new per-provider logic in SitRep itself.
 
+**Implementation status (Aug 19, 2026):** the `core.toml` schema above is now shipped, and
+`gtex62-core-launch` gates the one provider call it already makes (`fetch_pfsense.sh`, on
+`providers.pfsense.status`). The other six flags are schema-only pending a separate task to
+wire their scripts into the launcher in the first place. The Display States table above is
+still a design note, not code — `lua/suite/pf.lua` doesn't exist yet (see Part 0 Audit
+below; the relocation itself remains blocked). See
+[pfSense Provider Status](pfsense-provider-status.md) § Provider Enable/Disable for full
+implementation detail.
+
 ---
 
 ## sitrep.lua — File Split and Dead Code Removal
