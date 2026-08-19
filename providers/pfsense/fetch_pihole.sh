@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
-# providers/pfsense/fetch_pfsense.sh
-# Core pfSense provider.
-# Collects VLAN interface counters, CPU%, MEM%, and gateway reachability
-# via SSH and writes shared/pfsense/{profile}/status.json.
-# Interface names are resolved from profile TOML → site.toml → defaults.
+# providers/pfsense/fetch_pihole.sh
+# Core Pi-hole provider (pfsense domain, separate SSH target).
+# Collects Pi-hole FTL service state, load, and query/block totals via SSH
+# and writes shared/pfsense/{profile}/pihole.json.
+#
+# Pi-hole lives on its own host (pi5), reached over its own SSH session and
+# gated by its own circuit breaker state (runtime/pihole/ssh_state) so a
+# tripped pfSense connection can never block Pi-hole polling, or vice versa.
+# Do not route this script's SSH calls through the pfSense gate/session.
 set -euo pipefail
 
 PROFILE_ID="${1:-main_router}"
@@ -12,9 +16,9 @@ CACHE_ROOT="${GTEX62_CACHE_DIR:-${GTEX62_CONKY_CACHE_DIR:-$HOME/.cache/gtex62-co
 PROFILE_TOML="$CONFIG_ROOT/profiles/pfsense/${PROFILE_ID}.toml"
 SITE_TOML="$CONFIG_ROOT/site.toml"
 OUT_DIR="$CACHE_ROOT/shared/pfsense/${PROFILE_ID}"
-STATUS_JSON="$OUT_DIR/status.json"
+PIHOLE_JSON="$OUT_DIR/pihole.json"
 TMP_DIR="$CACHE_ROOT/tmp"
-GATE_DIR="$CACHE_ROOT/runtime/pfsense"
+GATE_DIR="$CACHE_ROOT/runtime/pihole"
 GATE_SCRIPT="$(dirname "$0")/pf-ssh-gate.sh"
 mkdir -p "$OUT_DIR" "$TMP_DIR" "$GATE_DIR"
 
@@ -56,11 +60,25 @@ parse_section_value() {
   ' "$path"
 }
 
-# GATE_STATE_DIR is intentionally left unset here (same as the trip/reset calls
-# below) so this resolves to pf-ssh-gate.sh's default state dir
-# (${CACHE_ROOT}/runtime/pfsense) — identical to this script's own $GATE_DIR.
 gate_status() {
-  "$GATE_SCRIPT" status
+  local file="$GATE_DIR/ssh_state"
+  local tripped=0 reason="" until=0 now left=0
+  now="$(date +%s)"
+  if [[ -f "$file" ]]; then
+    while IFS='=' read -r key value; do
+      case "$key" in
+        tripped) tripped="${value:-0}" ;;
+        reason)  reason="${value:-}"   ;;
+        until)   until="${value:-0}"   ;;
+      esac
+    done < "$file"
+  fi
+  if [[ "$tripped" == "1" && "$now" -lt "$until" ]]; then
+    left=$((until - now))
+    printf 'TRIPPED|left=%s|reason=%s\n' "$left" "${reason:-PIHOLE_SSH_FAIL}"
+  else
+    printf 'OK\n'
+  fi
 }
 
 write_status() {
@@ -79,7 +97,7 @@ write_status() {
   jq -n \
     --arg state       "$state" \
     --arg profile     "$PROFILE_ID" \
-    --arg collector   "pfsense" \
+    --arg collector   "pihole" \
     --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg note        "$note" \
     --arg ssh_target  "$ssh_target" \
@@ -95,22 +113,16 @@ write_status() {
       note:$note,
       ssh_target:$ssh_target,
       ssh_gate:{status:$gate_status, tripped:$tripped, left_seconds:$left, reason:$reason}
-    }' > "$STATUS_JSON"
+    }' > "$PIHOLE_JSON"
 }
 
 # -------------------------------------------------------------------------
 # Pre-flight checks
 # -------------------------------------------------------------------------
 
-if [[ ! -f "$PROFILE_TOML" ]]; then
-  write_status "error" "missing profile toml" "" "$(gate_status)"
-  exit 0
-fi
-
-ENABLED="$(parse_root_value "$PROFILE_TOML" enabled || true)"
-SSH_TARGET="$(parse_root_value "$PROFILE_TOML" ssh_target || true)"
-SSH_TARGET="${SSH_TARGET:-$(parse_root_value "$SITE_TOML" ssh_target || true)}"
-SSH_TARGET="${SSH_TARGET:-$(parse_section_value "$SITE_TOML" pfsense ssh_target || true)}"
+ENABLED="$(parse_section_value "$PROFILE_TOML" pihole enabled || true)"
+SSH_TARGET="$(parse_section_value "$PROFILE_TOML" pihole ssh_target || true)"
+SSH_TARGET="${SSH_TARGET:-$(parse_section_value "$SITE_TOML" pihole ssh_target || true)}"
 
 if [[ "${ENABLED:-true}" != "true" ]]; then
   write_status "disabled" "profile disabled" "${SSH_TARGET:-}" "$(gate_status)"
@@ -123,7 +135,7 @@ if [[ -z "$SSH_TARGET" ]]; then
 fi
 
 # -------------------------------------------------------------------------
-# Gate check
+# Gate check (own state dir — never shares runtime/pfsense/ssh_state)
 # -------------------------------------------------------------------------
 
 GATE="$(gate_status)"
@@ -136,12 +148,12 @@ fi
 # Cache TTL
 # -------------------------------------------------------------------------
 
-CACHE_TTL="$(parse_root_value "$PROFILE_TOML" cache_ttl_sec || true)"
-CACHE_TTL="${CACHE_TTL:-60}"
+CACHE_TTL="$(parse_section_value "$PROFILE_TOML" pihole cache_ttl_sec || true)"
+CACHE_TTL="${CACHE_TTL:-300}"
 
-if [[ -f "$STATUS_JSON" ]]; then
+if [[ -f "$PIHOLE_JSON" ]]; then
   now_ts="$(date +%s)"
-  file_ts="$(stat -c %Y "$STATUS_JSON" 2>/dev/null || echo 0)"
+  file_ts="$(stat -c %Y "$PIHOLE_JSON" 2>/dev/null || echo 0)"
   age=$(( now_ts - file_ts ))
   if [[ "$age" -lt "$CACHE_TTL" ]]; then
     exit 0
@@ -149,96 +161,56 @@ if [[ -f "$STATUS_JSON" ]]; then
 fi
 
 # -------------------------------------------------------------------------
-# Interface name resolution
-# -------------------------------------------------------------------------
-
-read_iface() {
-  local name="$1"
-  local default="$2"
-  local val
-  val="$(parse_section_value "$PROFILE_TOML" interfaces "$name" || true)"
-  [[ -z "$val" ]] && val="$(parse_section_value "$SITE_TOML" "pfsense.interfaces" "$name" || true)"
-  printf '%s' "${val:-$default}"
-}
-
-IF_WAN="$(read_iface   wan   igc0)"
-IF_HOME="$(read_iface  home  igc1.10)"
-IF_IOT="$(read_iface   iot   igc1.20)"
-IF_GUEST="$(read_iface guest igc1.30)"
-IF_INFRA="$(read_iface infra igc1.40)"
-IF_CAM="$(read_iface   cam   igc1.50)"
-
-# -------------------------------------------------------------------------
 # SSH telemetry collection
 # -------------------------------------------------------------------------
 
 SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=5 -o ConnectionAttempts=1 \
           -o ServerAliveInterval=5 -o ServerAliveCountMax=1 -o LogLevel=ERROR)
-TMP_RAW="$TMP_DIR/pf_raw_$$.txt"
+TMP_RAW="$TMP_DIR/pihole_raw_$$.txt"
 
-# shellcheck disable=SC2029  # interface names expand on client side intentionally
 _ssh_rc=0
 ssh "${SSH_OPTS[@]}" "$SSH_TARGET" \
-  "for spec in WAN:${IF_WAN} HOME:${IF_HOME} IOT:${IF_IOT} GUEST:${IF_GUEST} INFRA:${IF_INFRA} CAM:${IF_CAM}; do
-     key=\${spec%%:*}; ifn=\${spec#*:}
-     netstat -I \"\$ifn\" -b -n 2>/dev/null | awk -v k=\"\$key\" -v ifn=\"\$ifn\" \
-       'NR==2{printf \"IF\t%s\t%s\t%s\t%s\n\",k,ifn,\$8,\$11}'
-   done
-   top -b -n 1 2>/dev/null | awk '
-     /^CPU:/ {
-       idle=0
-       for(i=2;i<=NF;i++) if(\$(i)==\"idle\") { v=\$(i-1); gsub(/%/,\"\",v); idle=v+0 }
-       printf \"CPU_PCT\t%.0f\n\", 100-idle
-     }
-     /^Mem:/ {
-       used=0; free=0
-       for(i=1;i<=NF;i++) {
-         v=\$(i); u=substr(v,length(v),1); n=v+0
-         if(u==\"K\") n=n/1024; else if(u==\"G\") n=n*1024
-         if(\$(i+1)~/^Active/) used+=n
-         if(\$(i+1)~/^Wired/)  used+=n
-         if(\$(i+1)~/^Inact/)  used+=n
-         if(\$(i+1)~/^Free/)   free=n
-       }
-       total=used+free
-       if(total>0) printf \"MEM_PCT\t%.0f\n\", (used/total)*100
-       else        printf \"MEM_PCT\t0\n\"
-     }
-   '
-   gw=\$(route -n get -inet default 2>/dev/null | awk '/gateway:/{print \$2}')
-   if [ -n \"\$gw\" ] && ping -c1 -t2 \"\$gw\" >/dev/null 2>&1; then
-     printf 'GW\t1\t%s\n' \"\$gw\"
+  'active=$(systemctl is-active pihole-FTL 2>/dev/null)
+   if [ "$active" = "active" ]; then
+     printf "ACTIVE\t1\n"
    else
-     printf 'GW\t0\t%s\n' \"\${gw:-}\"
-   fi" > "$TMP_RAW" 2>/dev/null || _ssh_rc=$?
+     printf "ACTIVE\t0\n"
+   fi
+   read -r l1 l5 l15 _ < /proc/loadavg 2>/dev/null || true
+   printf "LOAD\t%s\t%s\t%s\n" "${l1:-0}" "${l5:-0}" "${l15:-0}"
+   total=$(sudo -n sqlite3 /etc/pihole/pihole-FTL.db "select value from counters where id=0;" 2>/dev/null)
+   blocked=$(sudo -n sqlite3 /etc/pihole/pihole-FTL.db "select value from counters where id=1;" 2>/dev/null)
+   domains=$(sudo -n sqlite3 /etc/pihole/gravity.db "select count(distinct domain) from gravity;" 2>/dev/null)
+   printf "TOTAL\t%s\n" "${total:-0}"
+   printf "BLOCKED\t%s\n" "${blocked:-0}"
+   printf "DOMAINS\t%s\n" "${domains:-0}"' > "$TMP_RAW" 2>/dev/null || _ssh_rc=$?
 if [[ $_ssh_rc -ne 0 ]]; then
-  "$GATE_SCRIPT" trip PF_SSH_FAIL
+  GATE_STATE_DIR="$GATE_DIR" "$GATE_SCRIPT" trip PIHOLE_SSH_FAIL
   GATE="$(gate_status)"
   write_status "degraded" "ssh failed" "$SSH_TARGET" "$GATE"
   rm -f "$TMP_RAW"
   exit 0
 fi
 
-"$GATE_SCRIPT" reset
+GATE_STATE_DIR="$GATE_DIR" "$GATE_SCRIPT" reset
 GATE="$(gate_status)"
 
 # -------------------------------------------------------------------------
-# Build status.json from collected data
+# Build pihole.json from collected data
 # -------------------------------------------------------------------------
 
-python3 - "$TMP_RAW" "$STATUS_JSON" \
+python3 - "$TMP_RAW" "$PIHOLE_JSON" \
   "$PROFILE_ID" "$SSH_TARGET" "$GATE" \
   "$(date -u +%Y-%m-%dT%H:%M:%SZ)" <<'PY'
 import json, sys, os
 
 raw_path, out_path, profile_id, ssh_target, gate_str, generated_at = sys.argv[1:7]
 
-interfaces = {}
-cpu_pct    = None
-mem_pct    = None
-gateway    = {"online": False, "ip": ""}
-
-fetched_at = int(__import__("time").time())
+active   = False
+load     = {"l1": 0.0, "l5": 0.0, "l15": 0.0}
+total    = 0
+blocked  = 0
+domains  = 0
 
 with open(raw_path, "r", encoding="utf-8") as fh:
     for line in fh:
@@ -246,30 +218,34 @@ with open(raw_path, "r", encoding="utf-8") as fh:
         if not parts:
             continue
         tag = parts[0]
-        if tag == "IF" and len(parts) == 5:
-            _, key, ifname, ibytes, obytes = parts
+        if tag == "ACTIVE" and len(parts) == 2:
+            active = parts[1] == "1"
+        elif tag == "LOAD" and len(parts) == 4:
             try:
-                interfaces[key] = {
-                    "ifname":     ifname,
-                    "ibytes":     int(float(ibytes)),
-                    "obytes":     int(float(obytes)),
-                    "fetched_at": fetched_at,
+                load = {
+                    "l1":  float(parts[1]),
+                    "l5":  float(parts[2]),
+                    "l15": float(parts[3]),
                 }
             except (ValueError, TypeError):
                 pass
-        elif tag == "CPU_PCT" and len(parts) == 2:
+        elif tag == "TOTAL" and len(parts) == 2:
             try:
-                cpu_pct = int(parts[1])
+                total = int(float(parts[1]))
             except (ValueError, TypeError):
                 pass
-        elif tag == "MEM_PCT" and len(parts) == 2:
+        elif tag == "BLOCKED" and len(parts) == 2:
             try:
-                mem_pct = int(parts[1])
+                blocked = int(float(parts[1]))
             except (ValueError, TypeError):
                 pass
-        elif tag == "GW" and len(parts) >= 2:
-            gateway["online"] = parts[1] == "1"
-            gateway["ip"]     = parts[2] if len(parts) > 2 else ""
+        elif tag == "DOMAINS" and len(parts) == 2:
+            try:
+                domains = int(float(parts[1]))
+            except (ValueError, TypeError):
+                pass
+
+blocked_pct = round((blocked / total) * 100, 2) if total > 0 else 0.0
 
 tripped = gate_str.startswith("TRIPPED")
 left    = 0
@@ -287,7 +263,7 @@ if tripped:
 payload = {
     "state":        "ok",
     "profile":      profile_id,
-    "collector":    "pfsense",
+    "collector":    "pihole",
     "generated_at": generated_at,
     "ssh_target":   ssh_target,
     "ssh_gate": {
@@ -296,10 +272,12 @@ payload = {
         "left_seconds": left,
         "reason":       reason,
     },
-    "cpu_pct":    cpu_pct,
-    "mem_pct":    mem_pct,
-    "gateway":    gateway,
-    "interfaces": interfaces,
+    "active":          active,
+    "load":            load,
+    "queries_total":   total,
+    "queries_blocked": blocked,
+    "blocked_pct":     blocked_pct,
+    "domains_blocked": domains,
 }
 
 tmp = out_path + ".tmp"

@@ -3,7 +3,10 @@ set -euo pipefail
 
 XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
 CACHE_ROOT="${GTEX62_CACHE_DIR:-${GTEX62_CONKY_CACHE_DIR:-$XDG_CACHE_HOME/gtex62-core}}"
-state_dir="${CACHE_ROOT}/runtime/pfsense"
+# GATE_STATE_DIR lets a caller point this gate at its own state file
+# (e.g. runtime/pihole) instead of the pfSense default, so unrelated SSH
+# targets don't trip/reset each other's circuit breaker. Default unchanged.
+state_dir="${GATE_STATE_DIR:-${CACHE_ROOT}/runtime/pfsense}"
 lock_file="${state_dir}/ssh.lock"
 state_file="${state_dir}/ssh_state"
 
