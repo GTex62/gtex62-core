@@ -268,8 +268,12 @@ violates the core principle: SitRep must work regardless of which suite is activ
 ```
 ~/.config/conky/gtex62-core/widgets/sitrep/
 ├── sitrep.conky.conf       ← decoupled config
-├── sitrep.lua              ← Cairo draw entrypoint
-└── theme-sitrep.lua        ← minimal self-contained theme
+├── sitrep.lua              ← Cairo draw entrypoint (file-split/dead-code work covered above)
+├── theme-sitrep.lua        ← theme: monitor_head, palette resolution, colors/roles, strokes,
+│                              frame_shadow/frame_lights FX, fonts/text/spacing
+├── sitrep-palettes.lua     ← SitRep's own palette catalog
+├── sitrep-layout.lua       ← scalable coordinate space: frame, scale_mode, scaled_frame
+└── sitrep-panels.lua       ← panel geometry: pfSense, Pi-hole, pfBlockerNG, AP status/clients
 ```
 
 SitRep lives in the engine, not in any suite. Each suite that previously carried a SitRep
@@ -279,9 +283,31 @@ panel retires it in favor of the `sitrep` command which launches this engine-res
 > that repo doesn't exist on disk. The actual engine repo is `gtex62-core`; the path above
 > reflects that.
 
+### Design Direction (decided Aug 19, 2026)
+
+The three-file "minimal, standalone" sketch this section originally carried predates
+tonight's design decision and is superseded. SitRep-e's actual visual direction: it mimics
+OSA's look, feel, borders, and panel style, and — importantly — reuses the same *structural
+pattern* as OSA's own multi-file theme (`theme.lua` + `*-palettes.lua` + `*-layout.lua`,
+resolved palette → `colors`/`roles`, shared FX blocks, engine `window_size()` /
+`session_text_scale()`), while remaining fully self-owned. SitRep never reads OSA's theme,
+palette, or layout files at runtime — it has its own copies, tuned to its own panels. The
+only thing genuinely shared is the engine runtime module
+(`$GTEX62_CORE_DIR/lua/runtime/window.lua`), the same runtime OSA itself calls into — not a
+dependency on the OSA suite.
+
+Reference for the pattern being mirrored (structure only, values are SitRep's own):
+[`gtex62-osa/theme/osa-theme.lua`](../../gtex62-osa/theme/osa-theme.lua) and
+[`gtex62-osa/theme/osa-layout.lua`](../../gtex62-osa/theme/osa-layout.lua). This also means
+the old "no palette selection, no suite color roles" framing is dropped — SitRep gets its
+own palette selection (env-var override) and its own `colors`/`roles`, just never OSA's.
+
 ### Decoupled conky.conf
 
-The suite dependency is replaced with a core directory resolution:
+The suite dependency is replaced with a core directory resolution. `theme-sitrep.lua` is
+the single `dofile` target here — it internally cascades into
+`sitrep-palettes.lua` → `sitrep-layout.lua` → `sitrep-panels.lua`, mirroring how OSA's
+`theme.lua` loads `osa-palettes.lua`:
 
 ```lua
 -- widgets/sitrep/sitrep.conky.conf
@@ -308,9 +334,12 @@ conky.config = {
   own_window_transparent = true,
   own_window_class       = 'Conky',
 
-  minimum_width          = theme.min_w  or 460,
-  maximum_width          = theme.max_w  or 560,
-  minimum_height         = theme.min_h  or 800,
+  -- Fallback literals only; real geometry comes from theme.window_size(layout.scaled_frame).
+  -- Wider/taller than the old minimal sketch — provisional pending final size/placement
+  -- confirmation (see theme.monitor_head note below).
+  minimum_width          = theme.min_w  or 900,
+  maximum_width          = theme.max_w  or 1000,
+  minimum_height         = theme.min_h  or 1200,
 
   gap_x                  = theme.gap_x  or 0,
   gap_y                  = theme.gap_y  or 0,
@@ -327,43 +356,277 @@ conky.config = {
 conky.text = [[]]
 ```
 
-### Self-Contained theme-sitrep.lua
+### theme-sitrep.lua — OSA-Pattern Theme
 
-SitRep's theme is minimal and utilitarian — dark, monospace, no palette selection, no
-suite color roles. It does not inherit from any suite theme file.
+SitRep's theme follows OSA's structural pattern end to end — resolved palette, derived
+`colors`/`roles`, `strokes`, `frame_shadow`/`frame_lights` FX, fonts/text/spacing, and the
+engine's `window_size()` / `session_text_scale()` reused by calling into the engine runtime
+directly (same as OSA does) rather than reimplemented. It never reads any OSA file; every
+`dofile` target here is a sibling in `widgets/sitrep/`.
 
 ```lua
 -- widgets/sitrep/theme-sitrep.lua
 
 local theme = {}
+local HOME = os.getenv("HOME") or ""
+local CORE_DIR = os.getenv("GTEX62_CORE_DIR")
+    or os.getenv("GTEX62_CONKY_ENGINE_DIR")
+    or (HOME .. "/.config/conky/gtex62-core")
+local WIDGET_DIR = CORE_DIR .. "/widgets/sitrep"
 
--- Window geometry
+local palette_catalog = dofile(WIDGET_DIR .. "/sitrep-palettes.lua")
+local layout = dofile(WIDGET_DIR .. "/sitrep-layout.lua")
+theme.layout = layout
+
+local function load_engine_runtime()
+  local ok, runtime = pcall(dofile, CORE_DIR .. "/lua/runtime/window.lua")
+  if ok and type(runtime) == "table" then
+    return runtime
+  end
+  return nil
+end
+
+local engine_runtime = load_engine_runtime()
+
+-- Monitor selection (0 = primary). Provisional per Aug 19, 2026 decision — pending final
+-- size/placement confirmation once the widget is actually laid out on-screen.
 theme.monitor_head = 0
-theme.min_w  = 460
-theme.max_w  = 560
-theme.min_h  = 800
-theme.gap_x  = 0
-theme.gap_y  = 0
 
--- Colors (RGBA 0..1)
-theme.bg          = { 0.05, 0.08, 0.05, 0.88 }   -- dark green-black
-theme.fg          = { 0.75, 0.90, 0.65, 1.00 }   -- phosphor green
-theme.ink         = { 0.45, 0.60, 0.40, 0.80 }   -- dimmed label
-theme.accent      = { 0.85, 1.00, 0.70, 1.00 }   -- bright header
-theme.ok          = { 0.40, 0.90, 0.40, 1.00 }   -- ONLINE
-theme.warn        = { 1.00, 0.80, 0.20, 1.00 }   -- STALE / WARNING
-theme.err         = { 1.00, 0.35, 0.35, 1.00 }   -- OFFLINE / SSH DOWN
-theme.unknown     = { 0.80, 0.50, 0.20, 1.00 }   -- UNKNOWN device
+-- Palette (own catalog — env override mirrors CONKY_OSA_PALETTE's pattern)
+theme.default_palette = palette_catalog.default or "console_green"
+theme.active_palette = os.getenv("CONKY_SITREP_PALETTE") or theme.default_palette
+theme.palettes = palette_catalog.palettes or {}
 
--- Typography
-theme.font_mono   = "JetBrainsMono Nerd Font"
-theme.font_size   = 10
-theme.font_small  = 9
+theme.palette = theme.palettes[theme.active_palette] or theme.palettes[theme.default_palette]
+theme.resolved_palette = theme.palette == theme.palettes[theme.active_palette]
+    and theme.active_palette
+    or theme.default_palette
 
--- Layout
-theme.margin      = { top = 20, left = 16, right = 16, gap = 12 }
+theme.colors = {
+  bg = theme.palette.bg,
+  fg = theme.palette.fg,
+  ink = theme.palette.ink,
+}
+
+theme.roles = {
+  background = theme.colors.bg,
+  foreground = theme.colors.fg,
+  fill = theme.colors.fg,
+  inverse_text = theme.colors.ink,
+}
+
+theme.strokes = {
+  line = 1,
+  frame = 8,
+  frame_alpha = 0.99,
+}
+
+----------------------------------------------------------------
+-- Theme FX — SitRep's own tuned values, own copy of the tables
+-- (not shared with OSA's theme.frame_shadow / theme.frame_lights)
+----------------------------------------------------------------
+theme.frame_shadow = {
+  enabled = true,
+  color = { 0.0, 0.0, 0.0 },
+  alpha_scale = 1.25,
+  sides = { 1, 1, 1, 1 },
+  side_alpha = { 1.0, 0.45, 0.45, 1.0 },
+  bands = {
+    { offset = 8.0,  width = 8.0, alpha = 0.40 },
+    { offset = 10.0, width = 8.0, alpha = 0.30 },
+    { offset = 12.0, width = 8.0, alpha = 0.20 },
+    { offset = 16.0, width = 8.0, alpha = 0.10 },
+  },
+}
+
+theme.frame_lights = {
+  enabled = "auto",
+  auto_bg_threshold = 0.70,
+  color_mode = "auto",
+  color_lift = 0.16,
+  color_warmth = { 0.06, 0.03, 0.00 },
+  radius_scale = 1.0,
+  radius_y_scale = 1.0,
+  alpha_scale = 1.0,
+  top_frame_y_offset = 18,
+  light_count = 6,
+  light_gap = 290,
+  lights = {
+    -- SitRep-tuned light rig; same shape as OSA's, own count/placement to taste.
+    { x = "center", y = "top_frame", radius = 40.0, radius_y = 20.0,
+      color = { 1.0, 0.9, 0.9 }, alpha = 0.3 },
+  },
+}
+
+----------------------------------------------------------------
+-- Fonts / Text / Spacing
+----------------------------------------------------------------
+theme.fonts = {
+  title = "Eurostile LT Std",
+  data = "JetBrainsMono Nerd Font",
+}
+
+theme.text = {
+  panel_title_pt = 18,
+  body_pt = 16,
+  body_sm_pt = 14,
+  micro_pt = 12,
+}
+
+theme.spacing = {
+  grid = 8,
+  title_pad_x = 24,
+  title_clearance = 8,
+  box_title_x = 16,
+}
+
+-- Panel geometry (pfSense / Pi-hole / pfBlockerNG / AP status)
+theme.panels = dofile(WIDGET_DIR .. "/sitrep-panels.lua")
+
+function theme.session_text_scale()
+  if engine_runtime and engine_runtime.session_text_scale then
+    return engine_runtime.session_text_scale()
+  end
+  return 1.0
+end
+
+function theme.window_size(frame)
+  if engine_runtime and engine_runtime.window_size then
+    return engine_runtime.window_size(frame)
+  end
+  frame = frame or {}
+  local scale = theme.session_text_scale()
+  return {
+    width = math.floor(((frame.width or layout.frame.width) / scale) + 0.5),
+    height = math.floor(((frame.height or layout.frame.height) / scale) + 0.5),
+  }
+end
 
 return theme
+```
+
+### sitrep-palettes.lua — SitRep's Own Palette Catalog
+
+Same `default` + `palettes` shape as `osa-palettes.lua` (a role-3 `bg`/`fg`/`ink` table per
+named palette), but this is SitRep's own file with its own values — inspired by OSA's
+current palette, not read from it or shared at runtime:
+
+```lua
+-- widgets/sitrep/sitrep-palettes.lua
+
+return {
+  default = "console_green",
+  palettes = {
+    console_green = {
+      bg  = { 0.05, 0.08, 0.05 },   -- dark green-black
+      fg  = { 0.75, 0.90, 0.65 },   -- phosphor green
+      ink = { 0.45, 0.60, 0.40 },   -- dimmed label
+    },
+    console_amber = {
+      bg  = { 0.0, 0.0, 0.0 },
+      fg  = { 1.0, 0.8, 0.2 },
+      ink = { 0.5, 0.4, 0.1 },
+    },
+    console_blue = {
+      bg  = { 0.03, 0.03, 0.05 },
+      fg  = { 0.4, 0.75, 1.0 },
+      ink = { 0.2, 0.35, 0.5 },
+    },
+  },
+}
+```
+
+### sitrep-layout.lua — Scalable Coordinate Space
+
+Same `frame` / `scale_mode` / `scaled_frame` pattern as `osa-layout.lua`, with SitRep's own
+base frame — wider/taller than the old minimal sketch's narrow portrait dimensions — and
+column/row definitions sized for SitRep's actual panels, not OSA's:
+
+```lua
+-- widgets/sitrep/sitrep-layout.lua
+
+local layout = {}
+
+-- SitRep's own coordinate space. Wider/taller than the legacy minimal design
+-- (was ~460-560 x 800) to fit four status panels. Provisional pending final
+-- size/placement confirmation.
+layout.frame = {
+  x = 0,
+  y = 0,
+  width = 900,
+  height = 1200,
+}
+
+layout.scale_mode = "manual"
+layout.scale = 1.0
+
+layout.columns = {
+  main = { x = 24, width = 852 },
+}
+
+layout.rows = {
+  pfsense      = { y = 40,  height = 260 },
+  pihole       = { y = 320, height = 200 },
+  pfblockerng  = { y = 540, height = 200 },
+  ap_status    = { y = 760, height = 400 },
+}
+
+local function _compute_scale()
+  if layout.scale_mode == "auto" then
+    local w = tonumber(os.getenv("CONKY_SCREEN_W"))
+    local h = tonumber(os.getenv("CONKY_SCREEN_H"))
+    local bw = layout.frame.width
+    local bh = layout.frame.height
+    if w and h and bw > 0 and bh > 0 then
+      return math.min(w / bw, h / bh)
+    end
+  end
+  return tonumber(layout.scale) or 1.0
+end
+
+local _s = _compute_scale()
+layout.scaled_frame = {
+  x      = math.floor(layout.frame.x * _s + 0.5),
+  y      = math.floor(layout.frame.y * _s + 0.5),
+  width  = math.floor(layout.frame.width * _s + 0.5),
+  height = math.floor(layout.frame.height * _s + 0.5),
+}
+
+return layout
+```
+
+### sitrep-panels.lua — Panel Geometry
+
+New — the old minimal design had no panel geometry at all since it wasn't meant to display
+structured sections. This is SitRep's own set, one section per thing it actually shows;
+none of it maps onto OSA's sys/net/tme/orb/wxr/env sections:
+
+```lua
+-- widgets/sitrep/sitrep-panels.lua
+
+return {
+  pfsense = {
+    x = 0, y = 0, width = 852,
+    header_h = 20, header_font_pt = 16,
+    row_h = 20, rows = 8, row_font_pt = 14,
+  },
+  pihole = {
+    x = 0, y = 0, width = 852,
+    header_h = 20, header_font_pt = 16,
+    row_h = 20, rows = 6, row_font_pt = 14,
+  },
+  pfblockerng = {
+    x = 0, y = 0, width = 852,
+    header_h = 20, header_font_pt = 16,
+    row_h = 20, rows = 6, row_font_pt = 14,
+  },
+  ap_status = {
+    x = 0, y = 0, width = 852,
+    header_h = 20, header_font_pt = 16,
+    row_h = 18, rows = 16, row_font_pt = 14,
+    client_name_w = 220, client_ip_w = 140, client_mac_w = 160,
+  },
+}
 ```
 
 ### Launch Script
