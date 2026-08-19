@@ -3,6 +3,11 @@
 # Core pfSense provider.
 # Collects VLAN interface counters, CPU%, MEM%, and gateway reachability
 # via SSH and writes shared/pfsense/{profile}/status.json.
+# Also collects the ARP table and DHCP leases on a slower, independent
+# cadence (arp_cache_ttl_sec, default 180s) piggybacked on this same SSH
+# session — no separate session or gate — writing shared/pfsense/{profile}/
+# arp.json and leases.json. Raw data only; the devices.toml join/classify
+# step is separate, later work (see docs/pfsense-provider-status.md).
 # Interface names are resolved from profile TOML → site.toml → defaults.
 set -euo pipefail
 
@@ -13,6 +18,8 @@ PROFILE_TOML="$CONFIG_ROOT/profiles/pfsense/${PROFILE_ID}.toml"
 SITE_TOML="$CONFIG_ROOT/site.toml"
 OUT_DIR="$CACHE_ROOT/shared/pfsense/${PROFILE_ID}"
 STATUS_JSON="$OUT_DIR/status.json"
+ARP_JSON="$OUT_DIR/arp.json"
+LEASES_JSON="$OUT_DIR/leases.json"
 TMP_DIR="$CACHE_ROOT/tmp"
 GATE_DIR="$CACHE_ROOT/runtime/pfsense"
 GATE_SCRIPT="$(dirname "$0")/pf-ssh-gate.sh"
@@ -98,12 +105,59 @@ write_status() {
     }' > "$STATUS_JSON"
 }
 
+# write_arp_leases_stub mirrors write_status()'s envelope shape for the two
+# array-of-entries outputs (arp.json/leases.json). Used for persistent
+# states (missing profile/disabled/no target) unconditionally, and for
+# transient states (gate tripped/ssh failed) only when NEED_ARP is true —
+# see call sites below.
+write_arp_leases_stub() {
+  local state="$1"
+  local note="$2"
+  local ssh_target="$3"
+  local gate="$4"
+  local tripped="false"
+  local left="0"
+  local reason=""
+  if [[ "$gate" == TRIPPED* ]]; then
+    tripped="true"
+    left="$(printf '%s' "$gate" | awk -F'[=|]' '{for(i=1;i<=NF;i++) if($i=="left") {print $(i+1); exit}}')"
+    reason="$(printf '%s' "$gate" | awk -F'[=|]' '{for(i=1;i<=NF;i++) if($i=="reason") {print $(i+1); exit}}')"
+  fi
+  local out collector
+  for out in "$ARP_JSON" "$LEASES_JSON"; do
+    collector="arp"; [[ "$out" == "$LEASES_JSON" ]] && collector="leases"
+    jq -n \
+      --arg state       "$state" \
+      --arg profile     "$PROFILE_ID" \
+      --arg collector   "$collector" \
+      --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      --arg note        "$note" \
+      --arg ssh_target  "$ssh_target" \
+      --arg gate_status "$gate" \
+      --arg reason      "$reason" \
+      --argjson tripped "$tripped" \
+      --argjson left    "${left:-0}" \
+      '{
+        state:$state,
+        profile:$profile,
+        collector:$collector,
+        generated_at:$generated_at,
+        note:$note,
+        ssh_target:$ssh_target,
+        ssh_gate:{status:$gate_status, tripped:$tripped, left_seconds:$left, reason:$reason},
+        entries:[]
+      }' > "$out"
+  done
+}
+
 # -------------------------------------------------------------------------
 # Pre-flight checks
 # -------------------------------------------------------------------------
 
 if [[ ! -f "$PROFILE_TOML" ]]; then
-  write_status "error" "missing profile toml" "" "$(gate_status)"
+  GATE="$(gate_status)"
+  write_status "error" "missing profile toml" "" "$GATE"
+  write_arp_leases_stub "error" "missing profile toml" "" "$GATE"
   exit 0
 fi
 
@@ -113,13 +167,37 @@ SSH_TARGET="${SSH_TARGET:-$(parse_root_value "$SITE_TOML" ssh_target || true)}"
 SSH_TARGET="${SSH_TARGET:-$(parse_section_value "$SITE_TOML" pfsense ssh_target || true)}"
 
 if [[ "${ENABLED:-true}" != "true" ]]; then
-  write_status "disabled" "profile disabled" "${SSH_TARGET:-}" "$(gate_status)"
+  GATE="$(gate_status)"
+  write_status "disabled" "profile disabled" "${SSH_TARGET:-}" "$GATE"
+  write_arp_leases_stub "disabled" "profile disabled" "${SSH_TARGET:-}" "$GATE"
   exit 0
 fi
 
 if [[ -z "$SSH_TARGET" ]]; then
-  write_status "error" "no ssh_target configured" "" "$(gate_status)"
+  GATE="$(gate_status)"
+  write_status "error" "no ssh_target configured" "" "$GATE"
+  write_arp_leases_stub "error" "no ssh_target configured" "" "$GATE"
   exit 0
+fi
+
+# -------------------------------------------------------------------------
+# ARP/DHCP cadence check — independent of status.json's TTL below. Computed
+# here (cheap, no SSH) so it's available to both the gate-tripped and
+# ssh-failed branches, not just the success path.
+# -------------------------------------------------------------------------
+
+ARP_TTL="$(parse_root_value "$PROFILE_TOML" arp_cache_ttl_sec || true)"
+ARP_TTL="${ARP_TTL:-$(parse_section_value "$SITE_TOML" pfsense arp_cache_ttl_sec || true)}"
+ARP_TTL="${ARP_TTL:-180}"
+
+NEED_ARP="true"
+if [[ -f "$ARP_JSON" ]]; then
+  now_ts="$(date +%s)"
+  arp_file_ts="$(stat -c %Y "$ARP_JSON" 2>/dev/null || echo 0)"
+  arp_age=$(( now_ts - arp_file_ts ))
+  if [[ "$arp_age" -lt "$ARP_TTL" ]]; then
+    NEED_ARP="false"
+  fi
 fi
 
 # -------------------------------------------------------------------------
@@ -129,12 +207,21 @@ fi
 GATE="$(gate_status)"
 if [[ "$GATE" == TRIPPED* ]]; then
   write_status "degraded" "ssh gate tripped" "$SSH_TARGET" "$GATE"
+  if [[ "$NEED_ARP" == "true" ]]; then
+    write_arp_leases_stub "degraded" "ssh gate tripped" "$SSH_TARGET" "$GATE"
+  fi
   exit 0
 fi
 
 # -------------------------------------------------------------------------
 # Cache TTL
 # -------------------------------------------------------------------------
+#
+# Note: this gates the whole script (including the ARP/DHCP piggyback
+# below) on status.json's own TTL. That's fine as long as cache_ttl_sec
+# stays faster than arp_cache_ttl_sec (true today: 30s vs 180s default) —
+# if status.json's TTL were ever raised past arp's, arp/leases would be
+# starved of their turn. Not fixed here; smallest-safe-change.
 
 CACHE_TTL="$(parse_root_value "$PROFILE_TOML" cache_ttl_sec || true)"
 CACHE_TTL="${CACHE_TTL:-60}"
@@ -176,10 +263,7 @@ SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=5 -o ConnectionAttempts=1 \
           -o ServerAliveInterval=5 -o ServerAliveCountMax=1 -o LogLevel=ERROR)
 TMP_RAW="$TMP_DIR/pf_raw_$$.txt"
 
-# shellcheck disable=SC2029  # interface names expand on client side intentionally
-_ssh_rc=0
-ssh "${SSH_OPTS[@]}" "$SSH_TARGET" \
-  "for spec in WAN:${IF_WAN} HOME:${IF_HOME} IOT:${IF_IOT} GUEST:${IF_GUEST} INFRA:${IF_INFRA} CAM:${IF_CAM}; do
+REMOTE_CMD="for spec in WAN:${IF_WAN} HOME:${IF_HOME} IOT:${IF_IOT} GUEST:${IF_GUEST} INFRA:${IF_INFRA} CAM:${IF_CAM}; do
      key=\${spec%%:*}; ifn=\${spec#*:}
      netstat -I \"\$ifn\" -b -n 2>/dev/null | awk -v k=\"\$key\" -v ifn=\"\$ifn\" \
        'NR==2{printf \"IF\t%s\t%s\t%s\t%s\n\",k,ifn,\$8,\$11}'
@@ -210,11 +294,34 @@ ssh "${SSH_OPTS[@]}" "$SSH_TARGET" \
      printf 'GW\t1\t%s\n' \"\$gw\"
    else
      printf 'GW\t0\t%s\n' \"\${gw:-}\"
-   fi" > "$TMP_RAW" 2>/dev/null || _ssh_rc=$?
+   fi"
+
+if [[ "$NEED_ARP" == "true" ]]; then
+  REMOTE_CMD="$REMOTE_CMD
+   arp -an | awk '\$3==\"at\" && \$4!=\"(incomplete)\"{
+     ip=\$2; gsub(/[()]/,\"\",ip)
+     mac=\$4
+     iface=\$6
+     printf \"ARP\t%s\t%s\t%s\n\", mac, ip, iface
+   }'
+   awk '
+     /^lease / { ip=\$2 }
+     /hardware ethernet/ { mac=\$3; gsub(/;/,\"\",mac) }
+     /client-hostname/ { host=\$2; gsub(/[\";]/,\"\",host) }
+     /^}/ && ip { printf \"LEASE\t%s\t%s\t%s\n\", mac, ip, host; ip=\"\"; mac=\"\"; host=\"\" }
+   ' /var/dhcpd/var/db/dhcpd.leases 2>/dev/null"
+fi
+
+# shellcheck disable=SC2029  # interface names expand on client side intentionally
+_ssh_rc=0
+ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "$REMOTE_CMD" > "$TMP_RAW" 2>/dev/null || _ssh_rc=$?
 if [[ $_ssh_rc -ne 0 ]]; then
   "$GATE_SCRIPT" trip PF_SSH_FAIL
   GATE="$(gate_status)"
   write_status "degraded" "ssh failed" "$SSH_TARGET" "$GATE"
+  if [[ "$NEED_ARP" == "true" ]]; then
+    write_arp_leases_stub "degraded" "ssh failed" "$SSH_TARGET" "$GATE"
+  fi
   rm -f "$TMP_RAW"
   exit 0
 fi
@@ -223,20 +330,25 @@ fi
 GATE="$(gate_status)"
 
 # -------------------------------------------------------------------------
-# Build status.json from collected data
+# Build status.json (always) and arp.json/leases.json (only when due) from
+# collected data
 # -------------------------------------------------------------------------
 
 python3 - "$TMP_RAW" "$STATUS_JSON" \
   "$PROFILE_ID" "$SSH_TARGET" "$GATE" \
-  "$(date -u +%Y-%m-%dT%H:%M:%SZ)" <<'PY'
+  "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  "$ARP_JSON" "$LEASES_JSON" "$NEED_ARP" <<'PY'
 import json, sys, os
 
-raw_path, out_path, profile_id, ssh_target, gate_str, generated_at = sys.argv[1:7]
+(raw_path, out_path, profile_id, ssh_target, gate_str, generated_at,
+ arp_path, leases_path, need_arp) = sys.argv[1:10]
 
 interfaces = {}
 cpu_pct    = None
 mem_pct    = None
 gateway    = {"online": False, "ip": ""}
+arp_entries   = []
+lease_entries = []
 
 fetched_at = int(__import__("time").time())
 
@@ -270,6 +382,12 @@ with open(raw_path, "r", encoding="utf-8") as fh:
         elif tag == "GW" and len(parts) >= 2:
             gateway["online"] = parts[1] == "1"
             gateway["ip"]     = parts[2] if len(parts) > 2 else ""
+        elif tag == "ARP" and len(parts) == 4:
+            _, mac, ip, iface = parts
+            arp_entries.append({"mac": mac, "ip": ip, "iface": iface})
+        elif tag == "LEASE" and len(parts) == 4:
+            _, mac, ip, host = parts
+            lease_entries.append({"mac": mac, "ip": ip, "hostname": host})
 
 tripped = gate_str.startswith("TRIPPED")
 left    = 0
@@ -306,6 +424,30 @@ tmp = out_path + ".tmp"
 with open(tmp, "w", encoding="utf-8") as fh:
     json.dump(payload, fh, separators=(",", ":"))
 os.replace(tmp, out_path)
+
+if need_arp == "true":
+    for path, entries, collector in (
+        (arp_path, arp_entries, "arp"),
+        (leases_path, lease_entries, "leases"),
+    ):
+        entry_payload = {
+            "state":        "ok",
+            "profile":      profile_id,
+            "collector":    collector,
+            "generated_at": generated_at,
+            "ssh_target":   ssh_target,
+            "ssh_gate": {
+                "status":       gate_str,
+                "tripped":      tripped,
+                "left_seconds": left,
+                "reason":       reason,
+            },
+            "entries": entries,
+        }
+        etmp = path + ".tmp"
+        with open(etmp, "w", encoding="utf-8") as fh:
+            json.dump(entry_payload, fh, separators=(",", ":"))
+        os.replace(etmp, path)
 PY
 
 rm -f "$TMP_RAW"

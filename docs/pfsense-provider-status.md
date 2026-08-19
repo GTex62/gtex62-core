@@ -52,8 +52,8 @@ Accepts a `GATE_STATE_DIR` override so other domains can point it at their own s
 | Router: uptime, load, firmware, hw model, BIOS | `pf-fetch-basic.sh medium`, `section=system` | `router.json` | 60s | ✓ Implemented (Aug 18, 2026) |
 | pfBlockerNG: IP blocks, DNSBL hits, query total | `pf-fetch-basic.sh slow`, `section=pfblockerng` | `pfblockerng.json` | 5m | ✓ Implemented (Aug 18, 2026) |
 | Pi-hole: active, totals, blocked, domains | `pf-fetch-basic.sh slow`, `section=pihole` (pi5 SSH) | `pihole.json` | 5m | ✓ Implemented (Aug 18, 2026) |
-| ARP table | — | `arp.json` | 2–5m | Pending — new, not in any legacy script |
-| DHCP leases | — | `leases.json` | 2–5m | Pending — new, not in any legacy script |
+| ARP table | — | `arp.json` | 180s (independent TTL) | ✓ Implemented (Aug 19, 2026) |
+| DHCP leases | — | `leases.json` | 180s (independent TTL) | ✓ Implemented (Aug 19, 2026) |
 | AP status (model, CPU%, client count) | `ap_status_all_clients.sh` | `ap_status.json` | 2m | ✓ Implemented (Aug 19, 2026) — see [AP Provider Status](ap-provider-status.md) |
 | AP clients (named, per AP) | `ap_clients_named.sh` | `ap_clients.json` | 2m | ✓ Implemented (Aug 19, 2026) — see [AP Provider Status](ap-provider-status.md) |
 
@@ -321,6 +321,82 @@ blocklist), not a count of blocked queries. `blocked_pct` is derived
   `section=pihole`. `active`/`total`/`blocked`/`domains` matched exactly. `load1`
   differed by 0.01 (sampling noise between two independent `/proc/loadavg` reads).
 
+### arp.json
+
+`shared/pfsense/{profile}/arp.json` — written by `fetch_pfsense.sh` (not a separate script —
+piggybacked on its existing SSH session, no new gate).
+
+```json
+{
+  "state": "ok",
+  "profile": "main_router",
+  "collector": "arp",
+  "generated_at": "2026-08-19T23:39:50Z",
+  "ssh_target": "pf",
+  "ssh_gate": { "status": "OK", "tripped": false, "left_seconds": 0, "reason": "" },
+  "entries": [
+    { "mac": "64:62:66:2f:2a:3e", "ip": "192.168.100.5", "iface": "igc0" }
+  ]
+}
+```
+
+`entries` is the ARP table (raw, unjoined — no `devices.toml` classification here; see
+Remaining Work below). Parsed from `arp -an`, filtered to `$3=="at" && $4!="(incomplete)"`
+— pfSense reports unresolved neighbors as `? (ip) at (incomplete) on iface expired
+[ethernet]`, which the roadmap's original `/\(/` match let through as a garbage row (mac
+became the interface name, ip became the literal string `"incomplete"`). Found via local
+dry-run against synthetic fixtures, confirmed live: 1 of 47 raw lines on the live box was an
+`(incomplete)` entry, correctly excluded, leaving 46 clean entries.
+
+### leases.json
+
+`shared/pfsense/{profile}/leases.json` — written by `fetch_pfsense.sh`, same session as
+`arp.json`.
+
+```json
+{
+  "state": "ok",
+  "profile": "main_router",
+  "collector": "leases",
+  "generated_at": "2026-08-19T23:39:50Z",
+  "ssh_target": "pf",
+  "ssh_gate": { "status": "OK", "tripped": false, "left_seconds": 0, "reason": "" },
+  "entries": [
+    { "mac": "84:ea:ed:6e:18:b8", "ip": "192.168.1.100", "hostname": "RokuUltraLivingRoom" }
+  ]
+}
+```
+
+`entries` is parsed from `/var/dhcpd/var/db/dhcpd.leases`; `hostname` defaults to `""` when
+a lease has no `client-hostname` line (common — many DHCP clients don't send one). Includes
+leases in any `binding state` (not just `active`) — raw collection, no filtering; that
+belongs to the future join/classify step.
+
+**Independent write cadence, same SSH session** — `arp.json`/`leases.json` are gated by
+their own mtime-based TTL (`arp_cache_ttl_sec`, default 180s; root key in profile TOML,
+falls back to `[pfsense] arp_cache_ttl_sec` in `site.toml`), computed before the SSH call
+and used to decide whether to append the ARP+DHCP awk block to `fetch_pfsense.sh`'s existing
+remote command string — still exactly one SSH call, no new session, no new gate. When not
+due, the files are left untouched rather than overwritten with an empty stub. Persistent
+misconfiguration states (missing profile, disabled, no ssh_target) stub both files
+unconditionally; transient states (gate tripped, ssh failed) only stub them if they were due
+that round, so a shared-session hiccup doesn't clobber still-valid cached entries.
+
+Known coupling, not fixed: the outer script's exit-early check is keyed to `status.json`'s
+own `cache_ttl_sec` (30s in `main_router.toml`) — if that were ever raised past
+`arp_cache_ttl_sec`, arp/leases would be starved of their turn to run. Non-issue at current
+config values.
+
+- **Verified (Aug 19, 2026):** mechanical — `jq .` valid on both files, `entries` populated,
+  no empty mac/ip fields, degraded-path stubs (`entries: []`) confirmed via a forced
+  missing-profile-toml run. Live cross-check against the pfSense box: `arp.json` — 46
+  entries after the incomplete-entry fix, matching raw `arp -an` line count minus the 1
+  incomplete entry exactly. `leases.json` — 18 entries, matching `grep -c '^lease '` on the
+  live `dhcpd.leases` file exactly, no drift. Confirmed the three existing SSH-shared
+  domains (`status.json`, `router.json`, `pfblockerng.json`) still return `state: "ok"`
+  after this change. Confirmed the independent-TTL skip: re-running immediately left
+  `arp.json`'s mtime unchanged.
+
 ---
 
 ## Planned Cache Files
@@ -333,8 +409,8 @@ All paths relative to `~/.cache/gtex62-core/`.
 | Router uptime, load, firmware, hw model, BIOS | `shared/pfsense/[profile]/router.json` | 60s | ✓ Implemented |
 | pfBlockerNG | `shared/pfsense/[profile]/pfblockerng.json` | 5m | ✓ Implemented |
 | Pi-hole | `shared/pfsense/[profile]/pihole.json` | 5m | ✓ Implemented |
-| ARP table | `shared/pfsense/[profile]/arp.json` | 2–5m | Pending |
-| DHCP leases | `shared/pfsense/[profile]/leases.json` | 2–5m | Pending |
+| ARP table | `shared/pfsense/[profile]/arp.json` | 180s (independent TTL) | ✓ Implemented |
+| DHCP leases | `shared/pfsense/[profile]/leases.json` | 180s (independent TTL) | ✓ Implemented |
 | AP status (model, CPU%, client count) | `shared/pfsense/[profile]/ap_status.json` | 2m | ✓ Implemented |
 | AP clients (named, per AP) | `shared/pfsense/[profile]/ap_clients.json` | 2m | ✓ Implemented |
 
@@ -362,32 +438,17 @@ Lua rate computation guards against this by skipping cycles where `now_bytes < p
 
 ## Remaining Work
 
-### ARP + DHCP Collection
+### ARP + DHCP Collection ✓ IMPLEMENTED (Aug 19, 2026)
 
-Add to `fetch_pfsense.sh` medium-cadence SSH block. Collect both in one remote command:
+Shipped as an addition to `fetch_pfsense.sh`'s existing SSH block — see `arp.json`/
+`leases.json` schemas above for the full design (independent write-cadence TTL, escaping,
+the `(incomplete)`-entry fix found during live cross-check).
 
-```bash
-# ARP table — one line per entry: MAC IP interface
-arp -an | awk '/\(/{
-  ip=$2; gsub(/[()]/,"",ip)
-  mac=$4
-  iface=$6
-  printf "ARP\t%s\t%s\t%s\n", mac, ip, iface
-}'
-
-# DHCP leases — parse /var/dhcpd/var/db/dhcpd.leases for MAC + hostname
-awk '
-  /^lease /     { ip=$2 }
-  /hardware ethernet/ { mac=$3; gsub(/;/,"",mac) }
-  /client-hostname/   { host=$2; gsub(/[";]/,"",host) }
-  /^}/ && ip    { printf "LEASE\t%s\t%s\t%s\n", mac, ip, host; ip=""; mac=""; host="" }
-' /var/dhcpd/var/db/dhcpd.leases 2>/dev/null
-```
-
-Output written to `arp.json` and `leases.json` separately. The Python assembly block joins
-them against `devices.toml` and writes the classified device list — see
+Deliberately out of scope this session (held for its own): joining `arp.json`/`leases.json`
+against `devices.toml` and writing a classified device list. `devices.toml` itself
+(expanding `ap_ipmap.csv` with a MAC column) was not touched — see
 [SitRep Architecture](sitrep-architecture.md) § Device Inventory for the target schema and
-status classification.
+status classification this next session will build.
 
 ### AP Provider ✓ IMPLEMENTED (Aug 19, 2026)
 
@@ -423,8 +484,8 @@ it.
 - [x] System info (uptime, load, version, BIOS) → `router.json` (`fetch_router.sh`, Aug 18, 2026)
 - [x] pfBlockerNG (IP blocks, DNSBL, query total) → `pfblockerng.json` (`fetch_pfblockerng.sh`, Aug 18, 2026)
 - [x] Pi-hole (active, totals, blocked, domains) → `pihole.json` (`fetch_pihole.sh`, Aug 18, 2026)
-- [ ] ARP table → `arp.json`
-- [ ] DHCP leases → `leases.json`
+- [x] ARP table → `arp.json` (Aug 19, 2026, piggybacked on `fetch_pfsense.sh`'s session)
+- [x] DHCP leases → `leases.json` (Aug 19, 2026, same session)
 - [ ] Verify pfBlockerNG sqlite3 paths on current pfSense version
 
 ### AP Provider
@@ -486,3 +547,22 @@ collection remain.
   § Provider Enable/Disable above and CHANGELOG.md): the shared TOML-section
   parser doesn't strip trailing comments, so the Pi-hole hosting note was
   placed on its own line rather than trailing `pihole = false`.
+- **Aug 19, 2026 — ARP + DHCP collection.** `arp.json`/`leases.json` shipped as an addition
+  to `fetch_pfsense.sh`'s existing SSH block — no new session, no new gate, per explicit
+  scoping for this session. Added an independent mtime-based TTL (`arp_cache_ttl_sec`,
+  default 180s) so the two outputs get their own slower write cadence despite sharing the
+  30s-cadence session; the ARP+DHCP awk commands are only appended to the remote command
+  string when due, and the two files are only rewritten when due (never clobbered with an
+  empty stub on an off-cycle round). Persistent misconfiguration states stub both files
+  unconditionally; transient gate-tripped/ssh-failed states only stub them if they were due
+  that round. Found and fixed a real bug during live cross-check: the roadmap's `/\(/`
+  ARP filter let pfSense's `? (ip) at (incomplete) on iface expired [ethernet]` lines
+  through as garbage rows (mac field became the interface name) — a local dry-run against
+  synthetic fixtures caught a naive version of this, but the live box's actual format
+  (`at (incomplete)`, not a different field layout) needed a second live-verified fix
+  (`$4!="(incomplete)"`). Cross-checked live: 46 clean ARP entries (47 raw lines minus 1
+  incomplete, exact match) and 18 lease entries (exact match against
+  `grep -c '^lease ' dhcpd.leases`). Confirmed the three domains already sharing this SSH
+  session (`status.json`, `router.json`, `pfblockerng.json`) still return `state: "ok"`
+  after the change. Deliberately did not touch `devices.toml`, `ap_ipmap.csv`, or any
+  join/classification logic — held for its own session per scoping.

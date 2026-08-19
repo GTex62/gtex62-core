@@ -50,6 +50,24 @@ not yet backfilled here.
   Pi5 hosting was placed on its own line above `pihole = false` in both
   `core.toml` files specifically to avoid this, rather than trailing the
   line as first drafted.
+- **ARP + DHCP lease collection** — `arp.json`/`leases.json` added to
+  `providers/pfsense/fetch_pfsense.sh`, piggybacked on its existing SSH
+  session and gate (no new session, no new gate) but written on their own
+  independent, slower cadence via a new `arp_cache_ttl_sec` TTL (default
+  180s) checked before the SSH call — the ARP+DHCP awk commands are only
+  appended to the remote command, and the two files only rewritten, when
+  due, so an off-cycle round never clobbers still-valid cached entries with
+  an empty stub. Raw data only — no `devices.toml` join/classification yet,
+  deliberately held for its own session. Found and fixed a real bug during
+  live cross-check: pfSense reports unresolved ARP neighbors as
+  `? (ip) at (incomplete) on iface expired [ethernet]`, which the original
+  `/\(/` filter let through as a garbage row (mac field became the
+  interface name); fixed with `$3=="at" && $4!="(incomplete)"`. Verified
+  live: 46 clean ARP entries and 18 lease entries, both exact matches
+  against raw SSH output; confirmed the three domains already sharing this
+  session (`status.json`, `router.json`, `pfblockerng.json`) unaffected.
+  See [docs/pfsense-provider-status.md](docs/pfsense-provider-status.md) §
+  arp.json / § leases.json.
 
 ## 0.2.0 — 2026-08-19
 
