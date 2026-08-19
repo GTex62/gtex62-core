@@ -3,10 +3,12 @@
 Proposed engine providers unrelated to pfSense's SSH-gated domains: `vpn` (local
 `piactl`/`wg` polling, no SSH), `network-health` (WAN loss/latency sampling), and `modem`
 (HTTP scrape of the cable modem's admin UI via a pfSense NAT path). `vpn` was built and
-verified Aug 19, 2026 (see its Session Log below); `network-health` and `modem` are not
-started. They're grouped here because they were drafted in the same investigation session, not
-because they share a transport, host, or gate with each other or with the `pfsense`
-provider — see [pfSense Provider Status](pfsense-provider-status.md) for that.
+verified Aug 19, 2026 (see its Session Log below); `modem` was built and verified Aug 19,
+2026, including a live credential cross-check (see its Session Log below); `network-health`
+is not started. They're grouped here because they were drafted in the same
+investigation session, not because they share a transport, host, or gate with each other or
+with the `pfsense` provider — see [pfSense Provider Status](pfsense-provider-status.md) for
+that.
 
 Full prose history predating this split:
 [archive/sitrep-engine-migration-2026-08-18.md](archive/sitrep-engine-migration-2026-08-18.md).
@@ -638,6 +640,125 @@ classification logic repeats the mistake fixed in `fetch_pfsense.sh`'s inline
 **Display:** resolved as a conditional line under `WAN`, shown only during
 `DEGRADED`/`CRITICAL` — see "Display Layout — Resolved" above.
 
+### Session Log — Aug 19, 2026 (Build + Live Cross-Check)
+
+- Built `providers/modem/fetch_modem.py` + a thin `providers/modem/fetch_modem.sh` wrapper
+  (same split as `fetch_github.sh`/`fetch_github_traffic.py` — the auth/HTML/XML parsing
+  here didn't fit the bash+awk TOML-helper style `fetch_pfsense.sh`/`fetch_vpn.sh` use, so
+  the Python side owns TOML loading, atomic-write, and the envelope directly, mirroring
+  `fetch_github_traffic.py`'s shape rather than reimplementing a bash variant of it).
+- Schema shipped exactly as proposed above — `modem_ip`, `upstream_channels[]`,
+  `downstream_ofdm_channels[]`, `recent_t3_timeouts`, `event_log_window_minutes`, plus the
+  standard envelope. No health classification field, per this doc's own note that the
+  SNR/power/uncorrectable thresholds aren't trustworthy yet.
+- **Credential storage — decided this session:** password lives in the profile TOML itself
+  (`[credentials].password` in `profiles/modem/local.toml`), not a separate env var or
+  secrets file — the runtime copy is outside both git repos entirely (same as
+  `openweather_api_key` and every other credential in this project), so "commit it" was
+  never actually a risk; the real ask was avoiding a second credentials mechanism alongside
+  the one every other provider already uses. The committed `local.toml.example` template
+  ships `password = "CHANGE_ME"` as a deliberate placeholder (not an empty string) so a
+  fresh bootstrap fails loudly (`state=error`, clear note) instead of silently never
+  authenticating. `fetch_modem.py` also emits a non-fatal warning note if the runtime
+  profile TOML is group/world-readable, recommending `chmod 600` — doesn't block a run.
+- **Parsing approach — column headers matched by keyword, not fixed position.** `usTable`
+  and `d31dsTable` parsing matches columns by header text (`"lock"`, `"channel id"`,
+  `"frequency"`, `"power"`, `"snr"`, `"uncorrectable"`) rather than a hardcoded column
+  order. Confirmed correct against the real authenticated page (see cross-check below) —
+  the real headers are `Channel | Lock Status | Modulation | Channel ID | Frequency |
+  Power` (`usTable`) and `Channel | Lock Status | Modulation / Profile ID | Channel ID |
+  Frequency | Power | SNR / MER | Active Subcarrier Number Range | Unerrored Codewords |
+  Correctable Codewords | Uncorrectable Codewords` (`d31dsTable`) — several unmapped
+  columns on the OFDM table (Modulation/Profile ID, Active Subcarrier Range, Unerrored/
+  Correctable Codewords) are correctly ignored rather than misread, which is exactly what
+  the keyword-match approach was for. `dsTable`, `d31usTable`, and
+  `startup_procedure_table` are documented stable ids but intentionally not parsed — out
+  of scope for this session's schema, per the roadmap's own field list.
+- **EventLog.asp row detection is tag-name-agnostic.** `parse_event_log()` finds row
+  elements by structure (any element carrying a `docsDevEvIndex`/`docsDevEvId` child)
+  rather than assuming a tag name. Confirmed live: the real wrapper tag genuinely is
+  `<tr>`, exactly as the doc described, so this was defensive rather than
+  strictly necessary — left as-is since it costs nothing and survives a firmware change
+  that isn't `<tr>`.
+- **`recent_t3_timeouts` window filtering — two real bugs found and fixed via the live
+  cross-check, not caught by mechanical verification alone:**
+  1. The original plan compared `docsDevEvLastTime` against `DocsisStatus.asp`'s
+     `#Current_systemtime`, reasoning both were modem-sourced and so self-consistent
+     regardless of host/modem clock skew. Live capture showed this was wrong:
+     `#Current_systemtime` is populated by **leftover placeholder JS** —
+     `DocsisStatus.asp`'s own `InitTagValue()` function returns a hardcoded dummy string
+     ending in a literal `"Mon Jun 11 15:30:50 2012"`, dead code never wired to anything
+     live on this firmware. `parse_docsis_status()` no longer reads this field at all;
+     `fetch_modem.py` now uses local host time (naive `datetime.now()`) as the window
+     reference instead, which empirically matches the timezone convention real
+     `docsDevEvLastTime` values use (no tz marker, reads as local wall clock — confirmed
+     by a live T3 event landing at a plausible ~84-minute age relative to host local time,
+     not off by a timezone-sized offset).
+  2. The originally-guessed timestamp formats (`MM/DD/YYYY HH:MM:SS` and similar) didn't
+     match the real format at all: live data reads `docsDevEvFirstTime`/
+     `docsDevEvLastTime` as `"2026-08-18, 08:22:07"` — **comma-space** between date and
+     time, `YYYY-MM-DD` order. Every matching row failed to parse on the first live run as
+     a result (masked correctly — excluded-with-a-note, not miscounted — but still wrong).
+     `TIME_FORMATS` now lists the confirmed real format first; the original guesses are
+     kept as fallbacks in case firmware/locale varies it, not because they've been seen.
+  - Post-fix, sums `docsDevEvCounts` (not rows) across T3-pattern-matching events, per the
+    roadmap's de-duplication warning, filtered to the trailing `event_log_window_minutes`.
+    Rows that still fail to parse are excluded from the sum and surfaced via a `note`
+    (undercounting-with-a-flag, never silent overcounting).
+- **Mechanical verification — done:**
+  - `jq .` valid and all envelope fields present (never just omitted) across every state:
+    `ok`/`error`/`disabled`/`degraded`.
+  - Missing profile toml → `state=error`, clear note.
+  - Disabled profile → `state=disabled`.
+  - Placeholder password (`CHANGE_ME`) → `state=error`, clear note, no auth attempt made.
+  - Cache TTL → back-to-back calls skip correctly (mtime unchanged).
+  - Bad password against the real live modem → full login flow exercised for real
+    (`GET /GenieLogin.asp`, live `webToken` extraction confirmed working — the real page
+    was captured and the token regex matched an unquoted numeric `value=1786514987` exactly
+    as the doc described — POST to `/goform/GenieLogin`, cookie-jar check) → correctly
+    resolved to `state=degraded` with an accurate note, no crash, ~0.4s.
+  - Unreachable host (bogus IP + short timeout) → `state=degraded`, accurate note, no hang
+    past the configured timeout.
+  - Confirmed live (unauthenticated `GET` of both `DocsisStatus.asp` and `EventLog.asp`):
+    an unauthenticated/expired-session request to either protected page returns
+    **HTTP 200** with a JS redirect stub (`window.top.location = "/GenieLogin.asp"`) — not
+    a 401 or an HTTP-level redirect. This wasn't spelled out in the doc's auth-flow notes
+    (which cover login, not what a lapsed session looks like on a subsequent page fetch)
+    and would have been missed by a status-code-only check; `is_auth_redirect()` checks
+    response body content instead, with one automatic re-login retry before giving up.
+- **Live cross-check — done, real credentials, real modem.** The admin password was set
+  directly in the runtime `~/.config/gtex62-core/profiles/modem/local.toml` outside the
+  assistant's input (never pasted into this conversation), then that file was `chmod 600`.
+  A real authenticated fetch was run and its raw `DocsisStatus.asp`/`EventLog.asp` HTML was
+  captured and diffed line-by-line against `fetch_modem.py`'s parsed output:
+  - `upstream_channels`: 8 rows, 4 locked (channels 17–20, freq/power essentially matching
+    the Aug 18 reference read) + 4 correctly-parsed `Not Locked` placeholder rows reading
+    `id:0, freq_hz:0, power_dbmv:0.0` — this is genuinely what the modem reports for unused
+    channel slots (confirmed from raw HTML), not a parsing bug; matches the roadmap's own
+    note that unlocked channels report `0 dBmV` and need excluding from any future
+    averaging step.
+  - `downstream_ofdm_channels`: 2 rows, values essentially matching the Aug 18 reference
+    read (small deltas — 4.1 vs 4.2 dBmV, 35.5 vs 35.8 dB — are real sampling drift between
+    polls a day apart, not a parsing error).
+  - `recent_t3_timeouts`: the two bugs above were caught and fixed via this exact diffing
+    process — first live run showed `0` with a suspicious "all rows unparseable" note;
+    after the fix, the same live data parses cleanly and the trailing-window math checks
+    out against manual inspection of the raw XML (a currently-recurring T3 event, 40
+    repeats, landing at ~84 minutes old — correctly excluded from the default 60-minute
+    window, correctly included when tested against a 120-minute window).
+  - No structural mismatches remain open; the fixes above are the structural mismatches
+    this step was for.
+- **Flagged, not fixed, per this session's guardrails:** whether this new HTTP/NAT path
+  interacts with the `pf-ssh-gate.sh` circuit breaker. `fetch_modem.py` does not touch
+  `pf-ssh-gate.sh` or its state directory at all — no gate, no trip/reset calls, same as
+  `vpn`'s local-only design has no gate either. The two are independent as written; the
+  open question (noted below, unchanged from before this session) is whether they *should*
+  interact — e.g. should sustained modem HTTP failures ever influence pfSense SSH gating,
+  given both paths ultimately route through the same pfSense box — not whether the code
+  currently does anything surprising, since it doesn't touch that gate at all.
+- `gtex62-osa`/`gtex62-tech-hud` stayed read-only throughout, as with prior domains.
+- Not committed yet — awaiting confirmation per this project's guardrails.
+
 ### Open Items
 
 - Sampling interval and packet count per cycle not yet tuned — needs to be frequent enough
@@ -653,13 +774,18 @@ classification logic repeats the mistake fixed in `fetch_pfsense.sh`'s inline
 - Sustained-critical trigger duration not yet set — see auto-trigger section above.
 - Auto-triggered capture's own lifetime/stop condition needs a cap (e.g. max runtime even
   if `CRITICAL` never clears) so a truly prolonged outage doesn't grow an unbounded logfile.
-- Modem provider (`fetch_modem.sh`) reconnaissance is complete for both `DocsisStatus.asp`
-  and `EventLog.asp` (URL map, table/XML structure, auth flow — see above); the script
-  itself is still unbuilt.
+- **Updated (Aug 19, 2026):** Modem provider (`fetch_modem.py` + `fetch_modem.sh`) is built
+  and verified, including a live credential cross-check against the real modem — see its
+  Session Log above (two real bugs found and fixed there: the `#Current_systemtime`
+  reference field turned out to be dead placeholder JS, and the guessed event-timestamp
+  format didn't match the real `"YYYY-MM-DD, HH:MM:SS"` format). Still open: committing the
+  change.
 - Modem provider polling adds a second outbound NAT-translated path through pfSense
-  (distinct from the existing SSH-based pfSense provider) — worth confirming this doesn't
-  interact with the `pf-ssh-gate.sh` circuit breaker in an unexpected way, since it's a
-  different transport (HTTP via NAT vs. SSH) hitting a different device.
+  (distinct from the existing SSH-based pfSense provider). Confirmed this session:
+  `fetch_modem.py` doesn't touch `pf-ssh-gate.sh` or its state at all, so there's no
+  code-level interaction today. Still open: whether there *should* be one — e.g. whether
+  sustained modem HTTP failures ought to factor into pfSense SSH gating, given both paths
+  route through the same pfSense box — not attempted this session, per guardrails.
 - **Resolved (Aug 18, 2026):** PIA VPN policy routing was pulling traffic to
   `192.168.100.1` into the WireGuard tunnel (or the killswitch blackhole) instead of
   reaching pfSense's LAN gateway — found in practice on Titan. Fixed by adding

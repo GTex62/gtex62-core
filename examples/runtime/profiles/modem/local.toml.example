@@ -1,0 +1,27 @@
+profile_id = "local"
+enabled = true
+# Signal stats and event-log entries change slowly outside an active
+# incident — cadence should stay much lower than the WAN loss-based
+# provider (60-120s). A few minutes is plenty.
+cache_ttl_sec = 300
+
+[connection]
+# CM1000 admin UI, reached through pfSense's NAT-to-VIP path — see
+# docs/network-providers-roadmap.md, "Modem-Level Corroboration Provider".
+base_url = "http://192.168.100.1"
+username = "admin"
+# timeout_sec = 8
+
+[credentials]
+# Real value goes only in the runtime copy of this file
+# (~/.config/gtex62-core/profiles/modem/local.toml) — never committed here.
+# chmod 600 that file once the real password is in it; fetch_modem.py warns
+# (but does not block) if it's readable beyond the owner.
+# "CHANGE_ME" is a deliberate placeholder, not a working default — a fresh
+# bootstrap should fail loudly (state=error, clear note) rather than "run"
+# and silently never authenticate.
+password = "CHANGE_ME"
+
+[eventlog]
+# Trailing window recent_t3_timeouts is summed over.
+window_minutes = 60
