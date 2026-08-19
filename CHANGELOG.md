@@ -1,0 +1,101 @@
+# Changelog
+
+All notable changes to `gtex62-core` are documented here. Dates are per-entry
+(when that piece of work landed), not per-release — several 0.1.0 entries
+predate this file and are backfilled from existing docs.
+
+**Scope note:** this file currently covers the network/pfSense-family
+provider domains (`pfsense`, `ap`, `vpn`, `modem`) — backfilled from
+[docs/network-providers-roadmap.md](docs/network-providers-roadmap.md),
+[docs/pfsense-provider-status.md](docs/pfsense-provider-status.md), and
+[docs/ap-provider-status.md](docs/ap-provider-status.md). Other engine
+providers (weather, solar, astro, aviation, etc.) predate this file and are
+not yet backfilled here.
+
+---
+
+## 0.2.0 — 2026-08-19
+
+New provider domains: VPN and modem. Minor bump — new functionality, no
+breaking changes to existing providers or schemas.
+
+- **VPN provider** — `providers/vpn/fetch_vpn.sh` → `shared/vpn/{profile}/vpn.json`.
+  PIA WireGuard, local-only (no SSH target, no gate — `piactl`/`wg` polled
+  directly on-host). Fields split by actual source: `piactl` for
+  `connectionstate`/`region`/`protocol`/`vpnip`; `wg show <iface> dump` for
+  `interface`/handshake/`transfer` (requires a narrowly-scoped passwordless
+  sudoers rule, `/etc/sudoers.d/gtex62-core-vpn`, exact-string-matched to one
+  command); PIA's policy routing table (`ip route show table piavpnFwdrt`)
+  for `killswitch`, independent of both — `piactl get killswitch`/`publicip`
+  were tested and confirmed **not supported** despite third-party docs
+  claiming otherwise. `killswitch` is only re-derived while `Connected` and
+  held at its last-known value otherwise, since a voluntary disconnect
+  clears the routing table by design (making an empty table indistinguishable
+  from "killswitch off" by inspection alone) — verified live across all four
+  states, including both forced-drop scenarios (killswitch on and off).
+  `health` (`HEALTHY`/`STALE`/`DEAD`) classified from handshake age against
+  the confirmed 25s keepalive interval (60s/180s thresholds, hardcoded and
+  verified — not yet scaled by `keepalive_interval_seconds` pending a
+  reason to).
+- **Modem provider** — `providers/modem/fetch_modem.py` + thin
+  `fetch_modem.sh` wrapper → `shared/modem/{profile}/status.json`. First
+  HTTP-auth transport in the engine (Netgear CM1000 admin UI, scraped
+  through pfSense's NAT-to-VIP path to `192.168.100.1` — not SSH, not a
+  local CLI). Schema: `modem_ip`, `upstream_channels[]`,
+  `downstream_ofdm_channels[]`, `recent_t3_timeouts`,
+  `event_log_window_minutes`. `recent_t3_timeouts` sums `docsDevEvCounts`
+  across matching event rows, not a row count — the modem de-duplicates
+  repeated identical events into one row with a repeat counter, so counting
+  rows undercounts by roughly 10x. No health classification field yet — a
+  one-day reference read isn't a long enough baseline to trust SNR/power/
+  uncorrectable thresholds against. Credentials live in
+  `[credentials].password` in the profile TOML, same place every other
+  provider's credentials already live (outside both git repos); the
+  committed template ships `password = "CHANGE_ME"` so a fresh bootstrap
+  fails loudly instead of silently never authenticating. Live cross-check
+  against the real modem caught and fixed two bugs the docs alone couldn't
+  surface: `DocsisStatus.asp`'s `#Current_systemtime` field is dead
+  placeholder JS (never wired to live data on this firmware), and real
+  event timestamps read `"YYYY-MM-DD, HH:MM:SS"` — comma-separated, not any
+  of the originally-guessed formats. Does not touch `pf-ssh-gate.sh` or its
+  state at all (different transport, different device); whether it should
+  is an open question, not resolved this round.
+
+## 0.1.0 — 2026-04-25 through 2026-08-19
+
+Initial engine baseline through the pfSense-family and AP provider domains.
+
+- **pfSense base domain** (2026-05-12) — `providers/pfsense/fetch_pfsense.sh`
+  → `shared/pfsense/{profile}/status.json`. VLAN interface counters, CPU%,
+  MEM%, and gateway reachability via a single batched SSH session.
+  `pf-ssh-gate.sh` circuit breaker shipped alongside it — portable
+  (state dir from env vars, no `conky-env.sh` dependency), 5-tier backoff
+  (3s → 10s → 30s → 120s → 600s), `GATE_STATE_DIR` override so other
+  domains can run independent gates against the same script.
+- **Router/system domain** (2026-08-18) — `fetch_router.sh` → `router.json`
+  (named to avoid colliding with `providers/system/`'s own `current.json`
+  for the *host* machine). Uptime, load, pfSense version, hw model, BIOS.
+  Found and fixed a real bug while porting the legacy reference script: its
+  boot-time regex greedily matched `usec` instead of `sec` in
+  `sysctl -n kern.boottime`, producing ~56 years of garbage uptime. Live
+  cross-check matched exactly on every other field.
+- **pfBlockerNG domain** (2026-08-18) — `fetch_pfblockerng.sh` →
+  `pfblockerng.json`. IP block total, DNSBL hits/pct, resolver query total.
+  Gated independently (`runtime/pfblockerng`) despite sharing the `pf` host
+  with the base domain — heavier/slower queries must not trip the breaker
+  for the faster poll. Live cross-check: exact match, no drift.
+- **Pi-hole domain** (2026-08-18) — `fetch_pihole.sh` → `pihole.json`.
+  Active state, load, query/blocked totals, distinct domains blocked.
+  Separate SSH target (`pi5`, not `pf`) and separate gate
+  (`runtime/pihole`) — `pf-ssh-gate.sh` gained its `GATE_STATE_DIR`
+  override specifically to support this, backward compatible. Live
+  cross-check matched exactly except expected load-average sampling drift.
+- **AP provider** (2026-08-19) — `providers/ap/fetch_ap.sh` →
+  `ap_status.json` / `ap_clients.json`. Zyxel WBE530 fleet; password auth
+  via `sshpass` (permanent hardware constraint — no key-based SSH on this
+  hardware), own gate (`runtime/ap`). Collapsed the legacy 3-sessions-per-AP
+  poll to one session per AP. Live cross-check against both legacy scripts:
+  model/CPU%/client-count and all known-client names matched exactly across
+  all 3 APs, including a raw-vs-filtered client-count discrepancy that
+  reproduced identically on old and new code (preserved as-is, not a
+  porting bug).
