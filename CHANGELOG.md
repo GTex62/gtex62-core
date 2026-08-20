@@ -14,7 +14,7 @@ not yet backfilled here.
 
 ---
 
-## Unreleased
+## 0.3.0 — 2026-08-19
 
 - **Provider enable/disable schema** — `[providers]` / `[providers.pfsense]`
   added to `core.toml` (and `examples/runtime/core.toml.example`): top-level
