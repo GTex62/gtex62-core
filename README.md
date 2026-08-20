@@ -188,6 +188,18 @@ Suite wrappers can delegate to it. OSA does this from:
 gtex62-osa/scripts/bootstrap-runtime-root.sh
 ```
 
+Core-only bootstrap (no suite installed):
+
+```bash
+scripts/bootstrap-runtime-root.sh
+```
+
+Builds `~/.config/gtex62-core/` standalone, with no suite dir passed — suite-specific
+templates (e.g. `suites/osa.toml`) are skipped automatically when no suite is
+present. Use this for a core-only setup, or for a future core-native suite before
+its own bootstrap wrapper exists. Pass `--suite-dir <path>` (as suite wrappers do)
+to also install that suite's binding.
+
 Core launcher:
 
 ```bash
