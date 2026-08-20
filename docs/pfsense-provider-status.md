@@ -500,9 +500,12 @@ it.
 
 ### Device Inventory
 
-- [ ] Expand `ap_ipmap.csv` → `devices.toml` with MAC column
-- [ ] Validate MAC entries against live pfSense ARP table
-- [ ] Establish `devices.toml` path in `site.toml` or core config convention
+- [x] Expand `ap_ipmap.csv` → `devices.toml` with MAC column (Aug 20, 2026 —
+      see Session History)
+- [x] Validate MAC entries against live pfSense ARP table (Aug 20, 2026)
+- [x] Establish `devices.toml` path in core config convention — co-located
+      with `core.toml` at `~/.config/gtex62-core/devices.toml` (Aug 20, 2026);
+      not referenced from `site.toml` — no provider wiring this session
 
 ---
 
@@ -566,3 +569,27 @@ collection remain.
   session (`status.json`, `router.json`, `pfblockerng.json`) still return `state: "ok"`
   after the change. Deliberately did not touch `devices.toml`, `ap_ipmap.csv`, or any
   join/classification logic — held for its own session per scoping.
+- **Aug 20, 2026 — `devices.toml` built and validated.** New MAC-keyed device inventory at
+  `~/.config/gtex62-core/devices.toml` (co-located with `core.toml`), retiring the
+  hand-maintained, IP-keyed `ap_ipmap.csv` (read-only reference this session, not edited).
+  Covers all 5 VLANs (51 devices total: 6 User, 25 IoT, 1 Guest, 9 Infra, 10 Cameras), not
+  just AP clients. MAC/IP/VLAN/name/hostname sourced from the network design PDF;
+  `display_name` (short fixed-width labels) sourced from `ap_ipmap.csv`. Two known-offline
+  WLEDs (192.168.20.4/.5) have no MAC — keyed `"ip:<addr>"` instead of by MAC, with an
+  explicit `mac = ""` field, confirmed with the user before writing. The V1211 router's MAC
+  (missing from the PDF) was resolved against live `arp.json` (`64:62:66:2f:2a:3f` at
+  `igc1.40`/192.168.40.1). VLAN 30 (Guest) has no static-IP table in the PDF; its one entry
+  (the "A14" phone, `display_name` from `ap_ipmap.csv`) got its real MAC
+  (`e2:77:2c:da:18:09`) and full name directly from the user rather than a source document.
+  Normalized one PDF typo (`WEB530` to `WBE530`, matching the device's own hostname and every
+  other reference to it). Validated live against `arp.json`/`leases.json`: 38 of 49
+  MAC-bearing devices confirmed present in ARP with matching IP, 0 IP mismatches. 11
+  documented devices not currently in ARP (likely idle/ARP-aged-out — printers, a 3D
+  printer, switches/APs — not confirmed offline, flagged not assumed). 2 MACs in ARP
+  outside devices.toml, both WAN-side/ISP (igc0), correctly out of scope. `leases.json`
+  cross-check found only stale pre-VLAN-migration `192.168.1.0/24` lease history (consistent
+  MACs, different subnet) plus 2 unrecognized MACs (one hostnamed "iPad", likely Apple MAC
+  randomization on a different network) — flagged, not added speculatively. Scoped
+  deliberately narrow per this session's instructions: did not touch `fetch_ap.sh`'s
+  MAC-to-IP join logic, did not wire `devices.toml` into any provider, did not build
+  known-MAC-on-wrong-IP detection — all held for a later session.
