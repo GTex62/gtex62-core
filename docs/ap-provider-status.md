@@ -156,10 +156,11 @@ is `0` when `online` is `false`.
 returns one `index: N` block per associated station, each with a `MAC:` line
 immediately followed by an `IPv4:` line (confirmed live — this pairing is
 reliable and 1:1, unlike the legacy script's approach, see below). The
-provider pairs each `MAC:` with the very next `IPv4:` line, then joins the IP
-against `ap_ipmap.csv` (see IP Map below): a match produces a `{mac, ip,
-name}` entry in `clients`; no match puts the **raw IP** (not an object) in
-`unknown`, per the schema originally sketched in
+provider pairs each `MAC:` with the very next `IPv4:` line, then (as of
+Aug 20, 2026 — see Device Map below) joins the **MAC** against
+`devices.toml`: a match produces a `{mac, ip, name}` entry in `clients`; no
+match puts the **raw IP** (not an object) in `unknown`, per the schema
+originally sketched in
 [pfSense Provider Status § AP Provider](pfsense-provider-status.md). IPs of
 `0.0.0.0` or `172.29.*` are dropped entirely before the join, matching
 `ap_clients_named.sh`'s `extract_ips` filter exactly.
@@ -184,18 +185,27 @@ filtered/known, on **both** the legacy scripts and the new provider,
 identically). Fixing it would be a design change, not a port — out of scope
 here.
 
-### IP Map
+### Device Map
 
-`fetch_ap.sh` reads `config/ap_ipmap.csv` under `GTEX62_CONFIG_DIR`
-(`~/.config/gtex62-core/config/ap_ipmap.csv` by default) — a **core-owned
-copy** of `gtex62-tech-hud/config/ap_ipmap.csv`, made because the engine must
-stay suite-agnostic (`gtex62-tech-hud` is read-only for this effort and, per
-[SitRep Relocation Plan](sitrep-relocation-plan.md), the engine must never
-depend on a suite directory existing). This copy is a plain manual sync as of
-Aug 19, 2026, not a symlink or generated artifact — **re-copy manually if the
-tech-hud original changes** until `devices.toml` (see Remaining Work below)
-replaces it. Path is configurable via `[ap] ipmap_path` in `site.toml`
-(relative to `GTEX62_CONFIG_DIR`).
+**Updated Aug 20, 2026 — migrated from `ap_ipmap.csv` to `devices.toml`.**
+`fetch_ap.sh` now joins each client's `mac` against
+`~/.config/gtex62-core/devices.toml` (MAC-keyed, covers all 5 VLANs). The
+path is resolved directly from `CONFIG_ROOT`, same convention as
+`PROFILE_TOML`/`SITE_TOML` — not TOML-configurable. See
+[pfSense Provider Status § Device Inventory](pfsense-provider-status.md) for
+`devices.toml`'s schema and how it was built/validated, and that doc's
+Session History for the join-migration entry (cross-check results, etc.).
+
+Originally (through Aug 19, 2026) this provider instead read
+`config/ap_ipmap.csv` under `GTEX62_CONFIG_DIR` — a core-owned manual-sync
+copy of `gtex62-tech-hud/config/ap_ipmap.csv`, IP-keyed, kept because the
+engine must stay suite-agnostic (`gtex62-tech-hud` is read-only for this
+effort and, per [SitRep Relocation Plan](sitrep-relocation-plan.md), the
+engine must never depend on a suite directory existing). That copy is no
+longer read by this provider as of the migration above; neither it nor the
+read-only tech-hud original were edited or deleted — both still exist,
+untouched. `[ap] ipmap_path` in `site.toml` is now unused, dead
+configuration (see Configuration below).
 
 ---
 
@@ -215,7 +225,9 @@ ipmap_path = "config/ap_ipmap.csv"
 `ips`/`labels` are comma-separated strings (not TOML arrays) — matches the
 `parse_section_value` awk helper's single-value-per-key capability, same
 convention as every other domain's site.toml section. Index-paired: `ips[0]`
-gets `labels[0]`.
+gets `labels[0]`. `ipmap_path` is unused as of Aug 20, 2026 (see Device Map
+above) — left in the live `site.toml` and this example rather than cleaned
+up, since removing dead config wasn't part of that session's scope.
 
 ---
 
@@ -248,14 +260,16 @@ entries on any AP in this run (every currently-associated client is in
 
 ## Remaining Work
 
-- [ ] Expand `config/ap_ipmap.csv` → `devices.toml` with a MAC column
-      (tracked in [pfSense Provider Status § Device Inventory](pfsense-provider-status.md))
-      — once that lands, `fetch_ap.sh`'s join can move from IP-keyed to
-      MAC-keyed, which would also let it identify a device that changed IP
-      without editing the map.
-- [ ] Decide a real sync mechanism for the core-owned `ap_ipmap.csv` copy
-      (manual re-copy is a known drift risk, see IP Map above) — likely moot
-      once `devices.toml` replaces both copies.
+- [x] Expand `config/ap_ipmap.csv` → `devices.toml` with a MAC column
+      (tracked in [pfSense Provider Status § Device Inventory](pfsense-provider-status.md),
+      Aug 20, 2026) and move `fetch_ap.sh`'s join from IP-keyed to MAC-keyed
+      (Aug 20, 2026 — see Device Map above) — done in two sessions, both
+      complete. The join is now immune to a device's IP drifting.
+- [x] Sync mechanism for the core-owned `ap_ipmap.csv` copy — moot as
+      predicted: `devices.toml` replaced it as `fetch_ap.sh`'s join source
+      (Aug 20, 2026), so the copy's staleness no longer matters to this
+      provider. The file itself still exists, untouched and now unread (see
+      Device Map above).
 - [ ] `gtex62-tech-hud`'s legacy `ap_status_all_clients.sh` /
       `ap_clients_named.sh` remain untouched and in production — no
       migration of the suite itself happens in this session (guardrail).

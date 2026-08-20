@@ -153,9 +153,7 @@ if [[ ! -s "$PASSFILE" ]]; then
   exit 0
 fi
 
-IPMAP_REL="$(parse_section_value "$SITE_TOML" ap ipmap_path || true)"
-IPMAP_REL="${IPMAP_REL:-config/ap_ipmap.csv}"
-IPMAP_PATH="$CONFIG_ROOT/$IPMAP_REL"
+DEVICES_TOML="$CONFIG_ROOT/devices.toml"
 
 IFS=',' read -r -a AP_IPS <<< "$IPS_CSV"
 IFS=',' read -r -a AP_LABELS <<< "$LABELS_CSV"
@@ -248,12 +246,12 @@ fi
 # Build ap_status.json and ap_clients.json from collected raw output
 # -------------------------------------------------------------------------
 
-python3 - "$MANIFEST" "$IPMAP_PATH" "$STATUS_JSON" "$CLIENTS_JSON" \
+python3 - "$MANIFEST" "$DEVICES_TOML" "$STATUS_JSON" "$CLIENTS_JSON" \
   "$PROFILE_ID" "$FINAL_STATE" "$FINAL_NOTE" "$GATE_FINAL" \
   "$(date -u +%Y-%m-%dT%H:%M:%SZ)" <<'PY'
-import json, os, re, sys
+import json, os, re, sys, tomllib
 
-(manifest_path, ipmap_path, status_out, clients_out,
+(manifest_path, devices_path, status_out, clients_out,
  profile_id, final_state, final_note, gate_str, generated_at) = sys.argv[1:10]
 
 MODEL_RE  = re.compile(r'^model\s*:\s*(.+?)\s*$', re.MULTILINE)
@@ -261,22 +259,22 @@ CPU_RE    = re.compile(r'^CPU utilization:\s*([0-9]+(?:\.[0-9]+)?)', re.MULTILIN
 MAC_RE    = re.compile(r'^\s{2}MAC:\s*(\S+)\s*$')
 IPV4_RE   = re.compile(r'^\s{2}IPv4:\s*(\S+)\s*$')
 
-def load_ipmap(path):
-    name_by_ip = {}
+def load_devicemap(path):
+    """Returns {mac (lowercase): display_name}, joined across all VLANs.
+    The 2 ip:-keyed WLED entries (no MAC) are skipped by design — they
+    never show up as AP clients anyway."""
+    name_by_mac = {}
     if not os.path.isfile(path):
-        return name_by_ip
-    with open(path, "r", encoding="utf-8-sig") as fh:
-        for line in fh:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            parts = line.split(",", 1)
-            if len(parts) != 2:
-                continue
-            ip, name = parts[0].strip(), parts[1].strip()
-            if ip and name:
-                name_by_ip[ip] = name
-    return name_by_ip
+        return name_by_mac
+    with open(path, "rb") as fh:
+        data = tomllib.load(fh)
+    for vlan in data.get("vlan", {}).values():
+        for dev in vlan.get("devices", {}).values():
+            mac = dev.get("mac", "")
+            name = dev.get("display_name", "")
+            if mac and name:
+                name_by_mac[mac.lower()] = name
+    return name_by_mac
 
 def parse_ap_output(text):
     """Returns (model, cpu_pct, mac_count, pairs) from one AP's raw session output."""
@@ -307,7 +305,7 @@ def parse_ap_output(text):
 
     return model, cpu_pct, mac_count, pairs
 
-name_by_ip = load_ipmap(ipmap_path)
+name_by_mac = load_devicemap(devices_path)
 
 aps_status = []
 aps_clients = []
@@ -333,7 +331,7 @@ with open(manifest_path, "r", encoding="utf-8") as fh:
             for mac, cip in pairs:
                 if cip == "0.0.0.0" or cip.startswith("172.29."):
                     continue
-                name = name_by_ip.get(cip)
+                name = name_by_mac.get(mac.lower())
                 if name:
                     known.append({"mac": mac, "ip": cip, "name": name})
                 else:

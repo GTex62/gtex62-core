@@ -493,8 +493,8 @@ it.
 - [x] Create `providers/ap/fetch_ap.sh` — own directory, not `providers/pfsense/`
       (see [AP Provider Status](ap-provider-status.md) for why)
 - [x] Collapse 3-session poll to 1 session per AP
-- [x] Join client MAC+IP against `ap_ipmap.csv` (core-owned copy; `devices.toml` migration
-      still pending below)
+- [x] Join client MAC+IP against `devices.toml` (Aug 20, 2026 — migrated from the
+      core-owned `ap_ipmap.csv` copy; see Device Inventory checklist below)
 - [x] Output `ap_status.json` and `ap_clients.json`
 - [x] Use `runtime/ap/ssh_state` gate
 
@@ -506,6 +506,8 @@ it.
 - [x] Establish `devices.toml` path in core config convention — co-located
       with `core.toml` at `~/.config/gtex62-core/devices.toml` (Aug 20, 2026);
       not referenced from `site.toml` — no provider wiring this session
+- [x] Wire `devices.toml` into `fetch_ap.sh`'s MAC↔IP client join, retiring
+      the `ap_ipmap.csv` read (Aug 20, 2026 — see Session History)
 
 ---
 
@@ -593,3 +595,23 @@ collection remain.
   deliberately narrow per this session's instructions: did not touch `fetch_ap.sh`'s
   MAC-to-IP join logic, did not wire `devices.toml` into any provider, did not build
   known-MAC-on-wrong-IP detection — all held for a later session.
+- **Aug 20, 2026 — `fetch_ap.sh` wired to `devices.toml`.** Swapped the AP-client
+  MAC↔IP join from the core-owned `ap_ipmap.csv` copy (IP-keyed) to `devices.toml`
+  (MAC-keyed, all 5 VLANs) — `devices.toml`'s content was not touched this session, only
+  wired in as the new lookup source. The embedded Python's CSV `load_ipmap()` was
+  replaced with `load_devicemap()` using stdlib `tomllib`, joined on `mac.lower()`
+  instead of `ip`; the two `ip:`-keyed offline-WLED entries (no MAC) are skipped by
+  design, matching their existing absence from AP client lists. `ap_clients.json`'s
+  schema, the `0.0.0.0`/`172.29.*` IP pre-filter, and the unknown-IP fallback behavior
+  were left byte-for-byte unchanged — only the lookup key changed. Verified: `jq .`
+  valid on the live output; spot-checked 4 known MACs resolve to their exact
+  `devices.toml` `display_name`. Live cross-check: ran the pre-change script (old
+  `ap_ipmap.csv` path) and the new script back-to-back against the real APs, each into
+  its own scratch cache root, to hold the live station population constant between the
+  two — every known client's `mac`/`ip`/`name` row matched byte-for-byte across all 3
+  APs, `unknown` counts identical (0 on both, all APs). `fetch_ap.sh` no longer reads
+  `ap_ipmap.csv` at all; neither copy of the file (the read-only `gtex62-tech-hud`
+  original or the core-owned copy) was edited or deleted, per guardrail — the
+  core-owned copy is now unread by any provider, cleanup left for later. `[ap]
+  ipmap_path` in `site.toml` is now unused config, left in place — not part of this
+  session's scope.
