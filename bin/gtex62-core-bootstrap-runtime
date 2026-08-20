@@ -51,7 +51,14 @@ if [[ ! -d "$SRC_DIR" ]]; then
   exit 1
 fi
 
+suite_present=0
+[[ -n "$SUITE_DIR" && -d "$SUITE_DIR" ]] && suite_present=1
+
 while IFS= read -r -d '' file; do
+  if [[ "$suite_present" -ne 1 && "$file" == "$SRC_DIR/suites/"* ]]; then
+    printf 'skip  %s (no suite dir; pass --suite-dir to install suite templates)\n' "$file"
+    continue
+  fi
   install_template "$file"
 done < <(find "$SRC_DIR" -type f -name '*.example' -print0 | sort -z)
 
