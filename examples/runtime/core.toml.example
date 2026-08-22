@@ -29,6 +29,12 @@ modem = false
 # like vpn/ap/modem above: not yet wired into gtex62-core-launch.
 alerts = false
 
+# status is the one flag actually wired into gtex62-core-launch today (see
+# bin/gtex62-core-launch, "Provider enable/disable" comment) — true actually
+# starts fetch_pfsense.sh running. router/pihole/pfblockerng remain
+# declarative only, same as vpn/ap/modem/alerts above: the launcher doesn't
+# read these three yet. Defaults here stay false for a fresh install; flip
+# per-suite in the live core.toml once you want a given domain running.
 [providers.pfsense]
 status = false
 router = false
