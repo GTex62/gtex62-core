@@ -1,0 +1,94 @@
+# devices.toml — MAC-keyed device inventory
+#
+# One map of devices per VLAN, keyed by MAC address (lowercase, colon-
+# separated — matches arp.json's format). `mac` is repeated as an explicit
+# field inside each entry for convenience; the map key is authoritative.
+# `ip` is the expected/reserved address for that device and should match
+# live ARP/lease data from your router.
+#
+# For a device with no known MAC yet (never seen on the wire, or MAC not
+# recorded), key it "ip:<addr>" instead and set mac = "" — this keeps the
+# schema a single map per VLAN even for MAC-less placeholder entries.
+#
+# Replace the example entries below with your own devices. The [vlan.*]
+# section names (user/iot/guest/infra/cameras) and their `cidr` values are
+# part of the schema the AP/pfSense providers expect — adjust `cidr` to
+# match your actual VLAN subnets, but keep the five section names as-is
+# unless you're also changing the providers that read this file.
+
+[vlan.user]
+label = "User"
+cidr = "192.168.10.0/24"
+
+[vlan.user.devices."00:00:00:00:00:01"]
+hostname = "example-desktop"
+name = "Example Desktop"
+display_name = "Desktop"
+ip = "192.168.10.101"
+mac = "00:00:00:00:00:01"
+
+[vlan.user.devices."00:00:00:00:00:02"]
+hostname = "example-laptop"
+name = "Example Laptop"
+display_name = "Laptop"
+ip = "192.168.10.102"
+mac = "00:00:00:00:00:02"
+
+[vlan.iot]
+label = "IoT"
+cidr = "192.168.20.0/24"
+
+[vlan.iot.devices."00:00:00:00:00:03"]
+hostname = "example-bulb"
+name = "Smart Bulb"
+display_name = "Bulb"
+ip = "192.168.20.101"
+mac = "00:00:00:00:00:03"
+
+# No MAC known yet — placeholder entry, keyed by IP instead.
+[vlan.iot.devices."ip:192.168.20.102"]
+hostname = ""
+name = "Smart Plug"
+display_name = "Plug"
+ip = "192.168.20.102"
+mac = ""
+
+[vlan.guest]
+label = "Guest"
+cidr = "192.168.30.0/24"
+
+[vlan.guest.devices."00:00:00:00:00:04"]
+hostname = "example-guest-phone"
+name = "Guest Phone"
+display_name = "Guest Phone"
+ip = "192.168.30.101"
+mac = "00:00:00:00:00:04"
+
+[vlan.infra]
+label = "Infra"
+cidr = "192.168.40.0/24"
+
+[vlan.infra.devices."00:00:00:00:00:05"]
+hostname = "example-switch"
+name = "Switch"
+display_name = "Switch (Closet)"
+ip = "192.168.40.101"
+mac = "00:00:00:00:00:05"
+
+[vlan.infra.devices."00:00:00:00:00:06"]
+hostname = "example-ap"
+name = "Access Point"
+display_name = "AP (Office)"
+ip = "192.168.40.102"
+mac = "00:00:00:00:00:06"
+
+[vlan.cameras]
+label = "Cameras"
+cidr = "192.168.50.0/24"
+
+[vlan.cameras.devices."00:00:00:00:00:07"]
+hostname = "example-camera"
+name = "Camera"
+display_name = "Cam (Front)"
+ip = "192.168.50.101"
+mac = "00:00:00:00:00:07"

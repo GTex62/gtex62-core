@@ -508,6 +508,12 @@ it.
       not referenced from `site.toml` — no provider wiring this session
 - [x] Wire `devices.toml` into `fetch_ap.sh`'s MAC↔IP client join, retiring
       the `ap_ipmap.csv` read (Aug 20, 2026 — see Session History)
+- [x] Add `examples/runtime/devices.toml.example` bootstrap template — real
+      `devices.toml` was excluded from the repo/template system same as
+      `core.toml`/`site.toml`, leaving fresh installs with no seed file;
+      `install_template()`'s skip-if-exists logic now generates a working
+      starting file (5 sanitized `[vlan.*]` sections, fake MAC/IP placeholder
+      entries, `ip:`-keyed no-MAC example) on first bootstrap (Aug 22, 2026)
 
 ---
 
