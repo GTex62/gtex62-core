@@ -16,6 +16,28 @@ not yet backfilled here.
 
 ## Unreleased
 
+- **PID-file scoping fix — `NET_LOOP_PID_FILE`/`ORB_LOOP_PID_FILE`
+  (`bin/gtex62-core-launch`)** — every other domain's refresh-loop PID file
+  is suite-scoped (`${SUITE_ID}-<domain>-refresh.pid`); `net` and `orb` were
+  the only two named by profile instead (`net-${NET_PROFILE}-refresh.pid`,
+  `orb-${ORB_PROFILE}-refresh.pid`), so two suites sharing a profile id
+  (e.g. OSA and SitRep both defaulting to `net=local`/`orb=home`) shared the
+  same PID file. Effect: launching the second suite silently killed and
+  re-adopted the first suite's already-running net/orb loop via
+  `cleanup_pidfile()` at startup, and closing whichever suite currently
+  "owned" the file then killed that shared loop on its `EXIT` trap —
+  staling out the other suite's net/orb widgets until something relaunched
+  to re-adopt it. Fixed by folding `${SUITE_ID}` into both filenames
+  (`${SUITE_ID}-net-refresh.pid`, `${SUITE_ID}-orb-refresh.pid`), matching
+  every other domain's pattern exactly. The profile-scoped `name` passed
+  into `refresh_loop`/`run_locked` (lock dir + stamp file) is unchanged —
+  net/orb keep the same cross-suite cache-dedup behavior `pfsense` already
+  has when two suites reference the same profile id. Verified live: with
+  OSA already running, launched SitRep alongside it — SitRep got its own
+  `sitrep-net-refresh.pid`/`sitrep-orb-refresh.pid`, OSA's
+  `net-local-refresh.pid`/`orb-home-refresh.pid` and their live loop PIDs
+  were untouched throughout, and quitting SitRep left OSA's net/orb loop
+  running unaffected.
 - **Alert banner watcher (`providers/alerts/fetch_alerts.sh`)** — new
   cross-cutting provider, no SSH/gate of its own: reads `status.json`,
   `pihole.json`, `ap_status.json`, `ap_clients.json` (all
