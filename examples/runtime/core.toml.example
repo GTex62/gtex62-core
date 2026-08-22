@@ -24,6 +24,10 @@ allow_legacy_suites = true
 vpn = false
 ap = false
 modem = false
+# alerts is the SitRep alert-banner watcher (providers/alerts/fetch_alerts.sh)
+# — reads other providers' cache files, no SSH/gate of its own. Schema-only
+# like vpn/ap/modem above: not yet wired into gtex62-core-launch.
+alerts = false
 
 [providers.pfsense]
 status = false
@@ -33,3 +37,19 @@ router = false
 # hosted on the pfSense box.
 pihole = false
 pfblockerng = false
+
+# Alert-banner watcher thresholds/durations (providers/alerts/fetch_alerts.sh).
+# See gtex62-sitrep/design/sitrep-design-notes.md § Alert banner / outage
+# detection for the full condition table. MSMTCH and unidentified-IP have no
+# threshold key here — any count > 0 is an alert, not configurable.
+[alerts]
+# gateway.online (status.json) continuously false for this long -> SEVERE
+# "COMCAST OUTAGE DETECTED". Proxy for a true loss-% threshold — status.json
+# only has a boolean today (single ping), not loss%/latency sampling; that
+# is a separate, not-yet-built network-health provider (see
+# docs/network-providers-roadmap.md).
+gateway_offline_duration_sec = 900
+# pihole.json active=false continuously for this long -> CAUTION
+# "PI-HOLE INACTIVE". Duration-gated, not instantaneous — Pi-hole has been
+# observed to blip inactive then self-recover.
+pihole_inactive_duration_sec = 600

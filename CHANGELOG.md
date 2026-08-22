@@ -16,6 +16,22 @@ not yet backfilled here.
 
 ## Unreleased
 
+- **Alert banner watcher (`providers/alerts/fetch_alerts.sh`)** — new
+  cross-cutting provider, no SSH/gate of its own: reads `status.json`,
+  `pihole.json`, `ap_status.json`, `ap_clients.json` (all
+  `shared/pfsense/{profile}/`), applies threshold/duration logic from
+  `core.toml`'s new `[alerts]` section, writes a severity-sorted,
+  parent/child-grouped queue to `shared/alerts/{profile}/banner.json` plus a
+  transition-only text log at `shared/alerts/{profile}/alert_log.txt`. Five
+  conditions: gateway offline (SEVERE, duration-gated — a boolean-duration
+  proxy for the not-yet-built `network-health` provider's real loss-%),
+  Pi-hole inactive (CAUTION, duration-gated), AP MAC/IP mismatch (CAUTION,
+  instant, reuses `ap_clients.json`'s `mismatch_total`), unidentified IP
+  (CAUTION, instant, summed from `unknown[]`), AP offline (SEVERE, instant,
+  per AP). `providers.alerts` added to `[providers]` as schema-only (matches
+  `vpn`/`ap`/`modem` — not wired into `gtex62-core-launch`). See
+  [docs/sitrep-architecture.md § Alert Banner Watcher](docs/sitrep-architecture.md#alert-banner-watcher)
+  for full schema and verification.
 - **devices.toml device inventory** — new MAC-keyed device inventory at
   `~/.config/gtex62-core/devices.toml` (co-located with `core.toml`, outside
   both repos same as it). Covers all 5 VLANs (51 devices: 6 User, 25 IoT, 1
