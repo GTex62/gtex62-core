@@ -108,6 +108,7 @@ write_stub() {
   fi
   for out in "$STATUS_JSON" "$CLIENTS_JSON"; do
     collector="ap_status"; [[ "$out" == "$CLIENTS_JSON" ]] && collector="ap_clients"
+    extra='{}'; [[ "$out" == "$CLIENTS_JSON" ]] && extra='{mismatch_total:0}'
     jq -n \
       --arg state       "$state" \
       --arg profile     "$PROFILE_ID" \
@@ -118,6 +119,7 @@ write_stub() {
       --arg reason      "$reason" \
       --argjson tripped "$tripped" \
       --argjson left    "${left:-0}" \
+      --argjson extra   "$extra" \
       '{
         state:$state,
         profile:$profile,
@@ -127,7 +129,7 @@ write_stub() {
         ssh_target:"ap-fleet",
         ssh_gate:{status:$gate_status, tripped:$tripped, left_seconds:$left, reason:$reason},
         aps:[]
-      }' > "$out"
+      } + $extra' > "$out"
   done
 }
 
@@ -260,21 +262,23 @@ MAC_RE    = re.compile(r'^\s{2}MAC:\s*(\S+)\s*$')
 IPV4_RE   = re.compile(r'^\s{2}IPv4:\s*(\S+)\s*$')
 
 def load_devicemap(path):
-    """Returns {mac (lowercase): display_name}, joined across all VLANs.
-    The 2 ip:-keyed WLED entries (no MAC) are skipped by design — they
-    never show up as AP clients anyway."""
-    name_by_mac = {}
+    """Returns {mac (lowercase): (display_name, documented_ip)}, joined
+    across all VLANs. The 2 ip:-keyed WLED entries (no MAC) are skipped by
+    design — they never show up as AP clients anyway, and have no real MAC
+    to check a mismatch condition against."""
+    info_by_mac = {}
     if not os.path.isfile(path):
-        return name_by_mac
+        return info_by_mac
     with open(path, "rb") as fh:
         data = tomllib.load(fh)
     for vlan in data.get("vlan", {}).values():
         for dev in vlan.get("devices", {}).values():
             mac = dev.get("mac", "")
             name = dev.get("display_name", "")
+            ip = dev.get("ip", "")
             if mac and name:
-                name_by_mac[mac.lower()] = name
-    return name_by_mac
+                info_by_mac[mac.lower()] = (name, ip)
+    return info_by_mac
 
 def parse_ap_output(text):
     """Returns (model, cpu_pct, mac_count, pairs) from one AP's raw session output."""
@@ -305,10 +309,11 @@ def parse_ap_output(text):
 
     return model, cpu_pct, mac_count, pairs
 
-name_by_mac = load_devicemap(devices_path)
+info_by_mac = load_devicemap(devices_path)
 
 aps_status = []
 aps_clients = []
+mismatch_total = 0
 
 with open(manifest_path, "r", encoding="utf-8") as fh:
     for line in fh:
@@ -323,6 +328,7 @@ with open(manifest_path, "r", encoding="utf-8") as fh:
         client_count = 0
         known = []
         unknown = []
+        mismatches = []
 
         if online and os.path.isfile(raw_path):
             with open(raw_path, "r", encoding="utf-8", errors="replace") as rf:
@@ -331,13 +337,24 @@ with open(manifest_path, "r", encoding="utf-8") as fh:
             for mac, cip in pairs:
                 if cip == "0.0.0.0" or cip.startswith("172.29."):
                     continue
-                name = name_by_mac.get(mac.lower())
-                if name:
+                info = info_by_mac.get(mac.lower())
+                if info:
+                    name, documented_ip = info
                     known.append({"mac": mac, "ip": cip, "name": name})
+                    if documented_ip and cip != documented_ip:
+                        mismatches.append({
+                            "mac": mac,
+                            "ip": cip,
+                            "documented_ip": documented_ip,
+                            "name": name,
+                        })
                 else:
                     unknown.append(cip)
             known.sort(key=lambda c: c["name"])
             unknown = sorted(set(unknown))
+            mismatches.sort(key=lambda c: c["name"])
+
+        mismatch_total += len(mismatches)
 
         aps_status.append({
             "label": label,
@@ -353,6 +370,7 @@ with open(manifest_path, "r", encoding="utf-8") as fh:
             "online": online,
             "clients": known,
             "unknown": unknown,
+            "mismatches": mismatches,
         })
 
 tripped = gate_str.startswith("TRIPPED")
@@ -388,7 +406,7 @@ def envelope(collector, extra):
     return payload
 
 status_payload = envelope("ap_status", {"aps": aps_status})
-clients_payload = envelope("ap_clients", {"aps": aps_clients})
+clients_payload = envelope("ap_clients", {"aps": aps_clients, "mismatch_total": mismatch_total})
 
 for out_path, payload in ((status_out, status_payload), (clients_out, clients_payload)):
     tmp = out_path + ".tmp"

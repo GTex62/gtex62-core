@@ -138,6 +138,7 @@ is `0` when `online` is `false`.
   "generated_at": "2026-08-19T05:11:19Z",
   "ssh_target": "ap-fleet",
   "ssh_gate": { "status": "OK", "tripped": false, "left_seconds": 0, "reason": "" },
+  "mismatch_total": 0,
   "aps": [
     {
       "label": "CLOSET",
@@ -146,7 +147,8 @@ is `0` when `online` is `false`.
       "clients": [
         { "mac": "aa:bb:cc:dd:ee:ff", "ip": "192.168.20.12", "name": "Ka Nght Stnd" }
       ],
-      "unknown": []
+      "unknown": [],
+      "mismatches": []
     }
   ]
 }
@@ -184,6 +186,46 @@ way (confirmed live, Aug 19, 2026: OFFICE showed 8 raw `MAC:` lines vs. 7
 filtered/known, on **both** the legacy scripts and the new provider,
 identically). Fixing it would be a design change, not a port — out of scope
 here.
+
+**MAC/IP mismatch detection (`MSMTCH`) — IMPLEMENTED (Aug 22, 2026).** For
+every client whose MAC resolves to a known `devices.toml` entry (i.e. every
+entry that lands in `clients[]`), the provider also compares the client's
+*current* IP (from the AP's own station table, same value already in that
+entry's `ip` field) against `devices.toml`'s *documented* `ip` field for
+that MAC. A difference produces an entry in a new per-AP `mismatches[]`
+array — same shape/placement pattern as `unknown[]` — holding
+`{mac, ip, documented_ip, name}`: `ip` is the live value, `documented_ip`
+is what `devices.toml` says it should be. The matching `clients[]` entry is
+left unchanged (unaffected by whether a mismatch was found) — a mismatched
+client still appears in both `clients[]` and `mismatches[]`. Per-AP count is
+simply `mismatches[].length`; a top-level `mismatch_total` integer (sibling
+of `aps[]`) sums it network-wide, per the two-level display design in
+[SitRep Design Notes § Access Points panel](../../gtex62-sitrep/design/sitrep-design-notes.md)
+(network-wide total feeds the future alert banner, per-AP breakdown shows
+how many of that AP's own clients are contributing to the total). The two
+`ip:`-keyed no-MAC WLED placeholder entries are skipped by design, same as
+the existing client join — they have no real MAC to check a mismatch
+condition against.
+
+`load_devicemap()` was extended, not duplicated, to support this: it now
+returns `{mac: (display_name, documented_ip)}` instead of
+`{mac: display_name}`, so the one MAC→devices.toml lookup built in the Aug
+20, 2026 join-migration session now also feeds this check — no second
+parallel lookup was written.
+
+**Verified (Aug 22, 2026):** `jq .` valid on live output; `mismatch_total`
+is `0` across all 3 APs on the live fleet (every currently-connected known
+client's IP matches its documented `devices.toml` entry today). Spot-check:
+manually confirmed one live client (MAC `e2:77:2c:da:18:09`, the "A14"
+phone, connected to CLOSET at the time) against `devices.toml`'s documented
+IP for that MAC (`192.168.30.20`) — exact match, consistent with the
+network-wide 0-mismatch result. Simulated-mismatch test: ran the provider a
+second time against a scratch copy of `devices.toml` (real file untouched,
+confirmed via unchanged mtime/checksum afterward) with that same MAC's `ip`
+deliberately changed to a wrong value, pointed at a throwaway cache
+directory — `mismatch_total` correctly went from `0` to `1`, attributed to
+the correct AP (CLOSET, where that client was actually connected), with the
+correct `documented_ip` in the flagged entry.
 
 ### Device Map
 
@@ -273,3 +315,9 @@ entries on any AP in this run (every currently-associated client is in
 - [ ] `gtex62-tech-hud`'s legacy `ap_status_all_clients.sh` /
       `ap_clients_named.sh` remain untouched and in production — no
       migration of the suite itself happens in this session (guardrail).
+- [x] MAC/IP mismatch detection (`MSMTCH`) — `mismatches[]` per AP +
+      top-level `mismatch_total` in `ap_clients.json` (Aug 22, 2026 —
+      see the MSMTCH subsection above). Core-side only; SitRep's
+      `MSMTCH` header-row display and alert-banner wiring remain
+      design-only (see
+      [SitRep Design Notes § Access Points panel](../../gtex62-sitrep/design/sitrep-design-notes.md)).
