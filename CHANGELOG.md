@@ -14,6 +14,73 @@ not yet backfilled here.
 
 ---
 
+## Unreleased
+
+- **devices.toml device inventory** — new MAC-keyed device inventory at
+  `~/.config/gtex62-core/devices.toml` (co-located with `core.toml`, outside
+  both repos same as it). Covers all 5 VLANs (51 devices: 6 User, 25 IoT, 1
+  Guest, 9 Infra, 10 Cameras). MAC/IP/VLAN/name/hostname sourced from the
+  network design PDF, `display_name` from the legacy `ap_ipmap.csv`. Two
+  known-offline WLEDs have no MAC — keyed `"ip:<addr>"` instead, with an
+  explicit `mac = ""`. Validated against live `arp.json`/`leases.json`: 38
+  of 49 MAC-bearing devices confirmed present with matching IP, 0
+  mismatches; 11 documented devices not currently in ARP (flagged
+  idle/aged-out, not confirmed offline). See
+  [docs/pfsense-provider-status.md](docs/pfsense-provider-status.md) §
+  Device Inventory.
+- **devices.toml wired into fetch_ap.sh** — `fetch_ap.sh`'s AP-client join
+  now keys on MAC against `devices.toml` (all 5 VLANs) instead of IP
+  against the core-owned `ap_ipmap.csv` copy, which is now retired but left
+  untouched on disk. The Python CSV `load_ipmap()` was replaced with
+  `load_devicemap()` (stdlib `tomllib`), joined on `mac.lower()`.
+  `ap_clients.json`'s schema and the `0.0.0.0`/`172.29.*` IP pre-filter are
+  unchanged — only the lookup key changed. Live cross-check: pre- and
+  post-change scripts run back-to-back against the real APs matched
+  byte-for-byte on every known client's mac/ip/name across all 3 APs.
+- **Bootstrap architecture fix** — `gtex62-core-bootstrap-runtime`
+  previously installed `examples/runtime/suites/osa.toml.example`
+  unconditionally, even for a core-only run with no suite dir present —
+  silently writing an `enabled = true` `suites/osa.toml` pointing at a
+  nonexistent path. The `suites/*` template install now skips when
+  `SUITE_DIR` is empty or not a real directory. New
+  `scripts/bootstrap-runtime-root.sh` — the canonical, directly-runnable
+  core-only entrypoint (thin exec into `bin/gtex62-core-bootstrap-runtime`);
+  only safe to add once the skip fix landed, since without it a bare
+  core-only run would still fabricate the OSA suite entry. Confirmed
+  `install_template()`'s existing skip-if-exists logic was already
+  safe/idempotent — installing core-only then adding a suite later doesn't
+  clobber anything already on disk.
+- **README: core-only bootstrap path documented** — the "Bootstrap and
+  Launch" section now documents `scripts/bootstrap-runtime-root.sh`
+  alongside the existing suite-delegated bootstrap path; previously only
+  the latter was documented.
+- **devices.toml.example bootstrap template** — the real `devices.toml` is
+  excluded from the repo and the template system (same convention as
+  `core.toml`/`site.toml`), which meant a fresh clone + bootstrap produced
+  no `devices.toml` at all, silently breaking AP client naming and MSMTCH
+  detection for anyone not already running this exact setup. New
+  `examples/runtime/devices.toml.example` matches the real schema: five
+  `[vlan.*]` sections (user/iot/guest/infra/cameras), MAC-keyed devices with
+  hostname/name/display_name/ip/mac fields, and the `ip:`-prefixed key
+  pattern for no-MAC placeholder entries — populated with sanitized/fake
+  placeholder data only. Picked up automatically by `install_template()`'s
+  existing skip-if-exists logic. Verified: fresh bootstrap generates a
+  `devices.toml` that parses cleanly (5 vlans, 8 placeholder devices);
+  bootstrap against a directory with an existing `devices.toml` leaves it
+  byte-for-byte unchanged.
+- **MSMTCH — AP client MAC/IP mismatch detection** — `fetch_ap.sh` now
+  flags AP clients whose MAC is known in `devices.toml` but whose live IP
+  doesn't match the documented one. `load_devicemap()` was extended (not
+  duplicated) to also return each device's documented IP. `ap_clients.json`
+  gains a per-AP `mismatches[]` array (mirrors the existing `unknown[]`
+  pattern, holding `{mac, ip, documented_ip, name}`) plus a network-wide
+  `mismatch_total`. The two `ip:`-keyed no-MAC placeholder entries are
+  skipped, same as the existing join. Verified live against all 3 APs:
+  `mismatch_total` is 0 everywhere (current known-good state); confirmed
+  the count increments correctly via a simulated mismatch against a
+  scratch copy of `devices.toml` (real file untouched throughout). See
+  [docs/ap-provider-status.md](docs/ap-provider-status.md) § MSMTCH.
+
 ## 0.3.0 — 2026-08-19
 
 - **Provider enable/disable schema** — `[providers]` / `[providers.pfsense]`
