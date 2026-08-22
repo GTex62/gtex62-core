@@ -1,0 +1,25 @@
+suite_id = "sitrep"
+name = "gtex62-sitrep"
+suite_repo = "__SUITE_REPO__"
+suite_manifest = "__SUITE_REPO__/suite.toml"
+enabled = true
+
+[profiles]
+pfsense = "main_router"
+ap = "main_router"
+alerts = "main_router"
+vpn = "local"
+modem = "local"
+
+[domains]
+required = [
+  "pfsense",
+  "vpn",
+  "ap",
+  "modem",
+  "alerts",
+]
+optional = []
+
+[suite_cache]
+namespaces = ["pfsense", "vpn", "modem", "alerts"]
