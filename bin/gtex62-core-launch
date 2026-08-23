@@ -80,15 +80,25 @@ elif [[ -f "$LEGACY_ENGINE_TOML" ]]; then
 fi
 CACHE_ROOT="${CACHE_ROOT:-$(resolve_root "" "" "$HOME/.cache/gtex62-core" "$HOME/.cache/gtex62-conky")}"
 
-# Provider enable/disable (core.toml [providers.pfsense]). Missing file, missing
-# section, or missing key all fall through to "false" — a missing core.toml is
-# equivalent to everything disabled. Only the pfsense "status" domain (the one
-# fetch_pfsense.sh call already wired into this launcher) is gated today; the
-# other core.toml provider flags (vpn/ap/modem/router/pihole/pfblockerng) are
-# schema-only until those scripts are wired in as a separate task — see
+# Provider enable/disable (core.toml [providers] / [providers.pfsense]).
+# Missing file, missing section, or missing key all fall through to "false" —
+# a missing core.toml is equivalent to everything disabled. All seven flags
+# are wired into initial_refresh/refresh_loop below — see
 # docs/pfsense-provider-status.md.
 PFSENSE_STATUS_ENABLED="$(parse_toml_section_value "$CORE_TOML" providers.pfsense status || true)"
 PFSENSE_STATUS_ENABLED="${PFSENSE_STATUS_ENABLED:-false}"
+ROUTER_ENABLED="$(parse_toml_section_value "$CORE_TOML" providers.pfsense router || true)"
+ROUTER_ENABLED="${ROUTER_ENABLED:-false}"
+PIHOLE_ENABLED="$(parse_toml_section_value "$CORE_TOML" providers.pfsense pihole || true)"
+PIHOLE_ENABLED="${PIHOLE_ENABLED:-false}"
+PFBLOCKERNG_ENABLED="$(parse_toml_section_value "$CORE_TOML" providers.pfsense pfblockerng || true)"
+PFBLOCKERNG_ENABLED="${PFBLOCKERNG_ENABLED:-false}"
+VPN_ENABLED="$(parse_toml_section_value "$CORE_TOML" providers vpn || true)"
+VPN_ENABLED="${VPN_ENABLED:-false}"
+AP_ENABLED="$(parse_toml_section_value "$CORE_TOML" providers ap || true)"
+AP_ENABLED="${AP_ENABLED:-false}"
+MODEM_ENABLED="$(parse_toml_section_value "$CORE_TOML" providers modem || true)"
+MODEM_ENABLED="${MODEM_ENABLED:-false}"
 
 SUITE_DIR="$(parse_toml_value "$SUITE_TOML" suite_repo)"
 WEATHER_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles weather || true)"
@@ -104,6 +114,9 @@ CONNECTIVITY_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles connecti
 PFSENSE_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles pfsense || true)"
 NET_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles net || true)"
 ORB_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles orb || true)"
+VPN_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles vpn || true)"
+AP_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles ap || true)"
+MODEM_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles modem || true)"
 WEATHER_PROFILE="${WEATHER_PROFILE:-home}"
 AIR_PROFILE="${AIR_PROFILE:-home}"
 SOLAR_PROFILE="${SOLAR_PROFILE:-home}"
@@ -117,6 +130,9 @@ CONNECTIVITY_PROFILE="${CONNECTIVITY_PROFILE:-default}"
 PFSENSE_PROFILE="${PFSENSE_PROFILE:-main_router}"
 NET_PROFILE="${NET_PROFILE:-local}"
 ORB_PROFILE="${ORB_PROFILE:-home}"
+VPN_PROFILE="${VPN_PROFILE:-local}"
+AP_PROFILE="${AP_PROFILE:-main_router}"
+MODEM_PROFILE="${MODEM_PROFILE:-local}"
 
 WEATHER_PROFILE_TOML="$CONFIG_ROOT/profiles/weather/${WEATHER_PROFILE}.toml"
 AIR_PROFILE_TOML="$CONFIG_ROOT/profiles/air/${AIR_PROFILE}.toml"
@@ -139,6 +155,17 @@ TIME_TTL="$(parse_toml_section_value "$TIME_PROFILE_TOML" cache refresh_sec || t
 ASTRO_TTL="$(parse_toml_section_value "$ASTRO_PROFILE_TOML" cache refresh_sec || true)"
 NETWORK_TTL="$(parse_toml_section_value "$NETWORK_PROFILE_TOML" cache refresh_sec || true)"
 PFSENSE_TTL="$(parse_toml_value "$PFSENSE_PROFILE_TOML" cache_ttl_sec || true)"
+ROUTER_TTL="$(parse_toml_section_value "$PFSENSE_PROFILE_TOML" router cache_ttl_sec || true)"
+PIHOLE_TTL="$(parse_toml_section_value "$PFSENSE_PROFILE_TOML" pihole cache_ttl_sec || true)"
+PFBLOCKERNG_TTL="$(parse_toml_section_value "$PFSENSE_PROFILE_TOML" pfblockerng cache_ttl_sec || true)"
+SITE_TOML="$CONFIG_ROOT/site.toml"
+VPN_PROFILE_TOML="$CONFIG_ROOT/profiles/vpn/${VPN_PROFILE}.toml"
+VPN_TTL="$(parse_toml_value "$VPN_PROFILE_TOML" cache_ttl_sec || true)"
+AP_PROFILE_TOML="$CONFIG_ROOT/profiles/pfsense/${AP_PROFILE}.toml"
+AP_TTL="$(parse_toml_section_value "$AP_PROFILE_TOML" ap cache_ttl_sec || true)"
+AP_TTL="${AP_TTL:-$(parse_toml_section_value "$SITE_TOML" ap cache_ttl_sec || true)}"
+MODEM_PROFILE_TOML="$CONFIG_ROOT/profiles/modem/${MODEM_PROFILE}.toml"
+MODEM_TTL="$(parse_toml_value "$MODEM_PROFILE_TOML" cache_ttl_sec || true)"
 NET_PROFILE_TOML="$CONFIG_ROOT/profiles/net/${NET_PROFILE}.toml"
 NET_TTL="$(parse_toml_section_value "$NET_PROFILE_TOML" cache ttl_sec || true)"
 ORB_PROFILE_TOML="$CONFIG_ROOT/profiles/orb/${ORB_PROFILE}.toml"
@@ -154,6 +181,12 @@ TIME_TTL="${TIME_TTL:-1}"
 ASTRO_TTL="${ASTRO_TTL:-60}"
 NETWORK_TTL="${NETWORK_TTL:-5}"
 PFSENSE_TTL="${PFSENSE_TTL:-5}"
+ROUTER_TTL="${ROUTER_TTL:-60}"
+PIHOLE_TTL="${PIHOLE_TTL:-300}"
+PFBLOCKERNG_TTL="${PFBLOCKERNG_TTL:-300}"
+VPN_TTL="${VPN_TTL:-10}"
+AP_TTL="${AP_TTL:-120}"
+MODEM_TTL="${MODEM_TTL:-300}"
 NET_TTL="${NET_TTL:-60}"
 ORB_TTL="${ORB_TTL:-60}"
 AVIATION_TTL="$AVIATION_METAR_TTL"
@@ -186,6 +219,9 @@ mkdir -p \
   "$CACHE_ROOT/shared/network/$NETWORK_PROFILE" \
   "$CACHE_ROOT/shared/connectivity/$CONNECTIVITY_PROFILE" \
   "$CACHE_ROOT/shared/pfsense/$PFSENSE_PROFILE" \
+  "$CACHE_ROOT/shared/pfsense/$AP_PROFILE" \
+  "$CACHE_ROOT/shared/vpn/$VPN_PROFILE" \
+  "$CACHE_ROOT/shared/modem/$MODEM_PROFILE" \
   "$CACHE_ROOT/shared/net/$NET_PROFILE" \
   "$CACHE_ROOT/shared/orb/$ORB_PROFILE" \
   "$LOCKS_DIR" \
@@ -205,6 +241,12 @@ ASTRO_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-astro-refresh.pid"
 NETWORK_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-network-refresh.pid"
 CONNECTIVITY_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-connectivity-refresh.pid"
 PFSENSE_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-pfsense-refresh.pid"
+ROUTER_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-router-refresh.pid"
+PIHOLE_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-pihole-refresh.pid"
+PFBLOCKERNG_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-pfblockerng-refresh.pid"
+VPN_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-vpn-refresh.pid"
+AP_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-ap-refresh.pid"
+MODEM_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-modem-refresh.pid"
 NET_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-net-refresh.pid"
 ORB_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-orb-refresh.pid"
 LAUNCHER_PID_FILE="$PIDS_DIR/${SUITE_ID}-launcher.pid"
@@ -219,6 +261,12 @@ ASTRO_STAMP="$STAMPS_DIR/astro-${ASTRO_PROFILE}.stamp"
 NETWORK_STAMP="$STAMPS_DIR/network-${NETWORK_PROFILE}.stamp"
 CONNECTIVITY_STAMP="$STAMPS_DIR/connectivity-${CONNECTIVITY_PROFILE}.stamp"
 PFSENSE_STAMP="$STAMPS_DIR/pfsense-${PFSENSE_PROFILE}.stamp"
+ROUTER_STAMP="$STAMPS_DIR/router-${PFSENSE_PROFILE}.stamp"
+PIHOLE_STAMP="$STAMPS_DIR/pihole-${PFSENSE_PROFILE}.stamp"
+PFBLOCKERNG_STAMP="$STAMPS_DIR/pfblockerng-${PFSENSE_PROFILE}.stamp"
+VPN_STAMP="$STAMPS_DIR/vpn-${VPN_PROFILE}.stamp"
+AP_STAMP="$STAMPS_DIR/ap-${AP_PROFILE}.stamp"
+MODEM_STAMP="$STAMPS_DIR/modem-${MODEM_PROFILE}.stamp"
 NET_STAMP="$STAMPS_DIR/net-${NET_PROFILE}.stamp"
 ORB_STAMP="$STAMPS_DIR/orb-${ORB_PROFILE}.stamp"
 
@@ -281,6 +329,12 @@ cleanup_pidfile "$ASTRO_LOOP_PID_FILE"
 cleanup_pidfile "$NETWORK_LOOP_PID_FILE"
 cleanup_pidfile "$CONNECTIVITY_LOOP_PID_FILE"
 cleanup_pidfile "$PFSENSE_LOOP_PID_FILE"
+cleanup_pidfile "$ROUTER_LOOP_PID_FILE"
+cleanup_pidfile "$PIHOLE_LOOP_PID_FILE"
+cleanup_pidfile "$PFBLOCKERNG_LOOP_PID_FILE"
+cleanup_pidfile "$VPN_LOOP_PID_FILE"
+cleanup_pidfile "$AP_LOOP_PID_FILE"
+cleanup_pidfile "$MODEM_LOOP_PID_FILE"
 cleanup_pidfile "$NET_LOOP_PID_FILE"
 cleanup_pidfile "$ORB_LOOP_PID_FILE"
 
@@ -421,6 +475,24 @@ initial_refresh "connectivity-${CONNECTIVITY_PROFILE}" "$CONNECTIVITY_STAMP" "$C
 if [[ "$PFSENSE_STATUS_ENABLED" == "true" ]]; then
   initial_refresh "pfsense-${PFSENSE_PROFILE}" "$PFSENSE_STAMP" "$CORE_DIR/providers/pfsense/fetch_pfsense.sh" "$PFSENSE_PROFILE"
 fi
+if [[ "$ROUTER_ENABLED" == "true" ]]; then
+  initial_refresh "router-${PFSENSE_PROFILE}" "$ROUTER_STAMP" "$CORE_DIR/providers/pfsense/fetch_router.sh" "$PFSENSE_PROFILE"
+fi
+if [[ "$PIHOLE_ENABLED" == "true" ]]; then
+  initial_refresh "pihole-${PFSENSE_PROFILE}" "$PIHOLE_STAMP" "$CORE_DIR/providers/pfsense/fetch_pihole.sh" "$PFSENSE_PROFILE"
+fi
+if [[ "$PFBLOCKERNG_ENABLED" == "true" ]]; then
+  initial_refresh "pfblockerng-${PFSENSE_PROFILE}" "$PFBLOCKERNG_STAMP" "$CORE_DIR/providers/pfsense/fetch_pfblockerng.sh" "$PFSENSE_PROFILE"
+fi
+if [[ "$VPN_ENABLED" == "true" ]]; then
+  initial_refresh "vpn-${VPN_PROFILE}" "$VPN_STAMP" "$CORE_DIR/providers/vpn/fetch_vpn.sh" "$VPN_PROFILE"
+fi
+if [[ "$AP_ENABLED" == "true" ]]; then
+  initial_refresh "ap-${AP_PROFILE}" "$AP_STAMP" "$CORE_DIR/providers/ap/fetch_ap.sh" "$AP_PROFILE"
+fi
+if [[ "$MODEM_ENABLED" == "true" ]]; then
+  initial_refresh "modem-${MODEM_PROFILE}" "$MODEM_STAMP" "$CORE_DIR/providers/modem/fetch_modem.sh" "$MODEM_PROFILE"
+fi
 initial_refresh "net-${NET_PROFILE}" "$NET_STAMP" "$CORE_DIR/providers/net/fetch_net.sh" "$NET_PROFILE"
 initial_refresh "orb-${ORB_PROFILE}" "$ORB_STAMP" "$CORE_DIR/providers/orb/fetch_orb.sh" "$ORB_PROFILE"
 
@@ -435,6 +507,24 @@ refresh_loop "astro-${ASTRO_PROFILE}" "$ASTRO_TTL" "$ASTRO_STAMP" "$ASTRO_LOOP_P
 refresh_loop "network-${NETWORK_PROFILE}" "$NETWORK_TTL" "$NETWORK_STAMP" "$NETWORK_LOOP_PID_FILE" "$CORE_DIR/providers/network/fetch_network.sh" "$NETWORK_PROFILE"
 if [[ "$PFSENSE_STATUS_ENABLED" == "true" ]]; then
   refresh_loop "pfsense-${PFSENSE_PROFILE}" "$PFSENSE_TTL" "$PFSENSE_STAMP" "$PFSENSE_LOOP_PID_FILE" "$CORE_DIR/providers/pfsense/fetch_pfsense.sh" "$PFSENSE_PROFILE"
+fi
+if [[ "$ROUTER_ENABLED" == "true" ]]; then
+  refresh_loop "router-${PFSENSE_PROFILE}" "$ROUTER_TTL" "$ROUTER_STAMP" "$ROUTER_LOOP_PID_FILE" "$CORE_DIR/providers/pfsense/fetch_router.sh" "$PFSENSE_PROFILE"
+fi
+if [[ "$PIHOLE_ENABLED" == "true" ]]; then
+  refresh_loop "pihole-${PFSENSE_PROFILE}" "$PIHOLE_TTL" "$PIHOLE_STAMP" "$PIHOLE_LOOP_PID_FILE" "$CORE_DIR/providers/pfsense/fetch_pihole.sh" "$PFSENSE_PROFILE"
+fi
+if [[ "$PFBLOCKERNG_ENABLED" == "true" ]]; then
+  refresh_loop "pfblockerng-${PFSENSE_PROFILE}" "$PFBLOCKERNG_TTL" "$PFBLOCKERNG_STAMP" "$PFBLOCKERNG_LOOP_PID_FILE" "$CORE_DIR/providers/pfsense/fetch_pfblockerng.sh" "$PFSENSE_PROFILE"
+fi
+if [[ "$VPN_ENABLED" == "true" ]]; then
+  refresh_loop "vpn-${VPN_PROFILE}" "$VPN_TTL" "$VPN_STAMP" "$VPN_LOOP_PID_FILE" "$CORE_DIR/providers/vpn/fetch_vpn.sh" "$VPN_PROFILE"
+fi
+if [[ "$AP_ENABLED" == "true" ]]; then
+  refresh_loop "ap-${AP_PROFILE}" "$AP_TTL" "$AP_STAMP" "$AP_LOOP_PID_FILE" "$CORE_DIR/providers/ap/fetch_ap.sh" "$AP_PROFILE"
+fi
+if [[ "$MODEM_ENABLED" == "true" ]]; then
+  refresh_loop "modem-${MODEM_PROFILE}" "$MODEM_TTL" "$MODEM_STAMP" "$MODEM_LOOP_PID_FILE" "$CORE_DIR/providers/modem/fetch_modem.sh" "$MODEM_PROFILE"
 fi
 refresh_loop "net-${NET_PROFILE}" "$NET_TTL" "$NET_STAMP" "$NET_LOOP_PID_FILE" "$CORE_DIR/providers/net/fetch_net.sh" "$NET_PROFILE"
 refresh_loop "orb-${ORB_PROFILE}" "$ORB_TTL" "$ORB_STAMP" "$ORB_LOOP_PID_FILE" "$CORE_DIR/providers/orb/fetch_orb.sh" "$ORB_PROFILE"

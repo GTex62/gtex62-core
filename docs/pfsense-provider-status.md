@@ -105,17 +105,17 @@ when it's `false` (or the key/section/file is absent) — the domain is not
 fetched at all, not fetched-and-discarded. `fetch_pfsense.sh` itself was not
 touched; the gate is purely at the launcher's call site.
 
-**Not yet wired (schema-only):** `vpn`, `ap`, `modem`, `router`, `pihole`,
-`pfblockerng`. These flags exist in `core.toml` and are semantically
-correct, but `gtex62-core-launch` currently only ever invokes
-`fetch_pfsense.sh` — `fetch_router.sh`, `fetch_pfblockerng.sh`,
-`fetch_pihole.sh`, `fetch_vpn.sh`, `fetch_modem.sh`, and `fetch_ap.sh` are
-built and verified (see their own domain sections/session history) but were
-never wired into the launcher in the first place. Flipping any of those six
-flags to `true` does nothing today; wiring each script in (profile
-resolution, TTL, stamp/pid files, gated `initial_refresh`/`refresh_loop`
-calls — same shape as the `pfsense.status` change above) is a separate,
-not-yet-scheduled task.
+**Wired (Aug 22, 2026):** `vpn`, `ap`, `modem`, `router`, `pihole`,
+`pfblockerng` are now all gated into `gtex62-core-launch` the same shape as
+`pfsense.status` — profile resolution, per-script `cache_ttl_sec`-matched
+TTL, suite-scoped stamp/PID files, gated `initial_refresh`/`refresh_loop`
+calls. `router`/`pihole`/`pfblockerng` reuse the existing `PFSENSE_PROFILE`
+(same `profiles/pfsense/{profile}.toml` the pfsense-status domain already
+reads); `vpn`/`ap`/`modem` get their own profile vars. See CHANGELOG.md's
+Unreleased entry for the wiring details and live verification, and each
+domain's own dated entry above for the scripts' original build/verification
+(unchanged by this wiring pass — no script was touched). `alerts` remains
+schema-only — it has no launcher call site to gate yet.
 
 **SitRep display states** (Disabled / Unconfigured / existing degraded
 states / Healthy) are a design note only — `lua/suite/pf.lua` doesn't exist

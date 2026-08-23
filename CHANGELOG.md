@@ -16,6 +16,37 @@ not yet backfilled here.
 
 ## Unreleased
 
+- **Remaining six providers wired into `gtex62-core-launch`** — closes the
+  "never wired into the launcher" gap flagged in
+  [docs/pfsense-provider-status.md § Provider Enable/Disable](docs/pfsense-provider-status.md#provider-enabledisable):
+  `vpn`, `ap`, `modem`, `router`, `pihole`, `pfblockerng` now each get their
+  own gated `initial_refresh`/`refresh_loop` call, same shape as the
+  `providers.pfsense.status` wiring already in place. Each script itself was
+  not touched — this session only added the launcher's call sites (profile
+  resolution, cache-TTL read matching each script's own `cache_ttl_sec`
+  convention, suite-scoped PID/stamp files, `core.toml`-gated enable check).
+  `router`/`pihole`/`pfblockerng` reuse the existing `PFSENSE_PROFILE`/
+  `PFSENSE_PROFILE_TOML` vars rather than adding new ones, since those three
+  scripts already read `profiles/pfsense/{profile}.toml` same as `status`.
+  `vpn`/`ap`/`modem` get their own profile vars (`local`/`main_router`/
+  `local`, matching `suites/sitrep.toml [profiles]`). TTL defaults mirror
+  each script's own fallback exactly: `router` 60s, `pihole`/`pfblockerng`/
+  `modem` 300s, `vpn` 10s, `ap` 120s (with the same profile→`site.toml`
+  fallback `fetch_ap.sh` itself uses). `core.toml`'s `[providers]`/
+  `[providers.pfsense]` comments updated to drop the now-stale
+  "schema-only"/"not yet wired" language for these six flags; `alerts`
+  remains schema-only (out of scope — no launcher call site to gate yet).
+  The six scripts' own build/verification is not re-litigated here — see
+  their original dated entries below (VPN, modem, router, pfBlockerNG,
+  Pi-hole, AP) and
+  [docs/ap-provider-status.md](docs/ap-provider-status.md) for AP. Verified
+  live: restarted the running SitRep launcher, confirmed all six now-wired
+  cache files (`vpn.json`, `ap_status.json`/`ap_clients.json`, `status.json`
+  under `shared/modem/`, `router.json`, `pihole.json`, `pfblockerng.json`)
+  populate with `state: "ok"` on first fetch, then watched `generated_at`
+  advance across multiple real cycles at each provider's configured
+  interval (10s/60s/120s/300s) without disturbing the already-running
+  `pfsense.status` domain or any other suite provider.
 - **PID-file scoping fix — `NET_LOOP_PID_FILE`/`ORB_LOOP_PID_FILE`
   (`bin/gtex62-core-launch`)** — every other domain's refresh-loop PID file
   is suite-scoped (`${SUITE_ID}-<domain>-refresh.pid`); `net` and `orb` were
