@@ -14,8 +14,82 @@ not yet backfilled here.
 
 ---
 
-## Unreleased
+## 0.4.0 — 2026-08-24
 
+- **Modem `connectivity_state`/`boot_state` (`providers/modem/fetch_modem.py`)**
+  — parses two more rows out of the CM1000's `startup_procedure_table`
+  (already-scraped alongside the upstream/downstream channel tables),
+  matched by row label (case-insensitive), not position/count — the table
+  carries other rows (Acquire Downstream Channel, Configuration File,
+  Security, IP Provisioning Mode) that aren't part of this schema and are
+  deliberately ignored rather than misread. Both new fields land in
+  `status.json` as `{status, comment}` objects, additive alongside the
+  existing channel/`recent_t3_timeouts` fields. Verified live against the
+  real modem: a fresh run succeeds (`state: "ok"`, no note), both fields
+  populate (`status: "OK"`, `comment: "Operational"` for each).
+- **Real VPN tunnel latency (`providers/vpn/fetch_vpn.sh`)** — new
+  `tunnel_latency_ms` field in `vpn.json`, sourced from a single ICMP echo
+  (`ping -I <iface> -c1 -W1 1.1.1.1`) sent through the tunnel interface
+  itself, sampled once per the existing 10s `cache_ttl_sec` cycle alongside
+  the rest of the payload. No pre-computed source exists for this: `piactl`
+  has no latency/ping subcommand, and PIA's own per-region `LatencyTracker`
+  is internal daemon RPC state used for its GUI region picker only, not
+  reachable via `piactl` or a readable file (confirmed live). Pings a
+  public target, not the VPN endpoint IP — confirmed live that PIA excludes
+  the endpoint's own IP from the tunnel's routes, so pinging it via `-I`
+  would silently take the same physical path as an untunneled ping and just
+  re-measure the WAN link instead of the tunnel. `1.1.1.1` matches the
+  standing ping targets already used elsewhere in this codebase
+  (`fetch_net.sh`, `fetch_connectivity.sh`); no sudo needed (`ping` carries
+  `cap_net_raw=ep`). Degrades to `null` with a note on failure, same
+  pattern as the existing `wg show` dump block; reuses the profile's
+  already-resolved `$IFACE`, no second hardcoded interface name
+  introduced. Verified live: a normal sample (~22-24ms across several
+  runs), a fake-interface probe, and a real `piactl` disconnect/reconnect
+  cycle (confirming `wgpia0` is fully torn down on disconnect, not left
+  idle) — all three degrade/recover cleanly.
+- **Live dpinger loss%/latency + RRD gateway-loss history
+  (`providers/pfsense/fetch_pfsense.sh`)** — two net-new, additive outputs
+  piggybacked on the existing pfSense SSH session (same pattern as the
+  ARP/DHCP-lease piggyback already there), per this session's live
+  investigation of what's actually available on the box for real WAN
+  loss%/latency data. (1) Live loss/latency for the GATEWAY panel's
+  real-time bar: globs `/var/run/dpinger_WAN_DHCP~*.sock` (survives the
+  bound WAN IP changing on DHCP renewal — the literal `~` after
+  `WAN_DHCP` can't match `WAN_DHCP6`'s socket, so no separate v6 exclusion
+  is needed) and reads dpinger's own rolling 60s average off the socket
+  (~2-3ms, confirmed live). Adds `gateway.loss_pct`/`gateway.latency_ms`/
+  `gateway.latency_stddev_ms` to `status.json`, additive alongside the
+  existing `gateway.online`/`ip` — neither touched nor renamed. (2)
+  Duration-window history for the alert banner's future percentage-based
+  gateway condition: `rrdtool fetch` against pfSense's own
+  `WAN_DHCP-quality.rrd` (already written for its Status > Monitoring
+  graphs, not new tooling) at 1-min resolution, default 1200s/20min window
+  — margin over the design notes' aspirational "≥25% for >15min" condition
+  without hardcoding that 15min figure into collection. Own TTL-gated
+  piggyback (default 60s, matching the RRD's native step) writes a
+  separate `gateway_history.json`, kept apart from `status.json` since
+  it's a window of samples, not a point value. IPv4 (`WAN_DHCP`) only,
+  matching the single-WAN-link framing of the design notes' gateway
+  condition; `WAN_DHCP6` can be added the same way later if ever needed.
+  Both tested live against the real box. Verified no existing consumer
+  breaks: no SitRep Lua reads `status.json`'s `gateway{}` object yet (only
+  a static placeholder in `pf.lua`'s GATEWAY meter, untouched), and
+  `fetch_alerts.sh`'s SEVERE gateway-offline trigger reads only
+  `gateway.online`, unaffected — SitRep-side Lua and alert-banner logic
+  are untouched, collection only.
+- **WAN gateway reachability check now pings public resolvers, not the WAN
+  gateway IP (`providers/pfsense/fetch_pfsense.sh`)** — `status.json`'s
+  `gateway.online` check was pinging the ISP-side WAN gateway IP directly.
+  On this Comcast link that address never answers ICMP as standing ISP
+  policy (confirmed: 100% loss across repeated manual pings while actual
+  internet access was fully healthy), making it a false-positive-prone
+  target regardless of real link health. Now pings `8.8.8.8`/`1.1.1.1`
+  instead, same defaults already used by
+  `providers/connectivity/fetch_connectivity.sh`, with a fallback target
+  so one dropped packet doesn't read as an outage. The WAN gateway IP is
+  kept only for the informational `status.json` `ip` field, not as the
+  reachability target.
 - **Remaining six providers wired into `gtex62-core-launch`** — closes the
   "never wired into the launcher" gap flagged in
   [docs/pfsense-provider-status.md § Provider Enable/Disable](docs/pfsense-provider-status.md#provider-enabledisable):
