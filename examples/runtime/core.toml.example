@@ -21,17 +21,17 @@ default_suite = "osa"
 allow_legacy_suites = true
 
 [providers]
-# vpn/ap/modem are wired into gtex62-core-launch (see bin/gtex62-core-launch,
-# "Provider enable/disable" comment) — true starts that domain's fetch script
-# running via initial_refresh/refresh_loop. Defaults here stay false for a
-# fresh install; flip per-suite in the live core.toml once you want a given
-# domain running.
+# vpn/ap/modem/alerts are wired into gtex62-core-launch (see
+# bin/gtex62-core-launch, "Provider enable/disable" comment) — true starts
+# that domain's fetch script running via initial_refresh/refresh_loop.
+# alerts (providers/alerts/fetch_alerts.sh) reads other providers' already-
+# written cache files, no SSH/gate of its own — same wiring shape as the
+# rest, just nothing to skip on an ssh_gate trip. Defaults here stay false
+# for a fresh install; flip per-suite in the live core.toml once you want a
+# given domain running.
 vpn = false
 ap = false
 modem = false
-# alerts is the SitRep alert-banner watcher (providers/alerts/fetch_alerts.sh)
-# — reads other providers' cache files, no SSH/gate of its own. Still
-# schema-only: gtex62-core-launch does not read this flag.
 alerts = false
 
 # All four flags below are wired into gtex62-core-launch (see

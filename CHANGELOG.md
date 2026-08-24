@@ -47,6 +47,35 @@ not yet backfilled here.
   advance across multiple real cycles at each provider's configured
   interval (10s/60s/120s/300s) without disturbing the already-running
   `pfsense.status` domain or any other suite provider.
+- **`alerts` wired into `gtex62-core-launch`** — closes the gap flagged in
+  `gtex62-sitrep`'s "Wire header alert-banner column to real banner.json
+  data" commit (`banner.json` only advanced on a manual `fetch_alerts.sh`
+  run; SitRep's header would drift to `STALE` a couple minutes after). Same
+  shape as the six above: its own `ALERTS_PROFILE` (`suites/sitrep.toml`'s
+  `profiles.alerts`, default `main_router`, already declared from the prior
+  SitRep-side session), a `profiles/alerts/{profile}.toml` `cache_ttl_sec`
+  lookup, suite-scoped stamp/PID files, `core.toml`-gated
+  `initial_refresh`/`refresh_loop` calls. Two things this domain doesn't
+  share with the other six: no `profiles/alerts/*.toml` ships (the lookup
+  is real, not skipped, so one just works if added later — but today it
+  always falls through to the 60s default), and `fetch_alerts.sh` has no
+  `cache_ttl_sec` concept of its own to mirror (it recomputes from scratch
+  every invocation — "safe to re-run on any cadence" per its own header
+  comment) — 60s was chosen to match the fallback already used on the
+  SitRep display side (`pf.lua`'s `header_alert_lines()`, prior session),
+  so the two stay in step rather than diverging. `core.toml`'s
+  `[providers]` comment (both the tracked `examples/runtime/core.toml.example`
+  and the live runtime copy) and `docs/pfsense-provider-status.md` updated
+  to drop the "schema-only" language for this flag. `fetch_alerts.sh`
+  itself was not touched. Verified: the real `run_locked`/`refresh_loop`
+  functions (extracted verbatim from the edited launcher) run against an
+  isolated scratch cache tree — `banner.json`'s `generated_at` advanced on
+  every cycle at the configured interval, matching the write-stamp exactly
+  each time. Not restarted against the live desktop launcher this session
+  (that would have killed the running conky window) — the extracted-function
+  test exercises the identical `refresh_loop` → `run_locked` →
+  `fetch_alerts.sh` → `banner.json` path, just against a throwaway cache
+  root instead of the live one.
 - **PID-file scoping fix — `NET_LOOP_PID_FILE`/`ORB_LOOP_PID_FILE`
   (`bin/gtex62-core-launch`)** — every other domain's refresh-loop PID file
   is suite-scoped (`${SUITE_ID}-<domain>-refresh.pid`); `net` and `orb` were

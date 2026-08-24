@@ -114,8 +114,16 @@ calls. `router`/`pihole`/`pfblockerng` reuse the existing `PFSENSE_PROFILE`
 reads); `vpn`/`ap`/`modem` get their own profile vars. See CHANGELOG.md's
 Unreleased entry for the wiring details and live verification, and each
 domain's own dated entry above for the scripts' original build/verification
-(unchanged by this wiring pass — no script was touched). `alerts` remains
-schema-only — it has no launcher call site to gate yet.
+(unchanged by this wiring pass — no script was touched).
+
+**Wired (Aug 24, 2026):** `alerts` is now gated into `gtex62-core-launch`
+the same shape as the six above — its own `ALERTS_PROFILE` (suite.toml's
+`profiles.alerts`, default `main_router`), a `profiles/alerts/{profile}.toml`
+`cache_ttl_sec` lookup (no such file ships yet, so this falls through to a
+60s default every time today — kept as a real lookup, not skipped, so a
+future profile file just works), suite-scoped stamp/PID files, gated
+`initial_refresh`/`refresh_loop` calls. See CHANGELOG.md's Unreleased entry
+for details and live verification.
 
 **SitRep display states** (Disabled / Unconfigured / existing degraded
 states / Healthy) are a design note only — `lua/suite/pf.lua` doesn't exist
