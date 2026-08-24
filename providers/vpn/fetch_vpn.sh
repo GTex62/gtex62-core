@@ -8,7 +8,13 @@
 # Field sourcing (see docs/network-providers-roadmap.md, "Data Sources —
 # Resolved"): connectionstate/region/protocol/vpnip come from piactl;
 # interface/latest_handshake/transfer come from `wg show <iface> dump`;
-# killswitch comes from PIA's policy routing table, independent of both.
+# killswitch comes from PIA's policy routing table, independent of both;
+# tunnel_latency_ms comes from a single ICMP echo sent through the tunnel
+# interface itself (see the "Tunnel latency" block below) — there is no
+# pre-computed source for this: piactl exposes no latency/ping subcommand,
+# and PIA's own per-region LatencyTracker (used for its GUI region picker)
+# is internal daemon RPC state, not reachable via piactl or a readable
+# file. Confirmed live during discovery, not assumed from docs.
 #
 # `wg show` requires root. This script calls it via a narrowly-scoped
 # passwordless sudoers rule (/etc/sudoers.d/gtex62-core-vpn) for exactly
@@ -148,6 +154,33 @@ else
 fi
 
 # -------------------------------------------------------------------------
+# Tunnel latency — single ICMP echo through the tunnel interface, to a
+# public target (NOT the VPN endpoint IP: confirmed live that PIA excludes
+# the endpoint's own IP from the tunnel's routes, so pinging it via -I
+# silently takes the same physical path as an untunneled ping and just
+# re-measures the WAN link, not the tunnel). 1.1.1.1 matches the standing
+# ping targets already used elsewhere in this codebase (fetch_net.sh,
+# fetch_connectivity.sh). No sudo needed — ping carries cap_net_raw=ep.
+# Best-effort like the wg dump above: failure (interface down/missing,
+# no reply) degrades the field to null rather than failing the whole
+# fetch.
+# -------------------------------------------------------------------------
+
+PING_TARGET="1.1.1.1"
+TUNNEL_LATENCY_MS=""
+PING_NOTE=""
+if command -v ping >/dev/null 2>&1; then
+  if ping_out="$(ping -I "$IFACE" -c1 -W1 "$PING_TARGET" 2>&1)"; then
+    TUNNEL_LATENCY_MS="$(printf '%s' "$ping_out" | grep -o 'time=[0-9.]*' | head -n1 | cut -d= -f2)"
+    [[ -z "$TUNNEL_LATENCY_MS" ]] && PING_NOTE="tunnel ping produced no time= (unexpected ping output)"
+  else
+    PING_NOTE="tunnel ping to $PING_TARGET via $IFACE failed"
+  fi
+else
+  PING_NOTE="ping not found"
+fi
+
+# -------------------------------------------------------------------------
 # Killswitch — PIA policy routing table, read-only, no sudo required.
 # Independent of the wg dump above. Only re-derived while Connected; outside
 # that, held at its previous value (see docs/network-providers-roadmap.md,
@@ -171,11 +204,13 @@ VPN_ROUTE_TABLE="$(ip route show table piavpnFwdrt 2>/dev/null || true)"
 python3 - "$WG_RAW" "$VPN_JSON" \
   "$PROFILE_ID" "$CONNECTIONSTATE" "$REGION" "$PROTOCOL" "$VPNIP" \
   "$IFACE" "$WG_NOTE" "$PREV_KILLSWITCH" \
+  "$TUNNEL_LATENCY_MS" "$PING_NOTE" \
   "$(date -u +%Y-%m-%dT%H:%M:%SZ)" <<'PY'
 import json, os, sys, time
 
 (wg_raw_path, out_path, profile_id, connectionstate, region, protocol, vpnip,
- iface, wg_note, prev_killswitch, generated_at) = sys.argv[1:12]
+ iface, wg_note, prev_killswitch, tunnel_latency_ms_raw, ping_note,
+ generated_at) = sys.argv[1:14]
 
 # --- wg dump parsing --------------------------------------------------
 # `wg show <iface> dump` (scoped to one device) writes an interface header
@@ -254,8 +289,14 @@ elif latest_handshake_seconds < HEALTHY_THRESHOLD_SEC:
 else:
     health = "STALE"
 
+# --- tunnel latency ---------------------------------------------------
+try:
+    tunnel_latency_ms = float(tunnel_latency_ms_raw) if tunnel_latency_ms_raw else None
+except ValueError:
+    tunnel_latency_ms = None
+
 # --- assemble payload -------------------------------------------------
-note_parts = [p for p in (wg_note,) if p]
+note_parts = [p for p in (wg_note, ping_note) if p]
 payload = {
     "state":        "ok",
     "profile":      profile_id,
@@ -271,6 +312,7 @@ payload = {
     "latest_handshake_seconds":    latest_handshake_seconds,
     "keepalive_interval_seconds":  keepalive_interval_seconds,
     "transfer":                    transfer,
+    "tunnel_latency_ms":           tunnel_latency_ms,
     "killswitch":                  killswitch,
     "health":                      health,
 }
