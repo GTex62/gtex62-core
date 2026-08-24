@@ -87,6 +87,8 @@ def write_status(state: str, note: str, modem_ip=None, window_minutes=None):
         "modem_ip": modem_ip,
         "upstream_channels": [],
         "downstream_ofdm_channels": [],
+        "connectivity_state": None,
+        "boot_state": None,
         "recent_t3_timeouts": None,
         "event_log_window_minutes": window_minutes,
     }, separators=(",", ":")) + "\n")
@@ -279,10 +281,48 @@ def parse_channel_table(soup, table_id, column_map, required_fields):
     return rows, None
 
 
+# Row label (first cell, case-insensitive substring match) -> output field.
+# `startup_procedure_table` is a fixed 3-column table (Procedure | Status |
+# Comment, confirmed live against the real modem this session) with several
+# rows besides these two (Acquire Downstream Channel, Configuration File,
+# Security, IP Provisioning Mode) that aren't part of this schema — matched
+# by label rather than position/count so unrelated rows are ignored rather
+# than misread.
+STARTUP_ROW_MAP = {
+    "connectivity state": "connectivity_state",
+    "boot state": "boot_state",
+}
+
+
+def parse_startup_procedure(soup):
+    table = soup.find(id="startup_procedure_table")
+    if table is None:
+        return {}, "table #startup_procedure_table not found"
+
+    result = {}
+    for tr in table.find_all("tr"):
+        cells = tr.find_all("td")
+        if len(cells) < 3:
+            continue
+        label = cells[0].get_text(strip=True).lower()
+        field = STARTUP_ROW_MAP.get(label)
+        if field is None:
+            continue
+        result[field] = {
+            "status": cells[1].get_text(strip=True),
+            "comment": cells[2].get_text(strip=True),
+        }
+
+    missing = set(STARTUP_ROW_MAP.values()) - set(result.keys())
+    note = f"startup_procedure_table missing row(s): {sorted(missing)}" if missing else None
+    return result, note
+
+
 def parse_docsis_status(html: str):
     soup = BeautifulSoup(html, "lxml")
     upstream, us_note = parse_channel_table(soup, "usTable", US_COLUMN_MAP, US_REQUIRED)
     downstream_ofdm, ds_note = parse_channel_table(soup, "d31dsTable", DS_OFDM_COLUMN_MAP, DS_OFDM_REQUIRED)
+    startup, startup_note = parse_startup_procedure(soup)
 
     # #Current_systemtime / #SystemUpTime are NOT used as a "now" reference.
     # Confirmed live (this session) that Current_systemtime is populated by
@@ -294,10 +334,12 @@ def parse_docsis_status(html: str):
     # instead (see its comment) — empirically consistent with the real
     # docsDevEvLastTime values observed, which read as local wall-clock
     # timestamps with no timezone marker.
-    notes = [n for n in (us_note, ds_note) if n]
+    notes = [n for n in (us_note, ds_note, startup_note) if n]
     return {
         "upstream_channels": upstream,
         "downstream_ofdm_channels": downstream_ofdm,
+        "connectivity_state": startup.get("connectivity_state"),
+        "boot_state": startup.get("boot_state"),
         "notes": notes,
     }
 
@@ -527,6 +569,8 @@ def main():
         "modem_ip": modem_ip,
         "upstream_channels": docsis["upstream_channels"],
         "downstream_ofdm_channels": docsis["downstream_ofdm_channels"],
+        "connectivity_state": docsis["connectivity_state"],
+        "boot_state": docsis["boot_state"],
         "recent_t3_timeouts": recent_t3,
         "event_log_window_minutes": window_minutes,
     }
