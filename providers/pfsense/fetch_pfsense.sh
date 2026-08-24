@@ -20,6 +20,7 @@ OUT_DIR="$CACHE_ROOT/shared/pfsense/${PROFILE_ID}"
 STATUS_JSON="$OUT_DIR/status.json"
 ARP_JSON="$OUT_DIR/arp.json"
 LEASES_JSON="$OUT_DIR/leases.json"
+GATEWAY_HISTORY_JSON="$OUT_DIR/gateway_history.json"
 TMP_DIR="$CACHE_ROOT/tmp"
 GATE_DIR="$CACHE_ROOT/runtime/pfsense"
 GATE_SCRIPT="$(dirname "$0")/pf-ssh-gate.sh"
@@ -150,6 +151,50 @@ write_arp_leases_stub() {
   done
 }
 
+# write_history_stub mirrors write_arp_leases_stub()'s envelope shape for the
+# gateway_history.json output (a window, not a point value — see the RRD
+# piggyback near the SSH telemetry collection below). Used for persistent
+# states unconditionally, and for transient states (gate tripped/ssh failed)
+# only when NEED_HISTORY is true — same call-site pattern as ARP/leases.
+write_history_stub() {
+  local state="$1"
+  local note="$2"
+  local ssh_target="$3"
+  local gate="$4"
+  local tripped="false"
+  local left="0"
+  local reason=""
+  if [[ "$gate" == TRIPPED* ]]; then
+    tripped="true"
+    left="$(printf '%s' "$gate" | awk -F'[=|]' '{for(i=1;i<=NF;i++) if($i=="left") {print $(i+1); exit}}')"
+    reason="$(printf '%s' "$gate" | awk -F'[=|]' '{for(i=1;i<=NF;i++) if($i=="reason") {print $(i+1); exit}}')"
+  fi
+  jq -n \
+    --arg state       "$state" \
+    --arg profile     "$PROFILE_ID" \
+    --arg collector   "gateway_history" \
+    --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg note        "$note" \
+    --arg ssh_target  "$ssh_target" \
+    --arg gate_status "$gate" \
+    --arg reason      "$reason" \
+    --argjson tripped "$tripped" \
+    --argjson left    "${left:-0}" \
+    '{
+      state:$state,
+      profile:$profile,
+      collector:$collector,
+      generated_at:$generated_at,
+      note:$note,
+      ssh_target:$ssh_target,
+      ssh_gate:{status:$gate_status, tripped:$tripped, left_seconds:$left, reason:$reason},
+      gateway:"WAN_DHCP",
+      step_sec:60,
+      window_sec:null,
+      samples:[]
+    }' > "$GATEWAY_HISTORY_JSON"
+}
+
 # -------------------------------------------------------------------------
 # Pre-flight checks
 # -------------------------------------------------------------------------
@@ -158,6 +203,7 @@ if [[ ! -f "$PROFILE_TOML" ]]; then
   GATE="$(gate_status)"
   write_status "error" "missing profile toml" "" "$GATE"
   write_arp_leases_stub "error" "missing profile toml" "" "$GATE"
+  write_history_stub "error" "missing profile toml" "" "$GATE"
   exit 0
 fi
 
@@ -170,6 +216,7 @@ if [[ "${ENABLED:-true}" != "true" ]]; then
   GATE="$(gate_status)"
   write_status "disabled" "profile disabled" "${SSH_TARGET:-}" "$GATE"
   write_arp_leases_stub "disabled" "profile disabled" "${SSH_TARGET:-}" "$GATE"
+  write_history_stub "disabled" "profile disabled" "${SSH_TARGET:-}" "$GATE"
   exit 0
 fi
 
@@ -177,6 +224,7 @@ if [[ -z "$SSH_TARGET" ]]; then
   GATE="$(gate_status)"
   write_status "error" "no ssh_target configured" "" "$GATE"
   write_arp_leases_stub "error" "no ssh_target configured" "" "$GATE"
+  write_history_stub "error" "no ssh_target configured" "" "$GATE"
   exit 0
 fi
 
@@ -201,6 +249,36 @@ if [[ -f "$ARP_JSON" ]]; then
 fi
 
 # -------------------------------------------------------------------------
+# Gateway RRD history cadence check — same piggyback shape as ARP/DHCP above,
+# own TTL since the underlying data (dpinger's quality RRD) only advances
+# once per its own 60s step; polling faster than that just re-reads the same
+# rows. HISTORY_WINDOW_SEC sets how far back the rrdtool fetch below reaches:
+# default 1200s (20min) gives margin over the design notes' aspirational
+# ">=25% for >15min" gateway-loss condition (sitrep-design-notes.md) at the
+# RRD's native 1-min-resolution RRA, without hardcoding the 15min figure
+# itself here — that threshold belongs to the (not-yet-built) watcher logic
+# that will consume this history, not to collection.
+# -------------------------------------------------------------------------
+
+HISTORY_TTL="$(parse_root_value "$PROFILE_TOML" gateway_history_cache_ttl_sec || true)"
+HISTORY_TTL="${HISTORY_TTL:-$(parse_section_value "$SITE_TOML" pfsense gateway_history_cache_ttl_sec || true)}"
+HISTORY_TTL="${HISTORY_TTL:-60}"
+
+HISTORY_WINDOW_SEC="$(parse_root_value "$PROFILE_TOML" gateway_history_window_sec || true)"
+HISTORY_WINDOW_SEC="${HISTORY_WINDOW_SEC:-$(parse_section_value "$SITE_TOML" pfsense gateway_history_window_sec || true)}"
+HISTORY_WINDOW_SEC="${HISTORY_WINDOW_SEC:-1200}"
+
+NEED_HISTORY="true"
+if [[ -f "$GATEWAY_HISTORY_JSON" ]]; then
+  now_ts="$(date +%s)"
+  hist_file_ts="$(stat -c %Y "$GATEWAY_HISTORY_JSON" 2>/dev/null || echo 0)"
+  hist_age=$(( now_ts - hist_file_ts ))
+  if [[ "$hist_age" -lt "$HISTORY_TTL" ]]; then
+    NEED_HISTORY="false"
+  fi
+fi
+
+# -------------------------------------------------------------------------
 # Gate check
 # -------------------------------------------------------------------------
 
@@ -209,6 +287,9 @@ if [[ "$GATE" == TRIPPED* ]]; then
   write_status "degraded" "ssh gate tripped" "$SSH_TARGET" "$GATE"
   if [[ "$NEED_ARP" == "true" ]]; then
     write_arp_leases_stub "degraded" "ssh gate tripped" "$SSH_TARGET" "$GATE"
+  fi
+  if [[ "$NEED_HISTORY" == "true" ]]; then
+    write_history_stub "degraded" "ssh gate tripped" "$SSH_TARGET" "$GATE"
   fi
   exit 0
 fi
@@ -303,6 +384,17 @@ REMOTE_CMD="for spec in WAN:${IF_WAN} HOME:${IF_HOME} IOT:${IF_IOT} GUEST:${IF_G
      printf 'GW\t1\t%s\n' \"\${gw:-}\"
    else
      printf 'GW\t0\t%s\n' \"\${gw:-}\"
+   fi
+   # Live loss%/latency — dpinger's own rolling 60s average (see its -t
+   # flag in ps output), read straight off its polling socket. Glob rather
+   # than hardcode the bound WAN IP baked into the socket filename (DHCP
+   # WAN, so it changes on lease renewal); \"WAN_DHCP~\" (literal tilde,
+   # no wildcard before it) can't match WAN_DHCP6's socket, which is
+   # \"WAN_DHCP6~...\" — no separate v6 exclusion needed. timeout guards
+   # against a hung/absent dpinger; confirmed live this session at ~2-3ms.
+   sock=\$(ls /var/run/dpinger_WAN_DHCP~*.sock 2>/dev/null | head -n1)
+   if [ -n \"\$sock\" ]; then
+     timeout 2 nc -U \"\$sock\" 2>/dev/null | awk '{printf \"DPINGER\t%s\t%s\t%s\n\", \$2, \$3, \$4}'
    fi"
 
 if [[ "$NEED_ARP" == "true" ]]; then
@@ -321,6 +413,26 @@ if [[ "$NEED_ARP" == "true" ]]; then
    ' /var/dhcpd/var/db/dhcpd.leases 2>/dev/null"
 fi
 
+if [[ "$NEED_HISTORY" == "true" ]]; then
+  # Duration-window history — dpinger's own quality RRD (already written by
+  # pfSense for its Status > Monitoring graphs; not something this script
+  # creates). 1-min-resolution RRA covers the last ~20h, so a $HISTORY_WINDOW_SEC
+  # (default 1200s/20min) fetch is well within it. IPv4 (WAN_DHCP) only —
+  # the design notes' gateway-loss condition is framed around the single
+  # ISP/WAN link (\"Comcast outage\"), not dual-stack; WAN_DHCP6 can be added
+  # the same way later if a v6-specific condition is ever wanted. Header
+  # line + blank line from rrdtool fetch are skipped (NR<=2); trailing
+  # not-yet-consolidated rows read back as \"nan\" and are dropped.
+  REMOTE_CMD="$REMOTE_CMD
+   rrdtool fetch /var/db/rrd/WAN_DHCP-quality.rrd AVERAGE -r 60 -s -${HISTORY_WINDOW_SEC} 2>/dev/null | awk '
+     NR<=2{next}
+     /nan/{next}
+     {
+       ts=substr(\$1,1,length(\$1)-1)
+       printf \"HIST\t%s\t%s\t%s\t%s\n\", ts, \$2, \$3, \$4
+     }'"
+fi
+
 # shellcheck disable=SC2029  # interface names expand on client side intentionally
 _ssh_rc=0
 ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "$REMOTE_CMD" > "$TMP_RAW" 2>/dev/null || _ssh_rc=$?
@@ -330,6 +442,9 @@ if [[ $_ssh_rc -ne 0 ]]; then
   write_status "degraded" "ssh failed" "$SSH_TARGET" "$GATE"
   if [[ "$NEED_ARP" == "true" ]]; then
     write_arp_leases_stub "degraded" "ssh failed" "$SSH_TARGET" "$GATE"
+  fi
+  if [[ "$NEED_HISTORY" == "true" ]]; then
+    write_history_stub "degraded" "ssh failed" "$SSH_TARGET" "$GATE"
   fi
   rm -f "$TMP_RAW"
   exit 0
@@ -346,11 +461,13 @@ GATE="$(gate_status)"
 python3 - "$TMP_RAW" "$STATUS_JSON" \
   "$PROFILE_ID" "$SSH_TARGET" "$GATE" \
   "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  "$ARP_JSON" "$LEASES_JSON" "$NEED_ARP" <<'PY'
+  "$ARP_JSON" "$LEASES_JSON" "$NEED_ARP" \
+  "$GATEWAY_HISTORY_JSON" "$NEED_HISTORY" "$HISTORY_WINDOW_SEC" <<'PY'
 import json, sys, os
 
 (raw_path, out_path, profile_id, ssh_target, gate_str, generated_at,
- arp_path, leases_path, need_arp) = sys.argv[1:10]
+ arp_path, leases_path, need_arp,
+ history_path, need_history, history_window_sec) = sys.argv[1:13]
 
 interfaces = {}
 cpu_pct    = None
@@ -358,6 +475,10 @@ mem_pct    = None
 gateway    = {"online": False, "ip": ""}
 arp_entries   = []
 lease_entries = []
+hist_samples  = []
+gw_loss_pct           = None
+gw_latency_ms         = None
+gw_latency_stddev_ms  = None
 
 fetched_at = int(__import__("time").time())
 
@@ -397,6 +518,40 @@ with open(raw_path, "r", encoding="utf-8") as fh:
         elif tag == "LEASE" and len(parts) == 4:
             _, mac, ip, host = parts
             lease_entries.append({"mac": mac, "ip": ip, "hostname": host})
+        elif tag == "DPINGER" and len(parts) == 4:
+            # dpinger's own rolling 60s average, read live off its polling
+            # socket — latency/stddev arrive in microseconds, loss already
+            # in percent (0-100). Additive to gateway{}; online/ip above are
+            # untouched, and existing consumers that only read those two
+            # keep working unchanged.
+            _, lat_us, stddev_us, loss_pct = parts
+            try:
+                gw_loss_pct          = float(loss_pct)
+                gw_latency_ms        = float(lat_us) / 1000.0
+                gw_latency_stddev_ms = float(stddev_us) / 1000.0
+            except (ValueError, TypeError):
+                pass
+        elif tag == "HIST" and len(parts) == 5:
+            # One row per dpinger quality RRA sample (1-min resolution).
+            # delay/stddev come back from rrdtool in seconds; loss already
+            # in percent.
+            _, ts, loss_s, delay_s, stddev_s = parts
+            try:
+                hist_samples.append({
+                    "ts":                int(ts),
+                    "loss_pct":          float(loss_s),
+                    "latency_ms":        float(delay_s) * 1000.0,
+                    "latency_stddev_ms": float(stddev_s) * 1000.0,
+                })
+            except (ValueError, TypeError):
+                pass
+
+if gw_loss_pct is not None:
+    gateway["loss_pct"] = gw_loss_pct
+if gw_latency_ms is not None:
+    gateway["latency_ms"] = gw_latency_ms
+if gw_latency_stddev_ms is not None:
+    gateway["latency_stddev_ms"] = gw_latency_stddev_ms
 
 tripped = gate_str.startswith("TRIPPED")
 left    = 0
@@ -457,6 +612,30 @@ if need_arp == "true":
         with open(etmp, "w", encoding="utf-8") as fh:
             json.dump(entry_payload, fh, separators=(",", ":"))
         os.replace(etmp, path)
+
+if need_history == "true":
+    hist_payload = {
+        "state":        "ok",
+        "profile":      profile_id,
+        "collector":    "gateway_history",
+        "generated_at": generated_at,
+        "ssh_target":   ssh_target,
+        "ssh_gate": {
+            "status":       gate_str,
+            "tripped":      tripped,
+            "left_seconds": left,
+            "reason":       reason,
+        },
+        "gateway":     "WAN_DHCP",
+        "rrd_file":    "WAN_DHCP-quality.rrd",
+        "step_sec":    60,
+        "window_sec":  int(history_window_sec),
+        "samples":     hist_samples,
+    }
+    htmp = history_path + ".tmp"
+    with open(htmp, "w", encoding="utf-8") as fh:
+        json.dump(hist_payload, fh, separators=(",", ":"))
+    os.replace(htmp, history_path)
 PY
 
 rm -f "$TMP_RAW"
