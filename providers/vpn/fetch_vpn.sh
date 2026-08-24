@@ -272,14 +272,26 @@ else:
     killswitch = prev_ks_bool
 
 # --- health classification -------------------------------------------------
-# Verbatim from docs/network-providers-roadmap.md, "Health Classification"
-# table. Hardcoded to 60/180 seconds, verified only against the current 25s
-# PIA keepalive interval — revisit if keepalive_interval_seconds is ever
-# observed to differ from 25. The roadmap floats scaling these thresholds by
-# keepalive_interval_seconds if that happens, but gives no exact multiplier —
-# that's an open item, not implemented here, so this stays exactly the
-# verified 60s/180s split rather than a guess.
-HEALTHY_THRESHOLD_SEC = 60
+# Rebased off WireGuard's own protocol constants, not the keepalive
+# interval (see docs/network-providers-roadmap.md, "Health Classification
+# (VPN)"). The original 60s/180s split assumed handshake age tracks the
+# 25s PersistentKeepalive cadence ("never miss more than one or two
+# keepalive cycles") — live capture during this session (72 samples over
+# 6 minutes, 5s poll of `wg show wgpia0 dump`) disproved that: keepalive
+# sends stayed on their own 25s schedule throughout, while the handshake
+# timestamp itself only advanced three times, at exactly +120s each,
+# regardless of keepalive traffic. That's WireGuard's REKEY-AFTER-TIME
+# (a session renegotiates once it's 120s old) — a mechanism completely
+# decoupled from PersistentKeepalive. REJECT-AFTER-TIME (180s: no
+# successful handshake within this and the session is protocol-dead) was
+# already correct and is unchanged.
+#
+# HEALTHY_THRESHOLD_SEC = 130: the observed capture's per-cycle max age
+# just before rollover was 118-120s (three cycles, each rolling at
+# exactly +120s) — 130s keeps HEALTHY covering the entire normal rekey
+# cycle with a 10s margin above the highest age actually observed, so it
+# doesn't false-negative against real rekey timing jitter.
+HEALTHY_THRESHOLD_SEC = 130
 DEAD_THRESHOLD_SEC = 180
 
 if connectionstate != "Connected" or latest_handshake_seconds is None or latest_handshake_seconds > DEAD_THRESHOLD_SEC:

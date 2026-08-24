@@ -223,31 +223,43 @@ empty table.
 often precedes `connectionstate` catching up to a dropped tunnel. The engine, not SitRep,
 classifies this.
 
-With `persistent keepalive: every 25 seconds` confirmed live, a healthy tunnel should
-never miss more than one or two keepalive cycles:
+Handshake age reflects WireGuard's own **REKEY-AFTER-TIME**: a session renegotiates a
+fresh handshake once it's 120s old, on the next outbound send. **This is independent of
+`PersistentKeepalive`** — the keepalive interval (25s, confirmed live) governs how often
+an empty packet goes out to hold a NAT mapping open, not how often the cryptographic
+handshake itself renews. The two mechanisms don't interact; a "healthy tunnel should
+never miss more than one or two keepalive cycles" framing (this doc's original wording)
+was a false premise — it assumed handshake age tracks keepalive cadence, which it
+doesn't. `REJECT-AFTER-TIME` (180s: no successful handshake within this and the session
+is protocol-dead) is the other bound here and is unrelated to keepalive either way.
 
 | Class | Condition |
 | --- | --- |
-| `HEALTHY` | `connectionstate == "Connected"` and handshake < 60s (≤ ~2 missed keepalives) |
-| `STALE` | `connectionstate == "Connected"` and handshake 60–180s |
-| `DEAD` | `connectionstate != "Connected"` or handshake > 180s or absent |
+| `HEALTHY` | `connectionstate == "Connected"` and handshake < 130s (covers a full normal REKEY-AFTER-TIME cycle, ~10s margin) |
+| `STALE` | `connectionstate == "Connected"` and handshake 130–180s (past normal rekey, not yet REJECT-AFTER-TIME) |
+| `DEAD` | `connectionstate != "Connected"` or handshake > 180s (REJECT-AFTER-TIME) or absent |
 
-If the keepalive interval varies by server or region, `fetch_vpn.sh` should read
-`keepalive_interval_seconds` from the live `wg show` output rather than hardcoding 25s,
-and derive the thresholds as a multiple of it (e.g. `HEALTHY` ≤ 2× interval, `STALE` ≤
-6–8× interval) so the classification stays correct if PIA changes the interval server-side.
+**Implementation note (build session, Aug 19, 2026):** `fetch_vpn.sh` originally
+implemented this table with 60s/180s thresholds, sized off the now-corrected
+keepalive-cycles premise above. `keepalive_interval_seconds` is still read live and
+included in `vpn.json`, but classification was never actually scaled by it — that idea
+(scaling thresholds as a multiple of the keepalive interval) is dropped, not just
+deferred: it was built on the same false premise and doesn't apply once handshake
+renewal is understood to be a REKEY-AFTER-TIME event, not a keepalive-cycle count.
 
-**Implementation note (build session, Aug 19, 2026):** `fetch_vpn.sh` implements the
-60s/180s thresholds above verbatim, hardcoded — not the scaling-by-interval idea in the
-paragraph above. That idea is a hedge ("if the interval varies") with no exact multiplier
-specified, so turning it into a formula would be inventing a number the doc never actually
-verified; only 60s/180s are backed by the live-confirmed 25s keepalive. `keepalive_interval_
-seconds` is still read live and included in `vpn.json` for future use, but classification
-does not scale by it yet. **Revisit if `keepalive_interval_seconds` is ever observed to
-differ from 25** — that would be the trigger to work out and verify an actual formula,
-not before. `health` (`HEALTHY`/`STALE`/`DEAD`) was added as a field on `vpn.json` itself,
-computed in `fetch_vpn.sh` per this table — see the schema block above, now updated to
-include it.
+**Correction (verification session, Aug 24, 2026):** live capture — 72 samples over 6
+minutes, 5s poll of `wg show wgpia0 dump` — showed `latest_handshake_ts` advancing
+exactly three times, each at precisely +120s, while `persistent-keepalive` stayed on its
+own unrelated 25s cadence throughout. This confirmed REKEY-AFTER-TIME (not keepalive
+cycles) as the actual driver and reproduced the reported symptom: with the old 60s/180s
+split, every ~120s cycle spent its second half (60–120s) reading `STALE` on an otherwise
+fully healthy, low-latency, actively-passing-traffic tunnel. Thresholds were rebased to
+130s/180s per the table above — 130s keeps `HEALTHY` covering the entire observed cycle
+(max age recorded just before rollover was 118–120s) with a small margin, verified
+against a fresh 2-cycle live capture showing `HEALTHY` held throughout and `STALE` never
+fired on healthy behavior. `health` (`HEALTHY`/`STALE`/`DEAD`) remains a field on
+`vpn.json` itself, computed in `fetch_vpn.sh` per this table — see the schema block
+above.
 
 ### Proposed Display
 
