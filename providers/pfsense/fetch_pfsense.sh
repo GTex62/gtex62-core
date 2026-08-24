@@ -290,8 +290,17 @@ REMOTE_CMD="for spec in WAN:${IF_WAN} HOME:${IF_HOME} IOT:${IF_IOT} GUEST:${IF_G
      }
    '
    gw=\$(route -n get -inet default 2>/dev/null | awk '/gateway:/{print \$2}')
-   if [ -n \"\$gw\" ] && ping -c1 -t2 \"\$gw\" >/dev/null 2>&1; then
-     printf 'GW\t1\t%s\n' \"\$gw\"
+   # Reachability target is deliberately NOT \$gw (the ISP's own WAN-side
+   # gateway/CMTS IP) — that address commonly never answers ICMP at all as
+   # standing ISP policy (confirmed on this Comcast link: 100% loss across
+   # repeated manual pings while Titan's actual internet access was fully
+   # healthy), making it a false-positive-prone target regardless of real
+   # link health. Ping known-reachable public resolvers instead, same
+   # defaults as providers/connectivity/fetch_connectivity.sh, with a
+   # fallback target so one dropped packet doesn't read as an outage.
+   # \$gw itself is kept only for the informational \"ip\" field below.
+   if ping -c1 -t2 8.8.8.8 >/dev/null 2>&1 || ping -c1 -t2 1.1.1.1 >/dev/null 2>&1; then
+     printf 'GW\t1\t%s\n' \"\${gw:-}\"
    else
      printf 'GW\t0\t%s\n' \"\${gw:-}\"
    fi"
