@@ -42,3 +42,18 @@ iot = "igc1.20"
 guest = "igc1.30"
 infra = "igc1.40"
 cam = "igc1.50"
+
+# Single shared lyrics library, global (not per-profile) — see
+# docs/lyrics-library-design.md. local_dir is persistent, user-editable
+# content (survives cache clears) — point it at wherever your library lives,
+# NAS-backed or local. genius_token stays blank here; it's inert today (see
+# the design doc) and, like the other credentials above, only ever lands in
+# your local (gitignored) site.toml, never committed.
+[media.lyrics]
+local_dir = "YOUR_LYRICS_LIBRARY_PATH"
+enable_local = true
+enable_online = true
+providers_noapi = ["lrclib", "lyrics_ovh"]
+providers_api = ["genius"]
+genius_token = ""
+strip_lrc_timestamps = true

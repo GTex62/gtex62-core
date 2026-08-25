@@ -14,6 +14,7 @@ network = "local"
 connectivity = "default"
 pfsense = "main_router"
 solar = "home"
+media = "local"
 
 [domains]
 required = [

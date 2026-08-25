@@ -105,6 +105,12 @@ ALERTS_ENABLED="$(parse_toml_section_value "$CORE_TOML" providers alerts || true
 ALERTS_ENABLED="${ALERTS_ENABLED:-false}"
 MTR_ENABLED="$(parse_toml_section_value "$CORE_TOML" providers mtr || true)"
 MTR_ENABLED="${MTR_ENABLED:-false}"
+# Lyrics library provider (providers/media/fetch_lyrics.sh). See
+# docs/lyrics-library-design.md. local_dir/config is global (site.toml
+# [media.lyrics]), not per-profile — MEDIA_PROFILE below only scopes the
+# ephemeral shared/media/[profile]/ output, same as every other domain.
+MEDIA_ENABLED="$(parse_toml_section_value "$CORE_TOML" providers media || true)"
+MEDIA_ENABLED="${MEDIA_ENABLED:-false}"
 
 SUITE_DIR="$(parse_toml_value "$SUITE_TOML" suite_repo)"
 WEATHER_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles weather || true)"
@@ -125,6 +131,7 @@ AP_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles ap || true)"
 MODEM_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles modem || true)"
 ALERTS_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles alerts || true)"
 MTR_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles mtr || true)"
+MEDIA_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles media || true)"
 WEATHER_PROFILE="${WEATHER_PROFILE:-home}"
 AIR_PROFILE="${AIR_PROFILE:-home}"
 SOLAR_PROFILE="${SOLAR_PROFILE:-home}"
@@ -143,6 +150,7 @@ AP_PROFILE="${AP_PROFILE:-main_router}"
 MODEM_PROFILE="${MODEM_PROFILE:-local}"
 ALERTS_PROFILE="${ALERTS_PROFILE:-main_router}"
 MTR_PROFILE="${MTR_PROFILE:-pi5}"
+MEDIA_PROFILE="${MEDIA_PROFILE:-local}"
 
 WEATHER_PROFILE_TOML="$CONFIG_ROOT/profiles/weather/${WEATHER_PROFILE}.toml"
 AIR_PROFILE_TOML="$CONFIG_ROOT/profiles/air/${AIR_PROFILE}.toml"
@@ -195,6 +203,9 @@ NET_PROFILE_TOML="$CONFIG_ROOT/profiles/net/${NET_PROFILE}.toml"
 NET_TTL="$(parse_toml_section_value "$NET_PROFILE_TOML" cache ttl_sec || true)"
 ORB_PROFILE_TOML="$CONFIG_ROOT/profiles/orb/${ORB_PROFILE}.toml"
 ORB_TTL="$(parse_toml_section_value "$ORB_PROFILE_TOML" cache ttl_sec || true)"
+# No profiles/media/{profile}.toml — config is global (site.toml
+# [media.lyrics]), not per-profile. See docs/lyrics-library-design.md.
+MEDIA_TTL="$(parse_toml_section_value "$SITE_TOML" media.lyrics poll_interval_sec || true)"
 WEATHER_TTL="${WEATHER_TTL:-300}"
 AIR_TTL="${AIR_TTL:-900}"
 SOLAR_TTL="${SOLAR_TTL:-300}"
@@ -217,6 +228,7 @@ ALERTS_TTL="${ALERTS_TTL:-60}"
 MTR_TTL="${MTR_TTL:-15}"
 NET_TTL="${NET_TTL:-60}"
 ORB_TTL="${ORB_TTL:-60}"
+MEDIA_TTL="${MEDIA_TTL:-5}"
 AVIATION_TTL="$AVIATION_METAR_TTL"
 if (( AVIATION_TAF_TTL < AVIATION_TTL )); then
   AVIATION_TTL="$AVIATION_TAF_TTL"
@@ -254,6 +266,7 @@ mkdir -p \
   "$CACHE_ROOT/shared/mtr/$MTR_PROFILE" \
   "$CACHE_ROOT/shared/net/$NET_PROFILE" \
   "$CACHE_ROOT/shared/orb/$ORB_PROFILE" \
+  "$CACHE_ROOT/shared/media/$MEDIA_PROFILE" \
   "$LOCKS_DIR" \
   "$PIDS_DIR" \
   "$STAMPS_DIR" \
@@ -282,6 +295,7 @@ ALERTS_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-alerts-refresh.pid"
 MTR_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-mtr-refresh.pid"
 NET_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-net-refresh.pid"
 ORB_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-orb-refresh.pid"
+MEDIA_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-media-refresh.pid"
 LAUNCHER_PID_FILE="$PIDS_DIR/${SUITE_ID}-launcher.pid"
 WEATHER_STAMP="$STAMPS_DIR/weather-${WEATHER_PROFILE}.stamp"
 AIR_STAMP="$STAMPS_DIR/air-${AIR_PROFILE}.stamp"
@@ -305,6 +319,7 @@ ALERTS_STAMP="$STAMPS_DIR/alerts-${ALERTS_PROFILE}.stamp"
 MTR_STAMP="$STAMPS_DIR/mtr-${MTR_PROFILE}.stamp"
 NET_STAMP="$STAMPS_DIR/net-${NET_PROFILE}.stamp"
 ORB_STAMP="$STAMPS_DIR/orb-${ORB_PROFILE}.stamp"
+MEDIA_STAMP="$STAMPS_DIR/media-${MEDIA_PROFILE}.stamp"
 
 echo $$ > "$LAUNCHER_PID_FILE"
 LOOP_PIDS=()
@@ -375,6 +390,7 @@ cleanup_pidfile "$ALERTS_LOOP_PID_FILE"
 cleanup_pidfile "$MTR_LOOP_PID_FILE"
 cleanup_pidfile "$NET_LOOP_PID_FILE"
 cleanup_pidfile "$ORB_LOOP_PID_FILE"
+cleanup_pidfile "$MEDIA_LOOP_PID_FILE"
 
 run_locked() {
   local name="$1"
@@ -553,6 +569,9 @@ if [[ "$MTR_ENABLED" == "true" ]]; then
 fi
 initial_refresh "net-${NET_PROFILE}" "$NET_STAMP" "$CORE_DIR/providers/net/fetch_net.sh" "$NET_PROFILE"
 initial_refresh "orb-${ORB_PROFILE}" "$ORB_STAMP" "$CORE_DIR/providers/orb/fetch_orb.sh" "$ORB_PROFILE"
+if [[ "$MEDIA_ENABLED" == "true" ]]; then
+  initial_refresh "media-${MEDIA_PROFILE}" "$MEDIA_STAMP" "$CORE_DIR/providers/media/fetch_lyrics.sh" "$MEDIA_PROFILE"
+fi
 
 refresh_loop "weather-${WEATHER_PROFILE}" "$WEATHER_TTL" "$WEATHER_STAMP" "$WEATHER_LOOP_PID_FILE" "$CORE_DIR/providers/weather/fetch_openweather.sh" "$WEATHER_PROFILE"
 refresh_loop "air-${AIR_PROFILE}" "$AIR_TTL" "$AIR_STAMP" "$AIR_LOOP_PID_FILE" "$CORE_DIR/providers/air/fetch_air.sh" "$AIR_PROFILE"
@@ -595,6 +614,9 @@ if [[ "$MTR_ENABLED" == "true" ]]; then
 fi
 refresh_loop "net-${NET_PROFILE}" "$NET_TTL" "$NET_STAMP" "$NET_LOOP_PID_FILE" "$CORE_DIR/providers/net/fetch_net.sh" "$NET_PROFILE"
 refresh_loop "orb-${ORB_PROFILE}" "$ORB_TTL" "$ORB_STAMP" "$ORB_LOOP_PID_FILE" "$CORE_DIR/providers/orb/fetch_orb.sh" "$ORB_PROFILE"
+if [[ "$MEDIA_ENABLED" == "true" ]]; then
+  refresh_loop "media-${MEDIA_PROFILE}" "$MEDIA_TTL" "$MEDIA_STAMP" "$MEDIA_LOOP_PID_FILE" "$CORE_DIR/providers/media/fetch_lyrics.sh" "$MEDIA_PROFILE"
+fi
 
 # Wait for all conky processes; exit when the primary one exits
 for _wait_pid in "${CONKY_PIDS[@]:-}"; do

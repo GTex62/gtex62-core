@@ -33,6 +33,11 @@ vpn = false
 ap = false
 modem = false
 alerts = false
+# Lyrics library provider (providers/media/fetch_lyrics.sh) — see
+# docs/lyrics-library-design.md. Config is global (site.toml
+# [media.lyrics]), not a profile TOML — same wiring shape as the flags
+# above otherwise.
+media = false
 
 # All four flags below are wired into gtex62-core-launch (see
 # bin/gtex62-core-launch, "Provider enable/disable" comment) — true starts
