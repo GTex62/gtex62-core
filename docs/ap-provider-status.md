@@ -11,8 +11,8 @@ pfSense domains is only that its two output files live under the same
 
 Companion docs: [pfSense Provider Status](pfsense-provider-status.md) (gate
 pattern, TOML resolution, atomic-write convention this provider reuses),
-[SitRep Relocation Plan](sitrep-relocation-plan.md) (the resume checklist this
-provider unblocks).
+[SitRep Relocation Plan](archive/sitrep-relocation-plan.md) (archived/superseded — the
+resume checklist this provider unblocked).
 
 ---
 
@@ -242,8 +242,9 @@ Originally (through Aug 19, 2026) this provider instead read
 `config/ap_ipmap.csv` under `GTEX62_CONFIG_DIR` — a core-owned manual-sync
 copy of `gtex62-tech-hud/config/ap_ipmap.csv`, IP-keyed, kept because the
 engine must stay suite-agnostic (`gtex62-tech-hud` is read-only for this
-effort and, per [SitRep Relocation Plan](sitrep-relocation-plan.md), the
-engine must never depend on a suite directory existing). That copy is no
+effort and, per [SitRep Relocation Plan](archive/sitrep-relocation-plan.md)
+(archived/superseded), the engine must never depend on a suite directory
+existing). That copy is no
 longer read by this provider as of the migration above; neither it nor the
 read-only tech-hud original were edited or deleted — both still exist,
 untouched. `[ap] ipmap_path` in `site.toml` is now unused, dead

@@ -6,8 +6,10 @@ prose is kept short and dated here — full narrative (bug investigations, live
 cross-check output, decision rationale) lives in the dated archive snapshot.
 
 Companion docs: [SitRep Architecture](sitrep-architecture.md) (design, stays stable),
-[SitRep Relocation Plan](sitrep-relocation-plan.md) (moving the widget itself, currently
-blocked on this provider's remaining work), [Network Providers Roadmap](network-providers-roadmap.md)
+[SitRep Relocation Plan](archive/sitrep-relocation-plan.md) (superseded — SitRep was built
+out as its own sibling repo, `gtex62-sitrep`, rather than relocated into this engine as
+planned; kept as the historical record of the original engine-resident approach),
+[Network Providers Roadmap](network-providers-roadmap.md)
 (unrelated future providers — VPN, WAN health, modem — that happen to have been drafted
 alongside this one), [AP Provider Status](ap-provider-status.md) (the Zyxel AP domain —
 split into its own doc since Aug 19, 2026: different device class, different auth model,
@@ -94,8 +96,9 @@ trip the circuit breaker for a faster, unrelated poll on the same box.
 ## Provider Enable/Disable
 
 Full design (schema, missing-file behavior, SitRep display states) lives in
-[SitRep Relocation Plan](sitrep-relocation-plan.md) § Provider Enable/Disable
-— that section was the design source for this feature and still holds.
+[SitRep Relocation Plan](archive/sitrep-relocation-plan.md) § Provider Enable/Disable
+— that section was the design source for this feature and still holds, though the plan
+doc itself is now archived/superseded (see the companion-docs line above).
 This section tracks implementation state only.
 
 **Shipped (Aug 19, 2026):** `[providers]` / `[providers.pfsense]` added to
@@ -127,13 +130,17 @@ future profile file just works), suite-scoped stamp/PID files, gated
 for details and live verification.
 
 **SitRep display states** (Disabled / Unconfigured / existing degraded
-states / Healthy) are a design note only — `lua/suite/pf.lua` doesn't exist
-yet and the relocation is still blocked (see
-[SitRep Relocation Plan](sitrep-relocation-plan.md), Part 0 Audit). The
-design itself (four-state table, `UNCONFIGURED` reusing each provider's
+states / Healthy) were a design note only as of Aug 19, 2026, when
+`lua/suite/pf.lua` didn't exist yet and this relocation was blocked here
+(see [SitRep Relocation Plan](archive/sitrep-relocation-plan.md), Part 0
+Audit — now archived/superseded). SitRep was since built out separately as
+its own repo, `gtex62-sitrep`, where `lua/suite/pf.lua` does now exist and
+is wired to live core cache data; whether these four display states
+specifically ended up implemented there hasn't been checked from this repo.
+The design itself (four-state table, `UNCONFIGURED` reusing each provider's
 existing missing-profile/placeholder-credential detection rather than new
-per-provider logic in SitRep) is already fully specified there and doesn't
-need re-deciding once `pf.lua` is written — just implementing.
+per-provider logic in SitRep) remains a reasonable reference regardless of
+where it landed.
 
 ---
 

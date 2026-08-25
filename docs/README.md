@@ -30,10 +30,13 @@ Split from one monolithic doc (`sitrep-engine-migration.md`, retired) into four,
 architecture, provider status, relocation mechanics, and unrelated roadmap items stop
 mixing together. Full prose history predating the split is in
 [archive/sitrep-engine-migration-2026-08-18.md](archive/sitrep-engine-migration-2026-08-18.md).
+The relocation-mechanics doc of the four is itself now superseded — SitRep was built out
+as its own sibling repo (`gtex62-sitrep`) rather than relocated into this engine as
+planned — and has moved to [archive/sitrep-relocation-plan.md](archive/sitrep-relocation-plan.md)
+as a historical record of the original approach.
 
 - [SitRep Architecture](sitrep-architecture.md) — stable design: purpose, core principle, current/future data-flow diagrams, device inventory
 - [pfSense Provider Status](pfsense-provider-status.md) — current state of the core `pfsense` provider: domain schemas, gate-per-domain pattern, remaining work
-- [SitRep Relocation Plan](sitrep-relocation-plan.md) — moving `sitrep.lua` out of `gtex62-tech-hud` into the engine: Part 0 audit, blocker, resume checklist, guardrails
 - [Network Providers Roadmap](network-providers-roadmap.md) — unrelated proposed providers (VPN, WAN health, modem) drafted alongside the above, not started
 
 ## Archive

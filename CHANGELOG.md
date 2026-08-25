@@ -275,7 +275,7 @@ not yet backfilled here.
   flags to gate — a separate task. See
   [docs/pfsense-provider-status.md](docs/pfsense-provider-status.md) §
   Provider Enable/Disable for detail and
-  [docs/sitrep-relocation-plan.md](docs/sitrep-relocation-plan.md) § Provider
+  [docs/archive/sitrep-relocation-plan.md](docs/archive/sitrep-relocation-plan.md) § Provider
   Enable/Disable for the SitRep-side display-state design (four states —
   Disabled/Unconfigured/degraded-states/Healthy — not yet implementable in
   code since `lua/suite/pf.lua` doesn't exist and the relocation is still

@@ -1,5 +1,23 @@
 # SitRep Relocation Plan
 
+> **SUPERSEDED (noted 2026-08-25).** This plan targeted relocating `sitrep.lua` into
+> `gtex62-core/widgets/sitrep/` as an engine-resident, suite-agnostic command. That is not
+> what happened: SitRep was instead built out as its own sibling repo,
+> `~/.config/conky/gtex62-sitrep`, mirroring `gtex62-osa`'s own structure
+> (`theme.lua`/`palettes.lua`/`layout.lua`/`panels.lua`, `lua/suite/`,
+> `scripts/start-conky.sh`) rather than living under `gtex62-core/widgets/`. Its own
+> `design/sitrep-design-notes.md` is the design doc `gtex62-osa/design/osa-design-notes.md`
+> was split out from. As of its last commit (Aug 22, 2026), `lua/suite/pf.lua`/`ap.lua`/
+> `pfblockerng.lua`/`pihole.lua`/`vpn.lua` all exist and are wired to live core cache data
+> (PFSENSE/WAN/VPN/PI-HOLE/PFBLOCKERNG/AP panels, the alert-banner column, the chassis
+> footer version stamp, the WAN MTR line) — i.e., most of what the Relocation Checklist
+> below still lists as unchecked is actually done, just not in this repo or under this
+> plan. Everything below this notice is left as-is, as the historical record of the
+> original engine-resident approach — it was not re-verified against `gtex62-sitrep`'s
+> actual state and should not be treated as current guidance. Other docs in this repo
+> (e.g. [pfSense Provider Status](pfsense-provider-status.md)'s companion-doc list) still
+> describe this plan as active/blocking and have not been updated to match.
+
 Moving `sitrep.lua` out of `gtex62-tech-hud` into the engine as a suite-agnostic
 `sitrep` command. This is what a future relocation session reads first: the Part 0 audit
 findings, why Part 1 is currently blocked, the resume checklist, and the target file
@@ -530,7 +548,7 @@ theme.frame_lights = {
 ----------------------------------------------------------------
 theme.fonts = {
   title = "Eurostile LT Std",
-  data = "JetBrainsMono Nerd Font",
+  data = "GTEX62 OSA",
 }
 
 theme.text = {
@@ -740,7 +758,7 @@ Each suite that currently carries a SitRep panel handles it as follows during co
 | `gtex62-lcars` | Audit for equivalent panel; retire in favor of `sitrep-e` |
 | `gtex62-osa` | No SitRep panel — `sitrep-e` available as standalone command only |
 
-No suite carries a SitRep panel after migration. The widget lives in the engine and is
+No suite carries a SitRep panel after migration. The widget lives in its own repo and is
 suite-agnostic by design.
 
 ---

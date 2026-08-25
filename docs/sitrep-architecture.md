@@ -5,9 +5,10 @@ This is the stable design reference — what SitRep is, the principle it's held 
 the before/after data-flow shape. It changes rarely.
 
 For current implementation state of the data source, see
-[pfSense Provider Status](pfsense-provider-status.md). For the mechanics of relocating
-the widget itself out of `gtex62-tech-hud`, see
-[SitRep Relocation Plan](sitrep-relocation-plan.md). Full prose session history predating
+[pfSense Provider Status](pfsense-provider-status.md). For the original (now archived/superseded — SitRep was built out separately as its own
+repo, `gtex62-sitrep`, instead) plan for relocating the widget itself out of
+`gtex62-tech-hud`, see [SitRep Relocation Plan](archive/sitrep-relocation-plan.md). Full
+prose session history predating
 this split lives in [archive/sitrep-engine-migration-2026-08-18.md](archive/sitrep-engine-migration-2026-08-18.md).
 
 ---
