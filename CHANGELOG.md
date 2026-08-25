@@ -14,6 +14,43 @@ not yet backfilled here.
 
 ---
 
+## 0.5.0 — 2026-08-25
+
+- **Per-VLAN instantaneous traffic rate (`providers/pfsense/fetch_pfsense.sh`)** — closes
+  the one open question from `gtex62-osa/design/osa-design-notes.md`'s NET-panel-redesign
+  scoping: checked live via SSH whether pfSense tracks per-VLAN sub-interface traffic in
+  its own RRD. It does — `/var/db/rrd/{wan,lan,opt1..opt5}-traffic.rrd` exist and are
+  live-updating (`opt1`–`opt5` confirmed mapping to `HOME`/`IOT`/`GUEST`/`INFRA`/`CAM` via
+  `config.xml`'s `<interfaces>` block) — but per the scoping conclusion this doesn't reopen
+  the decision: the instantaneous-diff approach still wins on the recorded tradeoffs (no
+  new SSH round-trip, no new gate, no unverified dependency). `status.json`'s
+  `interfaces.<VLAN>` objects gain `rate_ibytes_per_sec`/`rate_obytes_per_sec` (bytes, not
+  bits — matches the existing `ibytes`/`obytes` naming) and `prev_fetched_at`, computed by
+  diffing each cycle's freshly-collected counters against the *previous* `status.json`'s
+  values before that file is overwritten — no new SSH call, gate, or cache file. 32-bit-wrap
+  guard per direction (`now_bytes >= prev_bytes`, else `null` for that direction only, not a
+  garbage negative); both rate fields `null` whenever there's no usable previous sample
+  (cold start, or a prior cycle that landed on a degraded/error/disabled stub, which omits
+  `interfaces` entirely) — same convention as `wg`/handshake fields elsewhere. Verified
+  live: two real poll cycles ~44s apart produced sane, differing rates (hand-checked against
+  raw counter deltas); a forced missing-`status.json` cold start produced `null`/`null`/`null`
+  for all six VLANs; a forced prior degraded stub (no `interfaces` key) produced the same
+  clean null result on the next real cycle; a forged one-direction counter regression
+  (simulated wrap) nulled only that direction while the other computed correctly, with
+  `prev_fetched_at` still populated. Also folds the already-stale `0.4.0` `gateway.loss_pct`/
+  `latency_ms`/`latency_stddev_ms` fields and the `gateway_history.json` domain into
+  `docs/pfsense-provider-status.md`'s schema block and Domain Table, which had drifted from
+  this changelog. `gtex62-osa` untouched this session — the NET panel build against this
+  field is a separate follow-up.
+- **`docs/sitrep-relocation-plan.md` archived as superseded** — SitRep was built out as its
+  own sibling repo, `gtex62-sitrep`, rather than relocated into `gtex62-core/widgets/` as
+  that plan described. Moved to `docs/archive/sitrep-relocation-plan.md` with a superseded
+  notice at the top; every cross-reference to it across this changelog and `docs/` updated
+  to the new path, and prose asserting something the archival now falsifies (e.g.
+  `docs/pfsense-provider-status.md` claiming `lua/suite/pf.lua` doesn't exist yet and the
+  relocation is still blocked) corrected in place. Documentation-only, no schema/provider
+  change on its own.
+
 ## 0.4.0 — 2026-08-24
 
 - **Modem `connectivity_state`/`boot_state` (`providers/modem/fetch_modem.py`)**
