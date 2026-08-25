@@ -17,6 +17,12 @@
 set -euo pipefail
 
 PROFILE_ID="${1:-main_router}"
+# MTR_PROFILE_ID: cross-domain read only (shared/mtr/{mtr_profile}/
+# mtr_state.json, written by providers/mtr/fetch_mtr.sh) — mirrors how
+# fetch_mtr.sh itself takes an alerts-profile arg to read this script's
+# banner.json. Not this script's own profile; just where to find one
+# other provider's already-written cache file.
+MTR_PROFILE_ID="${2:-pi5}"
 CONFIG_ROOT="${GTEX62_CONFIG_DIR:-${GTEX62_CONKY_CONFIG_DIR:-$HOME/.config/gtex62-core}}"
 CACHE_ROOT="${GTEX62_CACHE_DIR:-${GTEX62_CONKY_CACHE_DIR:-$HOME/.cache/gtex62-core}}"
 CORE_TOML="$CONFIG_ROOT/core.toml"
@@ -25,6 +31,7 @@ STATUS_JSON="$PF_DIR/status.json"
 PIHOLE_JSON="$PF_DIR/pihole.json"
 AP_STATUS_JSON="$PF_DIR/ap_status.json"
 AP_CLIENTS_JSON="$PF_DIR/ap_clients.json"
+MTR_JSON="$CACHE_ROOT/shared/mtr/${MTR_PROFILE_ID}/mtr_state.json"
 OUT_DIR="$CACHE_ROOT/shared/alerts/${PROFILE_ID}"
 BANNER_JSON="$OUT_DIR/banner.json"
 ALERT_LOG="$OUT_DIR/alert_log.txt"
@@ -71,15 +78,15 @@ PIHOLE_INACTIVE_DURATION_SEC="${PIHOLE_INACTIVE_DURATION_SEC:-600}"
 # -------------------------------------------------------------------------
 
 python3 - \
-  "$STATUS_JSON" "$PIHOLE_JSON" "$AP_STATUS_JSON" "$AP_CLIENTS_JSON" \
+  "$STATUS_JSON" "$PIHOLE_JSON" "$AP_STATUS_JSON" "$AP_CLIENTS_JSON" "$MTR_JSON" \
   "$STATE_JSON" "$BANNER_JSON" "$ALERT_LOG" \
   "$PROFILE_ID" "$GATEWAY_OFFLINE_DURATION_SEC" "$PIHOLE_INACTIVE_DURATION_SEC" <<'PY'
 import json, os, sys, time
 from datetime import datetime, timezone
 
-(status_path, pihole_path, ap_status_path, ap_clients_path,
+(status_path, pihole_path, ap_status_path, ap_clients_path, mtr_path,
  state_path, banner_path, log_path,
- profile_id, gateway_dur_s, pihole_dur_s) = sys.argv[1:11]
+ profile_id, gateway_dur_s, pihole_dur_s) = sys.argv[1:12]
 
 gateway_dur_s = int(gateway_dur_s)
 pihole_dur_s  = int(pihole_dur_s)
@@ -161,6 +168,40 @@ if ok:
         state["gateway_offline_since"] = None
         state["gateway_alerted"] = False
 
+def mtr_began_child():
+    """Second INFO child under gateway-offline: "MTR SCRIPT ON PI5 BEGAN
+    <HHMM>UTC", read from providers/mtr/fetch_mtr.sh's own
+    mtr_state.json — no SSH, no re-derivation, just the file it already
+    wrote. Deliberately does NOT reuse load_json()'s state=="ok" gate:
+    that gate means "is this poll's collector healthy", not "is the
+    previously-confirmed running fact still valid" — a transient SSH
+    hiccup to Pi5 (state flips to "degraded") shouldn't retract an
+    already-confirmed BEGAN line. running/confirmed are checked
+    directly instead, matching the same "don't claim something that
+    isn't verified" standard the state file itself was designed
+    around: confirmed=False (start issued, not yet pgrep-verified)
+    silently omits this child, same as a missing/unparseable file."""
+    try:
+        with open(mtr_path, "r", encoding="utf-8") as fh:
+            mtr = json.load(fh)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+    if mtr.get("running") is not True or mtr.get("confirmed") is not True:
+        return None
+    started_epoch = mtr.get("started_at_epoch")
+    try:
+        started_epoch = int(started_epoch)
+    except (TypeError, ValueError):
+        return None
+    hhmm = datetime.fromtimestamp(started_epoch, tz=timezone.utc).strftime("%H%M")
+    return {
+        "id": "gateway-offline-mtr",
+        "severity": "INFORMATIONAL",
+        "message": f"MTR SCRIPT ON PI5 BEGAN {hhmm}UTC",
+        "since": iso(started_epoch),
+    }
+
+
 if state["gateway_offline_since"] is not None:
     duration = now_epoch - state["gateway_offline_since"]
     if duration >= gateway_dur_s:
@@ -168,18 +209,22 @@ if state["gateway_offline_since"] is not None:
             log("BREACH", "SEVERE", "gateway-offline", "COMCAST OUTAGE DETECTED")
             state["gateway_alerted"] = True
         minutes = gateway_dur_s // 60
+        gateway_children = [{
+            "id": "gateway-offline-detail",
+            "severity": "INFORMATIONAL",
+            "message": f"GATEWAY OFFLINE >={minutes}MIN",
+            "since": iso(state["gateway_offline_since"]),
+        }]
+        mtr_child = mtr_began_child()
+        if mtr_child is not None:
+            gateway_children.append(mtr_child)
         queue.append({
             "id": "gateway-offline",
             "severity": "SEVERE",
             "message": "COMCAST OUTAGE DETECTED",
             "since": iso(state["gateway_offline_since"]),
             "duration_seconds": duration,
-            "children": [{
-                "id": "gateway-offline-detail",
-                "severity": "INFORMATIONAL",
-                "message": f"GATEWAY OFFLINE >={minutes}MIN",
-                "since": iso(state["gateway_offline_since"]),
-            }],
+            "children": gateway_children,
         })
 
 # -------------------------------------------------------------------------

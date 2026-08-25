@@ -522,7 +522,7 @@ if [[ "$MODEM_ENABLED" == "true" ]]; then
   initial_refresh "modem-${MODEM_PROFILE}" "$MODEM_STAMP" "$CORE_DIR/providers/modem/fetch_modem.sh" "$MODEM_PROFILE"
 fi
 if [[ "$ALERTS_ENABLED" == "true" ]]; then
-  initial_refresh "alerts-${ALERTS_PROFILE}" "$ALERTS_STAMP" "$CORE_DIR/providers/alerts/fetch_alerts.sh" "$ALERTS_PROFILE"
+  initial_refresh "alerts-${ALERTS_PROFILE}" "$ALERTS_STAMP" "$CORE_DIR/providers/alerts/fetch_alerts.sh" "$ALERTS_PROFILE" "$MTR_PROFILE"
 fi
 if [[ "$MTR_ENABLED" == "true" ]]; then
   initial_refresh "mtr-${MTR_PROFILE}" "$MTR_STAMP" "$CORE_DIR/providers/mtr/fetch_mtr.sh" "$MTR_PROFILE" "$ALERTS_PROFILE"
@@ -561,7 +561,7 @@ if [[ "$MODEM_ENABLED" == "true" ]]; then
   refresh_loop "modem-${MODEM_PROFILE}" "$MODEM_TTL" "$MODEM_STAMP" "$MODEM_LOOP_PID_FILE" "$CORE_DIR/providers/modem/fetch_modem.sh" "$MODEM_PROFILE"
 fi
 if [[ "$ALERTS_ENABLED" == "true" ]]; then
-  refresh_loop "alerts-${ALERTS_PROFILE}" "$ALERTS_TTL" "$ALERTS_STAMP" "$ALERTS_LOOP_PID_FILE" "$CORE_DIR/providers/alerts/fetch_alerts.sh" "$ALERTS_PROFILE"
+  refresh_loop "alerts-${ALERTS_PROFILE}" "$ALERTS_TTL" "$ALERTS_STAMP" "$ALERTS_LOOP_PID_FILE" "$CORE_DIR/providers/alerts/fetch_alerts.sh" "$ALERTS_PROFILE" "$MTR_PROFILE"
 fi
 if [[ "$MTR_ENABLED" == "true" ]]; then
   refresh_loop "mtr-${MTR_PROFILE}" "$MTR_TTL" "$MTR_STAMP" "$MTR_LOOP_PID_FILE" "$CORE_DIR/providers/mtr/fetch_mtr.sh" "$MTR_PROFILE" "$ALERTS_PROFILE"
