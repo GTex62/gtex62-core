@@ -82,7 +82,7 @@ CACHE_ROOT="${CACHE_ROOT:-$(resolve_root "" "" "$HOME/.cache/gtex62-core" "$HOME
 
 # Provider enable/disable (core.toml [providers] / [providers.pfsense]).
 # Missing file, missing section, or missing key all fall through to "false" —
-# a missing core.toml is equivalent to everything disabled. All eight flags
+# a missing core.toml is equivalent to everything disabled. All nine flags
 # are wired into initial_refresh/refresh_loop below — see
 # docs/pfsense-provider-status.md.
 PFSENSE_STATUS_ENABLED="$(parse_toml_section_value "$CORE_TOML" providers.pfsense status || true)"
@@ -93,6 +93,8 @@ PIHOLE_ENABLED="$(parse_toml_section_value "$CORE_TOML" providers.pfsense pihole
 PIHOLE_ENABLED="${PIHOLE_ENABLED:-false}"
 PFBLOCKERNG_ENABLED="$(parse_toml_section_value "$CORE_TOML" providers.pfsense pfblockerng || true)"
 PFBLOCKERNG_ENABLED="${PFBLOCKERNG_ENABLED:-false}"
+PFSENSE_IFACES_ENABLED="$(parse_toml_section_value "$CORE_TOML" providers.pfsense ifaces || true)"
+PFSENSE_IFACES_ENABLED="${PFSENSE_IFACES_ENABLED:-false}"
 VPN_ENABLED="$(parse_toml_section_value "$CORE_TOML" providers vpn || true)"
 VPN_ENABLED="${VPN_ENABLED:-false}"
 AP_ENABLED="$(parse_toml_section_value "$CORE_TOML" providers ap || true)"
@@ -166,6 +168,11 @@ PFSENSE_TTL="$(parse_toml_value "$PFSENSE_PROFILE_TOML" cache_ttl_sec || true)"
 ROUTER_TTL="$(parse_toml_section_value "$PFSENSE_PROFILE_TOML" router cache_ttl_sec || true)"
 PIHOLE_TTL="$(parse_toml_section_value "$PFSENSE_PROFILE_TOML" pihole cache_ttl_sec || true)"
 PFBLOCKERNG_TTL="$(parse_toml_section_value "$PFSENSE_PROFILE_TOML" pfblockerng cache_ttl_sec || true)"
+# Fast interface byte-counter poller — own TTL, independent of
+# PFSENSE_TTL/status.json's cadence (root key, not nested — same shape as
+# PFSENSE_TTL itself). See fetch_pfsense_ifaces.sh and
+# docs/pfsense-provider-status.md.
+PFSENSE_IFACES_TTL="$(parse_toml_value "$PFSENSE_PROFILE_TOML" ifaces_cache_ttl_sec || true)"
 SITE_TOML="$CONFIG_ROOT/site.toml"
 VPN_PROFILE_TOML="$CONFIG_ROOT/profiles/vpn/${VPN_PROFILE}.toml"
 VPN_TTL="$(parse_toml_value "$VPN_PROFILE_TOML" cache_ttl_sec || true)"
@@ -202,6 +209,7 @@ PFSENSE_TTL="${PFSENSE_TTL:-5}"
 ROUTER_TTL="${ROUTER_TTL:-60}"
 PIHOLE_TTL="${PIHOLE_TTL:-300}"
 PFBLOCKERNG_TTL="${PFBLOCKERNG_TTL:-300}"
+PFSENSE_IFACES_TTL="${PFSENSE_IFACES_TTL:-1}"
 VPN_TTL="${VPN_TTL:-10}"
 AP_TTL="${AP_TTL:-120}"
 MODEM_TTL="${MODEM_TTL:-300}"
@@ -266,6 +274,7 @@ PFSENSE_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-pfsense-refresh.pid"
 ROUTER_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-router-refresh.pid"
 PIHOLE_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-pihole-refresh.pid"
 PFBLOCKERNG_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-pfblockerng-refresh.pid"
+PFSENSE_IFACES_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-pfsense-ifaces-refresh.pid"
 VPN_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-vpn-refresh.pid"
 AP_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-ap-refresh.pid"
 MODEM_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-modem-refresh.pid"
@@ -288,6 +297,7 @@ PFSENSE_STAMP="$STAMPS_DIR/pfsense-${PFSENSE_PROFILE}.stamp"
 ROUTER_STAMP="$STAMPS_DIR/router-${PFSENSE_PROFILE}.stamp"
 PIHOLE_STAMP="$STAMPS_DIR/pihole-${PFSENSE_PROFILE}.stamp"
 PFBLOCKERNG_STAMP="$STAMPS_DIR/pfblockerng-${PFSENSE_PROFILE}.stamp"
+PFSENSE_IFACES_STAMP="$STAMPS_DIR/pfsense-ifaces-${PFSENSE_PROFILE}.stamp"
 VPN_STAMP="$STAMPS_DIR/vpn-${VPN_PROFILE}.stamp"
 AP_STAMP="$STAMPS_DIR/ap-${AP_PROFILE}.stamp"
 MODEM_STAMP="$STAMPS_DIR/modem-${MODEM_PROFILE}.stamp"
@@ -413,11 +423,22 @@ refresh_loop() {
       started_ns="$(date +%s%N)"
       run_locked "$name" "$stamp" "$@"
       ended_ns="$(date +%s%N)"
+      # min_sleep floors the inter-cycle wait so a provider whose remote
+      # call is slow-but-succeeding (not gate-tripped, just a laggy round
+      # trip) can't fire back-to-back SSH attempts. 0.05s is fine for
+      # 60-90s-interval providers; pfsense-ifaces-* polls every ~1s and a
+      # 2-4s slow stretch against that floor would otherwise mean a new
+      # SSH connection attempt every 50ms — floor it at ~half its own
+      # interval instead, capping it near one attempt per round trip.
+      min_sleep="0.05"
+      case "$name" in
+        pfsense-ifaces-*) min_sleep="0.5" ;;
+      esac
       sleep_for="$(
-        awk -v started="$started_ns" -v ended="$ended_ns" -v interval="$interval" 'BEGIN {
+        awk -v started="$started_ns" -v ended="$ended_ns" -v interval="$interval" -v min_sleep="$min_sleep" 'BEGIN {
           elapsed = (ended - started) / 1000000000
           wait = interval - elapsed
-          if (wait < 0.05) wait = 0.05
+          if (wait < min_sleep) wait = min_sleep
           printf "%.3f\n", wait
         }'
       )"
@@ -512,6 +533,9 @@ fi
 if [[ "$PFBLOCKERNG_ENABLED" == "true" ]]; then
   initial_refresh "pfblockerng-${PFSENSE_PROFILE}" "$PFBLOCKERNG_STAMP" "$CORE_DIR/providers/pfsense/fetch_pfblockerng.sh" "$PFSENSE_PROFILE"
 fi
+if [[ "$PFSENSE_IFACES_ENABLED" == "true" ]]; then
+  initial_refresh "pfsense-ifaces-${PFSENSE_PROFILE}" "$PFSENSE_IFACES_STAMP" "$CORE_DIR/providers/pfsense/fetch_pfsense_ifaces.sh" "$PFSENSE_PROFILE"
+fi
 if [[ "$VPN_ENABLED" == "true" ]]; then
   initial_refresh "vpn-${VPN_PROFILE}" "$VPN_STAMP" "$CORE_DIR/providers/vpn/fetch_vpn.sh" "$VPN_PROFILE"
 fi
@@ -550,6 +574,9 @@ if [[ "$PIHOLE_ENABLED" == "true" ]]; then
 fi
 if [[ "$PFBLOCKERNG_ENABLED" == "true" ]]; then
   refresh_loop "pfblockerng-${PFSENSE_PROFILE}" "$PFBLOCKERNG_TTL" "$PFBLOCKERNG_STAMP" "$PFBLOCKERNG_LOOP_PID_FILE" "$CORE_DIR/providers/pfsense/fetch_pfblockerng.sh" "$PFSENSE_PROFILE"
+fi
+if [[ "$PFSENSE_IFACES_ENABLED" == "true" ]]; then
+  refresh_loop "pfsense-ifaces-${PFSENSE_PROFILE}" "$PFSENSE_IFACES_TTL" "$PFSENSE_IFACES_STAMP" "$PFSENSE_IFACES_LOOP_PID_FILE" "$CORE_DIR/providers/pfsense/fetch_pfsense_ifaces.sh" "$PFSENSE_PROFILE"
 fi
 if [[ "$VPN_ENABLED" == "true" ]]; then
   refresh_loop "vpn-${VPN_PROFILE}" "$VPN_TTL" "$VPN_STAMP" "$VPN_LOOP_PID_FILE" "$CORE_DIR/providers/vpn/fetch_vpn.sh" "$VPN_PROFILE"

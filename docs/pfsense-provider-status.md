@@ -21,6 +21,15 @@ history predating this split:
 
 ## Implementation Status
 
+### `providers/pfsense/fetch_pfsense_ifaces.sh` ✓ COMPLETE (Aug 25, 2026)
+
+Fast-cadence (~1s) sibling of `fetch_pfsense.sh` — interface byte counters
+only, own cache file (`ifaces.json`), own gate (`runtime/pfsense_ifaces`),
+own TTL. Split out so the VLAN bidir meters can poll live without waiting
+on (or tripping) `status.json`'s 60s CPU/MEM/gateway/ARP/leases/history
+cycle. See the `ifaces.json` schema section and Session History below for
+the SSH-sustainability investigation and verification detail.
+
 ### `providers/pfsense/fetch_pfsense.sh` ✓ IN PROGRESS
 
 The core pfSense provider exists and is structurally correct. It implements:
@@ -51,6 +60,7 @@ Accepts a `GATE_STATE_DIR` override so other domains can point it at their own s
 | Domain | Legacy Source | Cache File | Cadence | Status |
 | --- | --- | --- | --- | --- |
 | Interfaces, CPU%, MEM%, gateway (incl. live loss%/latency + per-VLAN rate) | `pf-fetch-basic.sh` (all modes) | `status.json` | 60s | ✓ Implemented |
+| Interface byte counters only (fast poll, own gate) | `pf-fetch-basic.sh interfaces` (tech-hud's 1s poll) | `ifaces.json` | ~1s (independent TTL) | ✓ Implemented (Aug 25, 2026) |
 | Gateway loss/latency history (dpinger RRD window) | — | `gateway_history.json` | 60s (independent TTL, matches RRD step) | ✓ Implemented (Aug 24, 2026) |
 | Router: uptime, load, firmware, hw model, BIOS | `pf-fetch-basic.sh medium`, `section=system` | `router.json` | 60s | ✓ Implemented (Aug 18, 2026) |
 | pfBlockerNG: IP blocks, DNSBL hits, query total | `pf-fetch-basic.sh slow`, `section=pfblockerng` | `pfblockerng.json` | 5m | ✓ Implemented (Aug 18, 2026) |
@@ -75,6 +85,7 @@ blocked by an unrelated one. All gates reuse the single `pf-ssh-gate.sh` script 
 | `fetch_router.sh` | `pf` (same host) | `runtime/router` |
 | `fetch_pfblockerng.sh` | `pf` (same host) | `runtime/pfblockerng` |
 | `fetch_pihole.sh` | `pi5` (separate host) | `runtime/pihole` |
+| `fetch_pfsense_ifaces.sh` | `pf` (same host) | `runtime/pfsense_ifaces` |
 | AP provider (planned) | Zyxel WBE530 ×3 (direct IP, password auth) | `runtime/ap` |
 
 Same-host domains (`router`, `pfblockerng`) share nothing but the target IP — reasoning is
@@ -264,6 +275,95 @@ end
 Counter wraparound on 32-bit interfaces (some virtual/legacy interfaces on FreeBSD wrap at
 ~4GB; modern interfaces report 64-bit) is handled by the `now_bytes >= prev[key].bytes`
 guard — on wrap the delta is skipped for one cycle.
+
+### ifaces.json
+
+`shared/pfsense/{profile}/ifaces.json` — written by `fetch_pfsense_ifaces.sh`
+(0.5.0+, Aug 25, 2026), a **separate script from `fetch_pfsense.sh`**, own SSH
+session, own gate (`runtime/pfsense_ifaces`), own TTL
+(`ifaces_cache_ttl_sec`, default 1s). Split out so the VLAN bidir meters can
+poll interface byte counters at ~1s without waiting on — or being blocked
+by — `status.json`'s 60s CPU/MEM/gateway/ARP/leases/history cycle.
+`status.json`'s own `interfaces` block is **unchanged**: `fetch_pfsense.sh`
+keeps collecting and writing it on its existing 60s cadence exactly as
+before — `ifaces.json` is an addition, not a replacement. See the
+Remaining Work checklist below for the open question this creates (which
+file a consumer should read).
+
+```json
+{
+  "state": "ok",
+  "profile": "main_router",
+  "collector": "ifaces",
+  "generated_at": "2026-08-25T14:19:10Z",
+  "ssh_target": "pf",
+  "ssh_gate": { "status": "OK", "tripped": false, "left_seconds": 0, "reason": "" },
+  "interfaces": {
+    "WAN": {
+      "ifname": "igc0",
+      "ibytes": 3031410384197,
+      "obytes": 323314134155,
+      "fetched_at": 1787667550,
+      "rate_ibytes_per_sec": 311756.0,
+      "rate_obytes_per_sec": 19874.5,
+      "prev_fetched_at": 1787667548
+    }
+  }
+}
+```
+
+Same shape, same fields, same diff/wrap-guard/cold-start rate-computation
+convention as `status.json`'s `interfaces` block (see that section above) —
+duplicated here, not shared, since this script now owns the byte counters
+at this cadence and diffs against its own previous file, not
+`status.json`'s. Degraded/error/disabled states omit the `interfaces` key
+entirely, matching `status.json`'s stub convention (relied on by the
+cold-start fallback in both scripts' rate-diff logic).
+
+**One deliberate divergence from `status.json`'s copy: `fetched_at` is a
+float here, an int there.** `status.json`'s `fetched_at = int(time.time())`
+is fine at 60s cadence — integer-second quantization is noise at that
+scale. At this script's ~1s cadence it isn't: a real ~1.05s gap between
+polls can round to a 1s or 2s `delta_t` depending on where the two
+timestamps land relative to the second boundary, producing up to a ~2x
+rate error on that sample. Caught in review before this shipped; fixed
+here by keeping `fetched_at`/`prev_fetched_at` as floats in this script
+only, with the cold-start guard's `isinstance()` check widened to accept
+`(int, float)` so a prior int-typed sample (or `status.json`'s own,
+should anything ever cross-read) still resolves cleanly instead of
+looking like a permanent cold start. `fetch_pfsense.sh`'s int copy is
+**intentionally left unchanged** — do not "helpfully" re-sync the two;
+the divergence is correct, not drift.
+
+**SSH approach (investigated, not assumed):** a plain per-poll `ssh` call,
+same `BatchMode`/key options as `fetch_pfsense.sh` — no
+ControlMaster/multiplexing. Checked how `gtex62-tech-hud`'s `pf_widget.lua`
+sustains its own 1s interface poll first: no `ControlMaster`/`ControlPath`
+anywhere in its scripts, in `pf_widget.lua`'s `sh()`/`sh_with_status()`
+helpers, or in `~/.ssh/config` — it's a fresh SSH connection every poll,
+full stop. Live-measured against the real `main_router` box before writing
+this script: 5 fresh key-based handshakes averaged **~0.12s** each; the
+same measurement with `ControlMaster=auto`/`ControlPersist` enabled
+averaged **~0.01–0.02s** (confirms multiplexing works and would buy ~10x
+headroom, but isn't what tech-hud actually does). End-to-end, the full
+`fetch_pfsense_ifaces.sh` cycle (SSH + awk parse + `python3` startup + `jq`
+stub-path) averaged **~0.38s** over 5 runs — comfortably inside the 1s
+budget without a persistent control socket. Replicated tech-hud's actual
+(simpler) approach rather than adding ControlMaster's lifecycle complexity
+for margin that isn't needed at this cadence; revisit if the cadence is
+ever pushed faster or the remote command grows heavier.
+
+- **Verified (Aug 25, 2026):** live against the real box. Cold start
+  (no prior file) produced `null` rates for all 6 VLANs as expected; a
+  second run ~2s later produced sane rates matching the raw counter delta
+  (hand-checked WAN: `(3031410384197-3031409760685)/2 = 311756.0`, exact
+  match). Same-second re-run left the file's mtime unchanged (TTL skip
+  confirmed). Forced a trip on `runtime/pfsense_ifaces` and confirmed:
+  `ifaces.json` went `degraded` with no `interfaces` key; `runtime/pfsense`
+  (the main gate) was untouched (directory didn't even exist in the scratch
+  cache root used for the test); a `fetch_pfsense.sh` run immediately after
+  still returned `state: "ok"` — confirms the two gates are fully
+  independent, in both directions.
 
 ### gateway_history.json
 
@@ -502,6 +602,7 @@ All paths relative to `~/.cache/gtex62-core/`.
 | Data | Cache File | Cadence | Status |
 | --- | --- | --- | --- |
 | Interfaces, CPU%, MEM%, gateway | `shared/pfsense/[profile]/status.json` | 60s | ✓ Implemented |
+| Interface byte counters (fast poll) | `shared/pfsense/[profile]/ifaces.json` | ~1s (independent TTL) | ✓ Implemented |
 | Gateway loss/latency history | `shared/pfsense/[profile]/gateway_history.json` | 60s (independent TTL) | ✓ Implemented |
 | Router uptime, load, firmware, hw model, BIOS | `shared/pfsense/[profile]/router.json` | 60s | ✓ Implemented |
 | pfBlockerNG | `shared/pfsense/[profile]/pfblockerng.json` | 5m | ✓ Implemented |
@@ -589,6 +690,19 @@ it.
       `prev_fetched_at`) → `status.json`'s `interfaces.<VLAN>` (Aug 25, 2026 — see Session
       History)
 - [ ] Verify pfBlockerNG sqlite3 paths on current pfSense version
+- [x] Fast (~1s) interface byte-counter poller, own cache file/gate/TTL
+      (`fetch_pfsense_ifaces.sh` → `ifaces.json`, Aug 25, 2026 — see
+      Session History)
+- [ ] **Cross-repo follow-up, not this repo's to close:** `gtex62-osa`'s
+      `lua/suite/net.lua` (`M.vlan_bidir_rows()`) currently reads
+      `status.json`'s `interfaces` block, which still updates on the old
+      60s cycle — it does not yet read the new ~1s `ifaces.json`. Whether
+      the bidir view switches to `ifaces.json` (to actually get the ~1s
+      liveness this poller exists for) or keeps reading `status.json` is
+      an OSA-repo decision/edit, deliberately not made or touched here
+      (this session's scope was `gtex62-core` only). Flagged in
+      `gtex62-osa/design/osa-design-notes.md` too — see that file's NET
+      panel VLAN redesign section for the OSA-side tracking.
 
 ### AP Provider
 
@@ -750,3 +864,76 @@ collection remain.
   direction's rate computed normally, with `prev_fetched_at` still populated. `gtex62-osa`
   not touched this session, per scoping — the NET panel build against this field is a
   separate follow-up session.
+- **Aug 25, 2026 — Fast interface byte-counter poller split out.** New
+  `providers/pfsense/fetch_pfsense_ifaces.sh` collects only the 6 VLAN
+  `netstat -I` byte counters (no CPU/MEM/gateway/ARP/leases/history) and
+  writes `ifaces.json` on its own ~1s TTL (`ifaces_cache_ttl_sec`), gated
+  independently (`runtime/pfsense_ifaces`) so a fast-poll SSH hiccup can't
+  trip the shared `runtime/pfsense` gate that `status.json`'s other domains
+  depend on, and vice versa. `fetch_pfsense.sh`'s own `status.json`
+  interfaces collection is unchanged — untouched, still 60s, still the
+  source for everything else in that file — per this session's explicit
+  scoping. Investigated (not assumed) how `gtex62-tech-hud` sustains its
+  own 1s interface poll before choosing an approach: no
+  ControlMaster/multiplexing anywhere in its scripts or `~/.ssh/config` —
+  it just opens a fresh SSH connection every poll. Live-measured against
+  the real box to confirm this actually holds up rather than trusting it
+  on faith: 5 fresh handshakes averaged ~0.12s each (vs ~0.01–0.02s with
+  ControlMaster tested the same way, confirming multiplexing would help
+  but isn't needed); the full new script's end-to-end cycle averaged
+  ~0.38s over 5 runs. Both comfortably inside the 1s budget, so the
+  simpler tech-hud-matching approach (no persistent control socket) was
+  kept. Rate computation (diff + 32-bit-wrap guard + null-on-cold-start)
+  duplicated from `fetch_pfsense.sh` into the new script — same logic,
+  diffed against `ifaces.json`'s own previous sample, not `status.json`'s.
+  Wired into `bin/gtex62-core-launch` the same shape as the other
+  `[providers.pfsense]` flags (`ifaces = true`, own TTL/stamp/lock/PID-file
+  resolution, gated `initial_refresh`/`refresh_loop` calls) and into
+  `core.toml`. Verified live: cold-start run produced `null` rates for all
+  6 VLANs; a run ~2s later produced rates matching the raw counter delta
+  by hand (WAN spot-checked exactly); an immediate same-second re-run left
+  the file's mtime unchanged (TTL skip confirmed); a forced trip on the
+  new gate produced a `degraded` stub with no `interfaces` key while
+  `runtime/pfsense` stayed untouched and a `fetch_pfsense.sh` run
+  immediately after still returned `state: "ok"` — gate independence
+  confirmed in both directions. Deliberately left open, flagged rather
+  than decided: whether OSA's `M.vlan_bidir_rows()` should switch from
+  `status.json` to reading `ifaces.json` — a `gtex62-osa`-repo edit, out
+  of scope this session (see Remaining Work Checklist above and
+  `gtex62-osa/design/osa-design-notes.md`).
+- **Aug 25, 2026 — Review pass on the fast poller, before commit.** Two
+  fixes made to the held (uncommitted) diff above, plus the OSA wiring
+  gap it flagged closed out:
+  - **Timestamp precision.** `fetch_pfsense_ifaces.sh`'s `fetched_at` was
+    `int(time.time())`, same as `fetch_pfsense.sh`'s copy — harmless at
+    60s cadence, but at ~1s cadence integer-second quantization could
+    round a real ~1.05s gap to a 1s or 2s `delta_t`, up to a ~2x rate
+    error on that sample. Fixed by making `fetched_at`/`prev_fetched_at`
+    floats in this script only (see the `ifaces.json` schema section
+    above for the full before/after and why `fetch_pfsense.sh`'s int copy
+    is intentionally left alone); the cold-start guard's `isinstance()`
+    check was widened to `(int, float)` so an existing int-typed sample
+    doesn't read as a false cold start. Re-verified live: two polls
+    ~1.44s apart (`sleep 1.05` plus the script's own ~0.38s runtime)
+    produced a fractional `delta_t` and a rate matching the raw counter
+    delta exactly, vs. the previous integer rounding.
+  - **OSA wiring gap closed.** `gtex62-osa/lua/suite/net.lua`'s
+    `M.vlan_bidir_rows()` now reads `ifaces.json` instead of
+    `status.json` — without this, the fast poller would have shipped
+    unused and the bidir meters would still only update once a minute.
+    `status.json`'s own `interfaces` block is untouched, left for any
+    slower/other consumer. This is a `gtex62-osa`-repo source change,
+    committed/tracked independently of this repo per the two-repo split
+    (see that repo's own history for it) — noted here only because it's
+    the other half of what makes this poller actually load-bearing.
+  - **Optional hardening, applied.** `bin/gtex62-core-launch`'s
+    `refresh_loop`'s inter-cycle sleep floor (0.05s) is fine for the
+    60-90s-interval providers it was written for, but could let a
+    1s-interval provider fire back-to-back SSH attempts during a
+    slow-but-succeeding stretch (each poll taking 2-4s, still only
+    50ms apart). Added a name-keyed floor (`pfsense-ifaces-*` -> 0.5s
+    minimum, same case-statement pattern already used for the startup
+    stagger a few lines above it) rather than threading a new parameter
+    through every `refresh_loop` call site — caps this provider at
+    roughly one connection attempt per round trip during a slow stretch,
+    without touching the other ~20 providers' behavior.

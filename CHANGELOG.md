@@ -50,6 +50,47 @@ not yet backfilled here.
   `docs/pfsense-provider-status.md` claiming `lua/suite/pf.lua` doesn't exist yet and the
   relocation is still blocked) corrected in place. Documentation-only, no schema/provider
   change on its own.
+- **Fast interface byte-counter poller split out
+  (`providers/pfsense/fetch_pfsense_ifaces.sh`)** — new sibling script to
+  `fetch_pfsense.sh`, collecting only the 6 VLAN `netstat -I` byte counters
+  on an independent ~1s TTL (`ifaces_cache_ttl_sec`) into a new
+  `shared/pfsense/{profile}/ifaces.json`, gated independently
+  (`runtime/pfsense_ifaces`) so a fast-poll SSH failure can't trip the
+  shared `runtime/pfsense` gate that `status.json`'s CPU/MEM/gateway/ARP/
+  leases/history depend on, and vice versa. `fetch_pfsense.sh`'s own
+  `status.json` interfaces collection is unchanged — still 60s, untouched.
+  Rate computation (diff, 32-bit-wrap guard, null-on-cold-start) duplicated
+  from `fetch_pfsense.sh` into the new script, diffed against
+  `ifaces.json`'s own previous sample. Investigated how
+  `gtex62-tech-hud`'s `pf_widget.lua` sustains its own 1s interface poll
+  before choosing an approach: no ControlMaster/multiplexing anywhere in
+  its scripts or `~/.ssh/config` — a fresh SSH connection every poll.
+  Live-measured against the real box: 5 fresh handshakes averaged ~0.12s
+  each (vs ~0.01–0.02s with ControlMaster tested the same way); the full
+  new script's end-to-end cycle averaged ~0.38s over 5 runs — both
+  comfortably inside the 1s budget, so the simpler tech-hud-matching
+  approach was kept over adding a persistent control socket. Wired into
+  `bin/gtex62-core-launch` and `core.toml` (`[providers.pfsense] ifaces`)
+  the same shape as the other pfSense-family flags. Verified live:
+  cold-start nulls, a ~2s-later run's rates matching the raw counter delta
+  by hand, same-second re-run TTL skip, and gate independence in both
+  directions (forced trip on the new gate left `runtime/pfsense`
+  untouched and `fetch_pfsense.sh` still returned `state: "ok"`).
+  Reviewed before commit; two fixes applied: `fetched_at` changed from
+  `int(time.time())` to a float in this script only (cold-start guard's
+  `isinstance()` widened to `(int, float)` to match) — at 60s cadence
+  integer-second rounding is noise, but at ~1s cadence it could round a
+  real ~1.05s gap to a 1s or 2s `delta_t`, up to a ~2x rate error;
+  `fetch_pfsense.sh`'s own int copy is deliberately left unchanged, not
+  re-synced. And `bin/gtex62-core-launch`'s `refresh_loop` gained a
+  name-keyed 0.5s minimum inter-cycle sleep for `pfsense-ifaces-*`
+  (its generic 0.05s floor otherwise risked back-to-back SSH attempts
+  during a slow-but-succeeding 2-4s stretch) — every other provider's
+  0.05s floor is unchanged. `gtex62-osa`'s `M.vlan_bidir_rows()` now reads
+  `ifaces.json` instead of `status.json` (that repo's own change, tracked
+  independently) — without it the fast poller would have shipped unused.
+  See `docs/pfsense-provider-status.md`'s Aug 25, 2026 "Review pass"
+  entry for full detail.
 
 ## 0.4.0 — 2026-08-24
 

@@ -48,6 +48,10 @@ router = false
 # hosted on the pfSense box.
 pihole = false
 pfblockerng = false
+# Fast (~1s) interface byte-counter poller (fetch_pfsense_ifaces.sh) — own
+# cache file (ifaces.json), own gate (runtime/pfsense_ifaces), own TTL
+# (ifaces_cache_ttl_sec). Independent of `status` above.
+ifaces = false
 
 # Alert-banner watcher thresholds/durations (providers/alerts/fetch_alerts.sh).
 # See gtex62-sitrep/design/sitrep-design-notes.md § Alert banner / outage
