@@ -48,7 +48,8 @@ Accepts a `GATE_STATE_DIR` override so other domains can point it at their own s
 
 | Domain | Legacy Source | Cache File | Cadence | Status |
 | --- | --- | --- | --- | --- |
-| Interfaces, CPU%, MEM%, gateway | `pf-fetch-basic.sh` (all modes) | `status.json` | 60s | ✓ Implemented |
+| Interfaces, CPU%, MEM%, gateway (incl. live loss%/latency + per-VLAN rate) | `pf-fetch-basic.sh` (all modes) | `status.json` | 60s | ✓ Implemented |
+| Gateway loss/latency history (dpinger RRD window) | — | `gateway_history.json` | 60s (independent TTL, matches RRD step) | ✓ Implemented (Aug 24, 2026) |
 | Router: uptime, load, firmware, hw model, BIOS | `pf-fetch-basic.sh medium`, `section=system` | `router.json` | 60s | ✓ Implemented (Aug 18, 2026) |
 | pfBlockerNG: IP blocks, DNSBL hits, query total | `pf-fetch-basic.sh slow`, `section=pfblockerng` | `pfblockerng.json` | 5m | ✓ Implemented (Aug 18, 2026) |
 | Pi-hole: active, totals, blocked, domains | `pf-fetch-basic.sh slow`, `section=pihole` (pi5 SSH) | `pihole.json` | 5m | ✓ Implemented (Aug 18, 2026) |
@@ -159,28 +160,60 @@ need re-deciding once `pf.lua` is written — just implementing.
   "mem_pct": 31,
   "gateway": {
     "online": true,
-    "ip": "203.0.113.1"
+    "ip": "203.0.113.1",
+    "loss_pct": 0.0,
+    "latency_ms": 2.7,
+    "latency_stddev_ms": 0.4
   },
   "interfaces": {
     "WAN": {
       "ifname": "igc0",
       "ibytes": 623456789012,
       "obytes": 54321098765,
-      "fetched_at": 1754056980
+      "fetched_at": 1754056980,
+      "rate_ibytes_per_sec": 323287.8,
+      "rate_obytes_per_sec": 33807.9,
+      "prev_fetched_at": 1754056920
     },
     "HOME": {
       "ifname": "igc1.10",
       "ibytes": 26432198765,
       "obytes": 263123456789,
-      "fetched_at": 1754056980
+      "fetched_at": 1754056980,
+      "rate_ibytes_per_sec": 1000.5,
+      "rate_obytes_per_sec": 6660.0,
+      "prev_fetched_at": 1754056920
     },
-    "IOT":   { "ifname": "igc1.20", "ibytes": 0, "obytes": 0, "fetched_at": 0 },
-    "GUEST": { "ifname": "igc1.30", "ibytes": 0, "obytes": 0, "fetched_at": 0 },
-    "INFRA": { "ifname": "igc1.40", "ibytes": 0, "obytes": 0, "fetched_at": 0 },
-    "CAM":   { "ifname": "igc1.50", "ibytes": 0, "obytes": 0, "fetched_at": 0 }
+    "IOT":   { "ifname": "igc1.20", "ibytes": 0, "obytes": 0, "fetched_at": 0, "rate_ibytes_per_sec": null, "rate_obytes_per_sec": null, "prev_fetched_at": null },
+    "GUEST": { "ifname": "igc1.30", "ibytes": 0, "obytes": 0, "fetched_at": 0, "rate_ibytes_per_sec": null, "rate_obytes_per_sec": null, "prev_fetched_at": null },
+    "INFRA": { "ifname": "igc1.40", "ibytes": 0, "obytes": 0, "fetched_at": 0, "rate_ibytes_per_sec": null, "rate_obytes_per_sec": null, "prev_fetched_at": null },
+    "CAM":   { "ifname": "igc1.50", "ibytes": 0, "obytes": 0, "fetched_at": 0, "rate_ibytes_per_sec": null, "rate_obytes_per_sec": null, "prev_fetched_at": null }
   }
 }
 ```
+
+`gateway.loss_pct`/`latency_ms`/`latency_stddev_ms` (0.4.0, Aug 24, 2026) are dpinger's own
+rolling 60s average, read live off its polling socket (`/var/run/dpinger_WAN_DHCP~*.sock`) —
+additive alongside the pre-existing `online`/`ip`, which are untouched. Absent (key not
+present, not `null`) when the socket glob comes back empty (dpinger not running, `WAN_DHCP6`
+matched instead — can't happen, see below) rather than a fabricated zero. A companion
+duration-window history of the same dpinger quality data (`rrdtool fetch` against pfSense's
+own `WAN_DHCP-quality.rrd`) is written separately to `gateway_history.json` — see its own
+schema section below.
+
+**Per-VLAN rate fields** — `rate_ibytes_per_sec`/`rate_obytes_per_sec` (bytes, not bits —
+matches the existing `ibytes`/`obytes` naming) and `prev_fetched_at` are computed server-side
+each cycle by `fetch_pfsense.sh` itself: before overwriting `status.json`, it reads the
+*previous* file's `interfaces.<VLAN>.ibytes`/`obytes`/`fetched_at` and diffs against the
+freshly-collected values (moving the "Interface rate computation" Lua reference below
+server-side, since it's a fact, not a display choice). `prev_fetched_at` is the timestamp of
+the sample the rate was diffed against, so a consumer can see the actual delta-t used rather
+than assuming a fixed cadence. Both rate fields are `null` (never a fabricated 0) whenever
+there's no valid previous sample to diff against — cold start, a previous cycle that landed on
+a degraded/error/disabled stub (which omits `interfaces` entirely), or a 32-bit counter
+wraparound on that direction (`now_bytes >= prev_bytes` guard, same convention as the Lua
+reference below); a wraparound on only one direction leaves the other direction's rate valid
+independently.
 
 #### State Field Values
 
@@ -193,9 +226,13 @@ need re-deciding once `pf.lua` is written — just implementing.
 
 This `state`/`ssh_gate` envelope shape is shared by every domain below.
 
-**Interface rate computation** — `ibytes` and `obytes` are cumulative counters from
-`netstat`. The Lua view model computes instantaneous rate by diffing two successive cache
-reads:
+**Interface rate computation (historical reference — now done server-side, see the
+per-VLAN rate fields above)** — `ibytes` and `obytes` are cumulative counters from
+`netstat`. This sketch of a Lua view model computing instantaneous rate by diffing two
+successive cache reads predates `rate_ibytes_per_sec`/`rate_obytes_per_sec` landing in
+`status.json` itself; kept here as the reference the server-side computation above was
+moved from (same diff/guard logic, same reasoning), not as a pattern a consumer still
+needs to implement:
 
 ```lua
 -- lua/suite/pf.lua
@@ -220,6 +257,50 @@ end
 Counter wraparound on 32-bit interfaces (some virtual/legacy interfaces on FreeBSD wrap at
 ~4GB; modern interfaces report 64-bit) is handled by the `now_bytes >= prev[key].bytes`
 guard — on wrap the delta is skipped for one cycle.
+
+### gateway_history.json
+
+`shared/pfsense/{profile}/gateway_history.json` — written by `fetch_pfsense.sh` (0.4.0, Aug
+24, 2026), piggybacked on its existing SSH session same as `arp.json`/`leases.json` — no new
+session, no new gate. A window of samples, not a point value, so it's kept apart from
+`status.json`.
+
+```json
+{
+  "state": "ok",
+  "profile": "main_router",
+  "collector": "gateway_history",
+  "generated_at": "2026-08-24T03:00:00Z",
+  "ssh_target": "pf",
+  "ssh_gate": { "status": "OK", "tripped": false, "left_seconds": 0, "reason": "" },
+  "gateway": "WAN_DHCP",
+  "rrd_file": "WAN_DHCP-quality.rrd",
+  "step_sec": 60,
+  "window_sec": 1200,
+  "samples": [
+    { "ts": 1756004400, "loss_pct": 0.0, "latency_ms": 2.7, "latency_stddev_ms": 0.4 }
+  ]
+}
+```
+
+Source is `rrdtool fetch` against pfSense's own `WAN_DHCP-quality.rrd` (already written for
+its Status > Monitoring graphs, not new tooling), at 1-min resolution. `window_sec` defaults
+to 1200 (20min) — margin over the design notes' aspirational "≥25% for >15min" gateway
+condition without hardcoding that 15min figure into collection. IPv4 (`WAN_DHCP`) only,
+matching the single-WAN-link framing of that condition; `WAN_DHCP6` can be added the same way
+later if ever needed. Own independent TTL (`gateway_history_cache_ttl_sec`, default 60s,
+matching the RRD's native step) — same piggyback-cadence pattern as `arp_cache_ttl_sec`, not
+rewritten when not due. Header/blank rows and not-yet-consolidated (`nan`) rows from `rrdtool
+fetch` are dropped before building `samples`.
+
+- Feeds the alert banner's future duration-based gateway condition — not a display meter.
+  As of this writing no SitRep Lua reads it yet (`pf.lua`'s GATEWAY meter is still a static
+  placeholder).
+- **Verified (Aug 24, 2026):** live against the real box, alongside the live
+  `gateway.loss_pct`/`latency_ms`/`latency_stddev_ms` dpinger-socket read added in the same
+  session. Confirmed no existing consumer breaks: no SitRep Lua read `status.json`'s
+  `gateway{}` object yet, and `fetch_alerts.sh`'s SEVERE gateway-offline trigger reads only
+  `gateway.online`, unaffected.
 
 ### router.json
 
@@ -414,6 +495,7 @@ All paths relative to `~/.cache/gtex62-core/`.
 | Data | Cache File | Cadence | Status |
 | --- | --- | --- | --- |
 | Interfaces, CPU%, MEM%, gateway | `shared/pfsense/[profile]/status.json` | 60s | ✓ Implemented |
+| Gateway loss/latency history | `shared/pfsense/[profile]/gateway_history.json` | 60s (independent TTL) | ✓ Implemented |
 | Router uptime, load, firmware, hw model, BIOS | `shared/pfsense/[profile]/router.json` | 60s | ✓ Implemented |
 | pfBlockerNG | `shared/pfsense/[profile]/pfblockerng.json` | 5m | ✓ Implemented |
 | Pi-hole | `shared/pfsense/[profile]/pihole.json` | 5m | ✓ Implemented |
@@ -494,6 +576,11 @@ it.
 - [x] Pi-hole (active, totals, blocked, domains) → `pihole.json` (`fetch_pihole.sh`, Aug 18, 2026)
 - [x] ARP table → `arp.json` (Aug 19, 2026, piggybacked on `fetch_pfsense.sh`'s session)
 - [x] DHCP leases → `leases.json` (Aug 19, 2026, same session)
+- [x] Live gateway loss%/latency (dpinger socket) → `status.json`'s `gateway{}` (Aug 24, 2026)
+- [x] Gateway loss/latency history (RRD window) → `gateway_history.json` (Aug 24, 2026)
+- [x] Per-VLAN instantaneous rate (`rate_ibytes_per_sec`/`rate_obytes_per_sec`,
+      `prev_fetched_at`) → `status.json`'s `interfaces.<VLAN>` (Aug 25, 2026 — see Session
+      History)
 - [ ] Verify pfBlockerNG sqlite3 paths on current pfSense version
 
 ### AP Provider
@@ -629,3 +716,30 @@ collection remain.
   core-owned copy is now unread by any provider, cleanup left for later. `[ap]
   ipmap_path` in `site.toml` is now unused config, left in place — not part of this
   session's scope.
+- **Aug 25, 2026 — Per-VLAN instantaneous rate.** Closed the one open question from
+  `gtex62-osa/design/osa-design-notes.md`'s NET-panel-redesign scoping first: checked live
+  via SSH whether pfSense tracks per-VLAN sub-interface traffic in its own RRD. It does —
+  `/var/db/rrd/{wan,lan,opt1..opt5}-traffic.rrd` exist and are live-updating (confirmed
+  `opt1`–`opt5` map to `HOME`/`IOT`/`GUEST`/`INFRA`/`CAM` via `config.xml`'s `<interfaces>`
+  block), so the rolling-window RRD option was viable infrastructure-wise after all — but
+  per the scoping conclusion this doesn't reopen the decision, since the diff approach still
+  wins on the recorded tradeoffs (no new SSH round-trip, no new gate). Implemented the diff
+  approach in `fetch_pfsense.sh`: before overwriting `status.json` each due cycle, the
+  Python block now reads the *previous* file's `interfaces.<VLAN>.ibytes`/`obytes`/
+  `fetched_at` (falling back to an empty dict on a missing file, unparsable JSON, or a prior
+  degraded/error/disabled stub with no `interfaces` key — all treated as cold start) and
+  diffs against the freshly-collected values, writing `rate_ibytes_per_sec`/
+  `rate_obytes_per_sec`/`prev_fetched_at` alongside the raw counters — no new SSH call, no
+  new gate, no new cache file. Also fixed the doc drift flagged in the design notes: the
+  `0.4.0` (Aug 24, 2026) `gateway.loss_pct`/`latency_ms`/`latency_stddev_ms` fields and the
+  `gateway_history.json` domain had shipped and were in `CHANGELOG.md` but not yet in this
+  doc's schema block or Domain Table — both now folded in, plus a new `gateway_history.json`
+  schema section. Verified live against the real box: two poll cycles ~44s apart produced
+  sane, differing per-VLAN rates (spot-checked against the raw counter deltas by hand); a
+  forced missing-`status.json` cold start produced `null`/`null`/`null` for all six VLANs; a
+  forced prior degraded-stub (no `interfaces` key) produced the same null result on the next
+  real cycle without error; a forged prior sample with one direction's counter set above the
+  current value (simulated wrap) produced `null` for only that direction while the other
+  direction's rate computed normally, with `prev_fetched_at` still populated. `gtex62-osa`
+  not touched this session, per scoping — the NET panel build against this field is a
+  separate follow-up session.

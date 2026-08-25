@@ -482,6 +482,20 @@ gw_latency_stddev_ms  = None
 
 fetched_at = int(__import__("time").time())
 
+# Previous status.json's interfaces, read before this cycle overwrites the
+# file below — this is the whole state needed for the instantaneous-diff
+# per-VLAN rate (no separate state file). Missing file, unparsable JSON, or
+# a previous cycle that had no interfaces key at all (the degraded/error/
+# disabled stub from write_status() omits it) all fall through to an empty
+# dict here, which the per-VLAN loop below treats the same as a genuine
+# cold start: null rates, no exception.
+prev_interfaces = {}
+try:
+    with open(out_path, "r", encoding="utf-8") as fh:
+        prev_interfaces = json.load(fh).get("interfaces") or {}
+except (OSError, ValueError):
+    pass
+
 with open(raw_path, "r", encoding="utf-8") as fh:
     for line in fh:
         parts = line.rstrip("\n").split("\t")
@@ -545,6 +559,33 @@ with open(raw_path, "r", encoding="utf-8") as fh:
                 })
             except (ValueError, TypeError):
                 pass
+
+# Per-VLAN instantaneous rate — diff this cycle's counters against the
+# previous cycle's (read above, before this file was overwritten). Bytes,
+# matching ibytes/obytes naming (not bits). 32-bit-wrap guard: only compute
+# a direction's rate when the counter didn't go backwards; otherwise null
+# for that cycle rather than a garbage negative. Both fields null whenever
+# there's no usable previous sample for this key (cold start, gate trip,
+# restart) — same convention as wg/handshake fields elsewhere.
+for _key, _cur in interfaces.items():
+    _rate_i = _rate_o = _prev_fetched_at = None
+    _prev = prev_interfaces.get(_key)
+    if isinstance(_prev, dict):
+        _prev_ibytes = _prev.get("ibytes")
+        _prev_obytes = _prev.get("obytes")
+        _prev_ts     = _prev.get("fetched_at")
+        if (isinstance(_prev_ibytes, int) and isinstance(_prev_obytes, int)
+                and isinstance(_prev_ts, int) and _prev_ts > 0):
+            _delta_t = _cur["fetched_at"] - _prev_ts
+            if _delta_t > 0:
+                _prev_fetched_at = _prev_ts
+                if _cur["ibytes"] >= _prev_ibytes:
+                    _rate_i = (_cur["ibytes"] - _prev_ibytes) / _delta_t
+                if _cur["obytes"] >= _prev_obytes:
+                    _rate_o = (_cur["obytes"] - _prev_obytes) / _delta_t
+    _cur["rate_ibytes_per_sec"] = _rate_i
+    _cur["rate_obytes_per_sec"] = _rate_o
+    _cur["prev_fetched_at"] = _prev_fetched_at
 
 if gw_loss_pct is not None:
     gateway["loss_pct"] = gw_loss_pct
