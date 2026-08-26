@@ -4,6 +4,11 @@ enabled = true
 # ssh_target =
 cache_ttl_sec = 1
 
+[pihole]
+# Defaults come from site.toml [pihole].ssh_target.
+# ssh_target =
+cache_ttl_sec = 60
+
 [interfaces]
 # Defaults come from site.toml [pfsense.interfaces].
 # wan =
