@@ -71,9 +71,9 @@ actually done vs. assumed done.
 | weather | ☑ legacy weather.conky.conf + lua/owm.lua (draw_main/forecast/metar/taf) | ☑ weather (shared/weather/home) + aviation (shared/aviation/home) | ☑ ambient chassis, weather block 90px below chassis top (legacy gap_y 130) | ☑ main block + tiles + METAR/TAF verified vs time-and-weather.png | Done 2026-07-19 |
 | astro (orb) | ☑ legacy owm.lua draw_horizon/sun_labels + theme weather.arc | ☑ astro (shared/astro/home, canonical altitude/azimuth) | ☑ arc center at legacy weather.center offset within ambient chassis | ☑ arc/sun/moon/planets/labels verified vs screenshot + 6 simulated times of day | Done 2026-07-19 |
 | time (tme) | ☑ legacy date-time.conky.conf + calendar.conky.conf + lua/calendar.lua | ☑ time/calendar read at draw time (per guide §1.2); cal_offset suite-local at suites/clean-e/tme/ | ☑ clock: ambient chassis head 1, top_middle, gap_y 40 (legacy date-time position); calendar: standalone top_right window at measured legacy position (see note below) | ☑ clock stack verified vs time-and-weather.png; calendar verified pixel-level (±2px) against the running legacy widget + calendar.png (borderless) | Done 2026-07-19 (calendar reposition confirmed) |
-| music (msc) | ☐ | ☐ | ☐ | ☐ | Not started |
+| music (msc) | ☑ legacy music.conky.conf + lua/music.lua + cover_line.lua + screenshots/music*.png | ☑ split: playback/volume/cover suite-local (playerctl/pactl at draw time); arc geometry DERIVED from panels.orb.arc by reference (legacy weather-arc mirror, see 2026-08-28 note) | ☑ media chassis top_middle head 1, 1700×1340 gap 0,413 — reproduces the *measured* rendered legacy positions (arc center abs (5755,938); legacy confs' raw gaps are not the rendered truth) | ☑ Cairo via clean_media.lua, blank conky.text, palette-driven; HR/arc/markers/labels verified numerically vs the running legacy widget (progress dot y identical, x −5 = deliberate ambient-axis alignment); marquee + idle verified | Done 2026-08-28 |
 | notes | ☑ legacy notes.conky.conf + theme.lua notes_* keys | ☑ suite-local (no core domain): direct read of ~/Documents/conky-notes.txt via lua/suite/notes.lua, 3 s tick cache | ☑ standalone top_right head 1, gap_x 31 reproduces the legacy *rendered* position (see 2026-07-20 note); gap_y measured as 292 but later moved to 350 by user preference (2026-08-27) | ☑ Cairo via clean_notes.lua, blank conky.text, palette-driven; verified numerically vs the running legacy widget (±1 px) | Done 2026-07-20 |
-| lyrics | ☐ | ☐ | ☐ | ☐ | Not started |
+| lyrics | ☑ legacy music-lyrics.conky.conf + lua/lyrics.lua + theme.lyrics | ☑ CORE media domain (shared/media/local/lyrics.json, providers/media/fetch_lyrics.py; docs/lyrics-library-design.md) — suite side is display-only, no fetching | ☑ same media chassis window; panel at in-window (1296,5) 400×1324 reproduces the *measured* legacy rendered position (text left abs 6211, header baseline 441) | ☑ Cairo, palette-driven; verified pixel-exact vs the running legacy widget (identical text bbox 6212..6585 × 428..1326, 284 text rows, identical band starts); state messages + linger verified | Done 2026-08-28 |
 | pfsense (VLAN arcs) | ☑ legacy pfsense.conky.conf + theme-pf.lua + lua/pf_widget.lua + screenshots/pfsense.png | ☑ pfsense (shared/pfsense/main_router/ifaces.json, ~1s core poller, server-side rates) | ☑ head 1, bottom_middle 840×500 gap_y 150 (frame sized around the user-tuned r=400 dome) — legacy gap_y 740 deliberately NOT reproduced (see 2026-08-27 note) | ☑ Cairo arcs-only per guide §1.4, blank conky.text, palette-driven; dome verified vs pfsense.png (retired content excluded by design) | Done 2026-08-27 |
 
 ---
@@ -435,29 +435,116 @@ sessions can reuse them without reopening images):
   position is no longer the measured legacy reproduction (comment updated in
   clean-layout.lua).
 
+**music (msc) + lyrics completed 2026-08-28.** The last two widgets — converted together as
+the media chassis (MSC + LYRICS; notes went standalone 2026-07-20). Decisions and measured
+values:
+
+- *Domain split confirmed, not assumed*: lyrics is now CORE-owned — `providers/media/`
+  `fetch_lyrics.py` → `shared/media/local/lyrics.json` (display-ready lines, LRC stripped
+  provider-side; authoritative doc is **`docs/lyrics-library-design.md`**, not the pfsense
+  provider doc). Playback state, volume/mute, and cover art remain suite-local
+  (playerctl/pactl at draw time) — `providers/media/` has no player/cover collector, per
+  that doc's deliberate scope split. `msc.lua` rewritten accordingly: its old suite-local
+  lyrics cache read (`suites/clean-e/msc/lyrics/`, never populated) is gone; one jq per 2s
+  tick reads lyrics.json. Suite manifest now declares `media` in `[data] domains`; runtime
+  `suites/clean-e.toml` got an explicit `media = "local"`.
+- *Provider-lag UX*: lyrics.json refreshes on the provider's ~60s loop, so after a track
+  change (or playback start) it briefly describes the wrong/no track. The view model
+  compares lyrics.json's track against the live playerctl track and reports state
+  `"searching"` on mismatch → panel shows "Searching…" (legacy showed the same while its
+  own fetch was throttled). All other lyrics.json states map to the legacy messages
+  (not_found/offline/instrumental; `ok` → lines). The saved-path footer shows when
+  `source ≠ "local"` (fetched online this cycle) — write-through promotes the track to
+  the library, after which reads are `local` and the footer disappears, like legacy.
+- *Weather-arc mirror preserved as a DERIVATION, not a copy* (user-flagged as deliberate,
+  hard-won): legacy music.lua took its arc geometry from `theme.weather.*` at draw time
+  (`get_arc_geometry_weather()`); `theme.music.arc`'s own r=140/200→−20 were dead config
+  (verified: only its colors were read) and were NOT carried forward. In the port,
+  `panels.msc.arc` REFERENCES `panels.orb.arc` fields (r/start/end/dy) and
+  `panels.msc.baseline.length` references `panels.wxr.hline.length` (460 — the HR line
+  mirrors the weather hline) at panels.lua load time. This is config-level live
+  derivation: both chassis load the same panels.lua, so an ambient-arc retune propagates
+  to the music arc on the next relaunch. A draw-time runtime read was considered and
+  rejected as meaningless — the two are separate Conky processes with no runtime channel,
+  and the geometry is static config; load-time reference is the strongest coupling that
+  exists in this architecture. The trail color is `theme.astro.arc_night` by reference
+  (legacy progress_color 242424 = gray14 = the horizon arc's night gray); the volume
+  marker red is a fixed convention in new `theme.msc` (theme.astro precedent).
+- *Rendered-position pitfall, both windows*: legacy `music.conky.conf` (conf: 640×270
+  top_middle gap 0,530) actually rendered at physical (5307,734) 906×389 with the arc
+  center at (5760,938) = window-relative (width/2, 204 = weather.center.y);
+  `music-lyrics.conky.conf` (conf: 560×940 gap −600,300) rendered at (6201,413) 795×1324.
+  Both measured off the running legacy widgets with a live MPRIS player (VLC
+  `--no-audio`, silent). The media chassis is ONE top_middle window (1700×1340, gap
+  0,413 → window at (4905,408)) covering both rendered footprints — legitimate under the
+  chassis-combination pitfall because both legacy windows share the top_middle anchor on
+  head 1 (unlike calendar/notes, whose top_right positions were disjoint from their
+  chassis). gap_x 0 + full-width msc panel keeps the legacy auto_x self-centering: the
+  music arc axis renders at abs 5755, IDENTICAL to the converted ambient arc's axis (both
+  are 5px left of true monitor center — the suite-wide panel-width/2 convention, accepted
+  since the ambient conversion). The chassis window rectangle overlaps the ambient and
+  pfSense windows; drawn content boxes are disjoint (verified against all running
+  widgets).
+- *Album Art Image Reload pitfall — resolved differently, documented*: the legacy
+  mtime-named-copy workaround existed only to defeat `${image}`'s no-hot-reload; the
+  Cairo port has no `${image}`, so it's obsolete. The replacement constraint is that
+  Cairo loads PNG only, while `mpris:artUrl` is typically JPEG (and file:// URLs are
+  percent-encoded — the legacy pipeline silently failed on VLC's encoded URLs and fell
+  back to the horn icon). `msc.lua` now URL-decodes, fetches http(s) art via curl, and
+  converts to `suites/clean-e/msc/covers/current.png` (ImageMagick, ≤128px) only when the
+  art source changes; idle/artless falls back to the shared-assets horn icon. Art
+  placement itself was normalized: the legacy theme's `art` values (62×60 at center−13)
+  never matched what `${image}` rendered (`-p`/`-s` were not honored as configured —
+  measured; the accepted screenshots show ~88–148px art seated in the bowl), so the port
+  draws a deterministic aspect-fit 88×88 box centered on the arc axis at center+68,
+  between the album and artist lines — matching the accepted music.png composition.
+- *Verified numerically* (window-id captures, same-second suite-e vs legacy):
+  LYRICS **pixel-exact** — text bbox abs 6212..6585 × 428..1326, 284 text rows, identical
+  band-start positions. MUSIC: HR line y 892/893 (sub-pixel), progress dot y identical to
+  the decimal (1059.0) with exactly the deliberate 5.0px axis shift; red volume marker y
+  exact; endpoint labels/title/album/artist positions match the theme model that today's
+  legacy render also matches. Marquee verified live on an over-wide title (Chopin, 49
+  chars): scrolls at the configured 18px/s within the clipped field, album line correctly
+  static. Idle state verified after a 10s+ linger: music panel shows the inactive
+  message, horn, 0:00/−0:00, and volume marker (pactl fallback works with no player,
+  like legacy); lyrics panel hides. No Lua errors on stderr-captured runs.
+- *Bug found during verify*: the view model's jq filter lost all lyric lines —
+  jq's comma binds inside an unparenthesized trailing pipe target, so `.lines[]` was
+  applied to the constructed header array (an error, silently discarded via 2>/dev/null).
+  Fixed with explicit parens; commented at the call site.
+- *Idle bars*: implemented but disabled (`panels.msc.bars.animate_idle = false`),
+  matching the final legacy theme (music2.png shows the older enabled look) — pfSense
+  baseline precedent, kept for easy revival.
+- *Small cleanups folded in*: `theme.slash.empty_color` now pulls new palette role
+  `slash_empty` (both palettes); `theme.pf_markers` comment reworded so the theme.astro
+  precedent explicitly covers the legacy five with CAM as the palette-dependent
+  exception; stale "MSC + NOTES + LYRICS" headers in clean_media.lua /
+  clean-media.conky.conf fixed; dead `draw_hbar` helper removed from frame.lua.
+- *Note*: the converted media chassis was left RUNNING after verification (started with
+  `conky -c` alongside the launcher-started instances) — the standing "stop clean-media
+  after verifying" note applied to the unconverted OSA-leftover layout and is now
+  retired. The next `start-conky.sh` relaunch picks it up normally. The legacy music and
+  music-lyrics widgets launched for measurement were stopped by PID.
+
 ---
 
 ## Notes for Next Widgets
 
-- **Open items for the next session (as of 2026-08-27):** (1) the monitor chassis
-  (sys/net) is Done in the table above but the user has further visual tweaks
-  planned for it — treat those as polish on a converted widget, not a reopened
-  conversion; (2) music and lyrics are the last unconverted widgets (media chassis
-  layout is still the OSA leftover and overlaps the pfSense region when running).
+- **Open items (updated 2026-08-28):** (1) the monitor chassis (sys/net) is Done in
+  the table above but the user has further visual tweaks planned for it — treat those
+  as polish on a converted widget, not a reopened conversion; (2) ~~music and lyrics
+  are the last unconverted widgets~~ **all widgets are now converted** — the next step
+  is the "When All Widgets Are Done" section below (chassis assignment is already the
+  final shape: monitor/ambient/media chassis + calendar/notes/pfsense standalones, so
+  what remains there is the guide's full Theme / Rendering / Launch / Cleanup
+  compliance scan).
 
 - Weather, astro, and time are all core-domain widgets like sys-info/net — expect the same
   two failure modes (positioning, cache wiring) if problems recur. Diagnosis pattern from
   Steps 1–2 above applies directly.
-- Music and lyrics are suite-local (no core domain) — data issues there will be in
-  the Lua module's direct file read, not a cache path. (Notes, also suite-local, is
-  done — its conversion above is the reference for this pattern.)
-- **Core now has a media/lyrics provider that didn't exist when the above was written**
-  (`gtex62-core/providers/media/fetch_lyrics.py` → `shared/media/local/lyrics.json`,
-  confirmed live/updating as of 2026-08-27). The original conversion guide's domain
-  mapping called lyrics suite-local-only because no core provider existed yet. Before
-  converting music/lyrics, check whether lyrics should move to core-sourced instead of
-  assuming the old suite-local pattern still holds — don't carry `msc.lua`'s current
-  suite-local lyrics read forward on autopilot.
+- ~~Music and lyrics are suite-local (no core domain)~~ **Resolved 2026-08-28**: the
+  split landed as lyrics = core media domain, playback/volume/cover = suite-local —
+  see the music+lyrics completion note above and `docs/lyrics-library-design.md`.
 - **Chassis-combination positioning pitfall (found on `tme`, resolved):** the legacy
   suite ran calendar as its own independent Conky instance with its own position; the
   conversion initially folded it into the `tme` chassis. Combining previously-separate
