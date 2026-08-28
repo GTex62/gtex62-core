@@ -73,3 +73,9 @@ gateway_offline_duration_sec = 900
 # "PI-HOLE INACTIVE". Duration-gated, not instantaneous — Pi-hole has been
 # observed to blip inactive then self-recover.
 pihole_inactive_duration_sec = 600
+# vpn.json killswitch_mode=="on" (PIA Advanced Kill Switch) AND
+# connectionstate != "Connected" continuously for this long -> SEVERE
+# "KS BLOCKING TRAFFIC". Short debounce, not
+# gateway-offline's 15min — this surfaces promptly rather than waiting out
+# a blip, since the person may not remember Advanced mode is even on.
+advanced_killswitch_duration_sec = 10

@@ -2,8 +2,9 @@
 # providers/alerts/fetch_alerts.sh
 # Core alert-banner watcher. Not an SSH provider — no gate, no remote target.
 # Reads other providers' already-written cache files (status.json, pihole.json,
-# ap_status.json, ap_clients.json under shared/pfsense/{profile}/), applies
-# threshold/duration logic from core.toml's [alerts] section, and writes one
+# ap_status.json, ap_clients.json under shared/pfsense/{profile}/, vpn.json
+# under shared/vpn/{vpn_profile}/), applies threshold/duration logic from
+# core.toml's [alerts] section, and writes one
 # shared, severity-sorted, parent/child-grouped alert queue that SitRep (and
 # any other consumer) can render without re-deriving anything.
 #
@@ -23,6 +24,10 @@ PROFILE_ID="${1:-main_router}"
 # banner.json. Not this script's own profile; just where to find one
 # other provider's already-written cache file.
 MTR_PROFILE_ID="${2:-pi5}"
+# VPN_PROFILE_ID: cross-domain read only, same as MTR_PROFILE_ID above —
+# shared/vpn/{vpn_profile}/vpn.json, written by providers/vpn/fetch_vpn.sh.
+# Default "local" matches fetch_vpn.sh's and the launcher's own default.
+VPN_PROFILE_ID="${3:-local}"
 CONFIG_ROOT="${GTEX62_CONFIG_DIR:-${GTEX62_CONKY_CONFIG_DIR:-$HOME/.config/gtex62-core}}"
 CACHE_ROOT="${GTEX62_CACHE_DIR:-${GTEX62_CONKY_CACHE_DIR:-$HOME/.cache/gtex62-core}}"
 CORE_TOML="$CONFIG_ROOT/core.toml"
@@ -32,6 +37,7 @@ PIHOLE_JSON="$PF_DIR/pihole.json"
 AP_STATUS_JSON="$PF_DIR/ap_status.json"
 AP_CLIENTS_JSON="$PF_DIR/ap_clients.json"
 MTR_JSON="$CACHE_ROOT/shared/mtr/${MTR_PROFILE_ID}/mtr_state.json"
+VPN_JSON="$CACHE_ROOT/shared/vpn/${VPN_PROFILE_ID}/vpn.json"
 OUT_DIR="$CACHE_ROOT/shared/alerts/${PROFILE_ID}"
 BANNER_JSON="$OUT_DIR/banner.json"
 ALERT_LOG="$OUT_DIR/alert_log.txt"
@@ -72,24 +78,29 @@ GATEWAY_OFFLINE_DURATION_SEC="${GATEWAY_OFFLINE_DURATION_SEC:-900}"
 PIHOLE_INACTIVE_DURATION_SEC="$(parse_section_value "$CORE_TOML" alerts pihole_inactive_duration_sec || true)"
 PIHOLE_INACTIVE_DURATION_SEC="${PIHOLE_INACTIVE_DURATION_SEC:-600}"
 
+ADV_KILLSWITCH_DURATION_SEC="$(parse_section_value "$CORE_TOML" alerts advanced_killswitch_duration_sec || true)"
+ADV_KILLSWITCH_DURATION_SEC="${ADV_KILLSWITCH_DURATION_SEC:-10}"
+
 # -------------------------------------------------------------------------
 # Evaluate + write. Pure computation over already-cached JSON — no SSH, no
 # gate, no cache-TTL skip (cheap local reads; every invocation recomputes).
 # -------------------------------------------------------------------------
 
 python3 - \
-  "$STATUS_JSON" "$PIHOLE_JSON" "$AP_STATUS_JSON" "$AP_CLIENTS_JSON" "$MTR_JSON" \
+  "$STATUS_JSON" "$PIHOLE_JSON" "$AP_STATUS_JSON" "$AP_CLIENTS_JSON" "$MTR_JSON" "$VPN_JSON" \
   "$STATE_JSON" "$BANNER_JSON" "$ALERT_LOG" \
-  "$PROFILE_ID" "$GATEWAY_OFFLINE_DURATION_SEC" "$PIHOLE_INACTIVE_DURATION_SEC" <<'PY'
+  "$PROFILE_ID" "$GATEWAY_OFFLINE_DURATION_SEC" "$PIHOLE_INACTIVE_DURATION_SEC" \
+  "$ADV_KILLSWITCH_DURATION_SEC" <<'PY'
 import json, os, sys, time
 from datetime import datetime, timezone
 
-(status_path, pihole_path, ap_status_path, ap_clients_path, mtr_path,
+(status_path, pihole_path, ap_status_path, ap_clients_path, mtr_path, vpn_path,
  state_path, banner_path, log_path,
- profile_id, gateway_dur_s, pihole_dur_s) = sys.argv[1:12]
+ profile_id, gateway_dur_s, pihole_dur_s, adv_ks_dur_s) = sys.argv[1:14]
 
 gateway_dur_s = int(gateway_dur_s)
 pihole_dur_s  = int(pihole_dur_s)
+adv_ks_dur_s  = int(adv_ks_dur_s)
 now_epoch     = int(time.time())
 now_iso       = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -136,6 +147,8 @@ state.setdefault("unknown_since", None)
 state.setdefault("unknown_alerted", False)
 state.setdefault("ap_offline_since", {})   # {label: epoch}
 state.setdefault("ap_offline_alerted", {}) # {label: bool}
+state.setdefault("adv_ks_blocking_since", None)
+state.setdefault("adv_ks_blocking_alerted", False)
 
 log_lines = []
 
@@ -225,6 +238,52 @@ if state["gateway_offline_since"] is not None:
             "since": iso(state["gateway_offline_since"]),
             "duration_seconds": duration,
             "children": gateway_children,
+        })
+
+# -------------------------------------------------------------------------
+# Advanced Kill Switch blocking all traffic. Same symptom as gateway-offline
+# (nothing works) but a completely different cause and fix — worth its own
+# distinct SEVERE message so it isn't mistaken for a Comcast outage.
+# Confirmed with user Aug 28, 2026 (see gtex62-core/docs/network-providers-
+# roadmap.md § Killswitch Mode Detection — Advanced vs. Regular): PIA's
+# "Advanced Kill Switch" (killswitch_mode == "on") keeps blocking traffic
+# even while intentionally disconnected — that's the entire point of the
+# mode — so vpn.json's connectionstate != "Connected" while that mode is
+# configured means real, ongoing traffic blocking, not just "no VPN".
+# Short 10s duration gate (vs. gateway-offline's 15min): this isn't waiting
+# out a normal blip, it's surfacing promptly since the person may not
+# remember Advanced mode is even on. No children — matches ap-offline's
+# simplicity, not gateway-offline's parent+child structure; there's nothing
+# more useful to break out here than the single fact.
+# -------------------------------------------------------------------------
+
+ok, vpn = load_json(vpn_path)
+if ok:
+    killswitch_mode = vpn.get("killswitch_mode")
+    connectionstate = vpn.get("connectionstate")
+    blocking = killswitch_mode == "on" and connectionstate != "Connected"
+    if blocking:
+        if state["adv_ks_blocking_since"] is None:
+            state["adv_ks_blocking_since"] = now_epoch
+    else:
+        if state["adv_ks_blocking_alerted"]:
+            log("CLEAR", "SEVERE", "advanced-killswitch-blocking", "KS BLOCKING TRAFFIC")
+        state["adv_ks_blocking_since"] = None
+        state["adv_ks_blocking_alerted"] = False
+
+if state["adv_ks_blocking_since"] is not None:
+    duration = now_epoch - state["adv_ks_blocking_since"]
+    if duration >= adv_ks_dur_s:
+        if not state["adv_ks_blocking_alerted"]:
+            log("BREACH", "SEVERE", "advanced-killswitch-blocking", "KS BLOCKING TRAFFIC")
+            state["adv_ks_blocking_alerted"] = True
+        queue.append({
+            "id": "advanced-killswitch-blocking",
+            "severity": "SEVERE",
+            "message": "KS BLOCKING TRAFFIC",
+            "since": iso(state["adv_ks_blocking_since"]),
+            "duration_seconds": duration,
+            "children": [],
         })
 
 # -------------------------------------------------------------------------
@@ -392,9 +451,10 @@ for label, since_epoch in state["ap_offline_since"].items():
 
 # -------------------------------------------------------------------------
 # Sort: severity-ordered (SEVERE, then CAUTION), stable within a tier in
-# the fixed evaluation order above (gateway, ap-offline(s), msmtch,
-# unidentified-ip, pihole). Parent/child grouping is inherent — children
-# travel embedded in their parent, never flattened into the top-level sort.
+# the fixed evaluation order above (gateway, advanced-killswitch-blocking,
+# pihole, msmtch, unidentified-ip, ap-offline(s)). Parent/child grouping is
+# inherent — children travel embedded in their parent, never flattened into
+# the top-level sort.
 # -------------------------------------------------------------------------
 
 queue.sort(key=lambda item: SEVERITY_RANK[item["severity"]])
