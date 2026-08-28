@@ -14,6 +14,49 @@ not yet backfilled here.
 
 ---
 
+## 0.6.0 — 2026-08-28
+
+- **Lyrics-library provider (`providers/media/fetch_lyrics`)** — promotes
+  `gtex62-tech-hud`'s `music.lua` lyrics logic (local-check → online-fetch →
+  write-through → publish) to a shared core provider. Config is global
+  (`site.toml [media.lyrics]`), not per-profile, unlike every other current
+  provider. Implements the design doc's Write-Through Safety section:
+  create-only writes, per-writer temp files, rename-time re-check, no-replace
+  hardlink rename with check-then-rename fallback, empty-payload rejection,
+  close-error detection, and orphaned-temp sweep, plus persistent
+  cross-invocation fetch/miss throttling. Wired into `gtex62-core-launch` the
+  same way as `vpn`/`ap`/`modem`/`alerts` (`core.toml [providers] media`,
+  default off in the example template). Verified live against the real
+  NAS-backed library and real tracks.
+- **`killswitch_mode` added to `vpn.json` (`providers/vpn/fetch_vpn.sh`)** —
+  distinguishes PIA's Advanced Kill Switch from the regular VPN Kill Switch,
+  which the existing `piavpnFwdrt`-sourced killswitch field can't do since it
+  renders identically for both modes while Connected (and `piactl` has no
+  killswitch get/set type at all). Read instead from PIA's own
+  `/opt/piavpn/etc/settings.json` tri-state string (`off`/`auto`/`on`),
+  world-readable — no sudoers rule needed. See
+  `docs/network-providers-roadmap.md` § Killswitch Mode Detection — Advanced
+  vs. Regular for the full investigation.
+- **New SEVERE alert: Advanced Kill Switch blocking traffic
+  (`providers/alerts/fetch_alerts.sh`)** — fires "KS BLOCKING TRAFFIC" when
+  `vpn.json`'s new `killswitch_mode == "on"` and `connectionstate !=
+  "Connected"`, sustained ≥ `advanced_killswitch_duration_sec` (default 10s).
+  Same watcher-framework pattern as every other condition (duration-tracked
+  `since`/`alerted` `state.json` fields, BREACH/CLEAR logging,
+  severity-sorted queue entry); same visible symptom as `gateway-offline`
+  but a distinct cause, so it gets its own message rather than blending into
+  a Comcast-outage read. Message text measured via real cairo
+  `text_extents` against the actual render font and alert-banner column
+  width to confirm it fits. Reads `vpn.json` via a new `VPN_PROFILE_ID` arg,
+  no new SSH/gate. Live-tested against a real Advanced-mode PIA install: no
+  false trigger while Connected, fires at the 10s gate on a real
+  disconnect, clears immediately on reconnect.
+- Minor housekeeping in this same undocumented window, not independently
+  bump-worthy: the pihole example TTL lowered to 60s to match the live
+  config change, and doc notes on pfSense-conversion completion.
+  (The fast pfSense interface poller that landed alongside the 0.5.0 bump
+  is already fully described in the entry below and isn't repeated here.)
+
 ## 0.5.0 — 2026-08-25
 
 - **Per-VLAN instantaneous traffic rate (`providers/pfsense/fetch_pfsense.sh`)** — closes
