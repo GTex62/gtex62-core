@@ -72,9 +72,9 @@ actually done vs. assumed done.
 | astro (orb) | ☑ legacy owm.lua draw_horizon/sun_labels + theme weather.arc | ☑ astro (shared/astro/home, canonical altitude/azimuth) | ☑ arc center at legacy weather.center offset within ambient chassis | ☑ arc/sun/moon/planets/labels verified vs screenshot + 6 simulated times of day | Done 2026-07-19 |
 | time (tme) | ☑ legacy date-time.conky.conf + calendar.conky.conf + lua/calendar.lua | ☑ time/calendar read at draw time (per guide §1.2); cal_offset suite-local at suites/clean-e/tme/ | ☑ clock: ambient chassis head 1, top_middle, gap_y 40 (legacy date-time position); calendar: standalone top_right window at measured legacy position (see note below) | ☑ clock stack verified vs time-and-weather.png; calendar verified pixel-level (±2px) against the running legacy widget + calendar.png (borderless) | Done 2026-07-19 (calendar reposition confirmed) |
 | music (msc) | ☐ | ☐ | ☐ | ☐ | Not started |
-| notes | ☑ legacy notes.conky.conf + theme.lua notes_* keys | ☑ suite-local (no core domain): direct read of ~/Documents/conky-notes.txt via lua/suite/notes.lua, 3 s tick cache | ☑ standalone top_right head 1, gap 31,292 reproduces the legacy *rendered* position (see 2026-07-20 note) | ☑ Cairo via clean_notes.lua, blank conky.text, palette-driven; verified numerically vs the running legacy widget (±1 px) | Done 2026-07-20 |
+| notes | ☑ legacy notes.conky.conf + theme.lua notes_* keys | ☑ suite-local (no core domain): direct read of ~/Documents/conky-notes.txt via lua/suite/notes.lua, 3 s tick cache | ☑ standalone top_right head 1, gap_x 31 reproduces the legacy *rendered* position (see 2026-07-20 note); gap_y measured as 292 but later moved to 350 by user preference (2026-08-27) | ☑ Cairo via clean_notes.lua, blank conky.text, palette-driven; verified numerically vs the running legacy widget (±1 px) | Done 2026-07-20 |
 | lyrics | ☐ | ☐ | ☐ | ☐ | Not started |
-| pfsense (VLAN arcs) | ☐ | ☐ | ☐ | ☐ | Not started |
+| pfsense (VLAN arcs) | ☑ legacy pfsense.conky.conf + theme-pf.lua + lua/pf_widget.lua + screenshots/pfsense.png | ☑ pfsense (shared/pfsense/main_router/ifaces.json, ~1s core poller, server-side rates) | ☑ head 1, bottom_middle 840×500 gap_y 150 (frame sized around the user-tuned r=400 dome) — legacy gap_y 740 deliberately NOT reproduced (see 2026-08-27 note) | ☑ Cairo arcs-only per guide §1.4, blank conky.text, palette-driven; dome verified vs pfsense.png (retired content excluded by design) | Done 2026-08-27 |
 
 ---
 
@@ -354,9 +354,96 @@ sessions can reuse them without reopening images):
   harness — the pattern matches the harness's own wrapper shell and kills it (exit 144);
   kill by PID instead.
 
+**pfsense (VLAN arcs) completed 2026-08-27.** Root causes, decisions, and measured values:
+
+- *Scope per guide §1.4*: this widget is the VLAN traffic-flow visualization only.
+  The legacy widget's center meters (LOAD/MEM), "V1211" nameplate, ONLINE/OFFLINE
+  gateway label (incl. SSH-pause suffix), SYSTEM/VERSION/CPU/BIOS/UPTIME infoline,
+  cumulative-bytes totals table, and pfBlockerNG/Pi-hole status block are all retired
+  to the core sitrep utility and were removed, not ported. Kept as the flow
+  composition: concentric dome arcs, IN/OUT rate markers, dash-leader arc names,
+  DN/UP end labels, and the "100%" apex label. The baseline hline was initially
+  kept (judged composition, not status), then dropped by user choice — with the
+  status text that hung off it retired, the bare line wasn't earning its place;
+  it remains in panels.pfsense as `baseline.enabled = false` for easy revival.
+- *Scaffold leftovers, not a blank slate*: `frame.lua` already had a
+  `draw_pf_content` and `panels.pfsense` existed — but both were pre-§1.4 scaffolds:
+  retired content baked in, `anchor_strength` ignored (flat concentric arcs), markers
+  mapped on a full left→right sweep instead of the legacy ends→apex halves (IN
+  180°→90°, OUT 0°→90°, apex = 100%), both directions drawn filled (legacy: IN
+  filled / OUT hollow ring), idle markers hidden (legacy: rest visibly at the
+  endpoints), name labels right-aligned *outside* the left endpoints (runs off-frame
+  at r=300 in a 660 window; legacy draws dash-leader+name inward from the endpoint),
+  and a hardcoded cap=1000 with no response curve. All rewritten to the legacy
+  metaphor.
+- *Data*: `lua/suite/pf.lua` rewritten from scratch. Old version read `status.json`
+  (60s) and diffed byte counters client-side with ~10 jq calls per draw and no tick
+  cache. New version reads `ifaces.json` (core's ~1s poller, server-side
+  `rate_ibytes_per_sec`/`rate_obytes_per_sec`) with ONE jq per second (TSV batch
+  filter), steps EMA only when a VLAN's `fetched_at` advances, and applies smoothing
+  to the curve-scaled 0..1 value (OSA bidir-reader pattern; same
+  smooth-after-curve reasoning). Null rates (cold start / wrap / degraded stub) skip
+  the EMA step. Single public function `M.flow_fractions(panels.pfsense)` — the
+  retired-scope accessors (cpu/mem/gateway/status/totals) are gone. No suite-side
+  SSH gating — reads are cache-only; the circuit breaker is core-owned.
+- *Scaling config ported to `panels.pfsense`*: legacy theme-pf.lua's sqrt curve
+  (gamma 0.35), per-direction link caps (WAN 600 in / 50 out; HOME/IOT/INFRA
+  100/100; GUEST 50 in / 100 out), zero floors, EMA alpha 0.35.
+- *CAM added as the 6th (innermost) arc* — the VLAN postdates the legacy suite; the
+  core provider serves it. Marker color is the palette accent (golden) since the
+  legacy gray ramp is exhausted; caps 100/100; dash_count 36 (capped so the name
+  clears CAM's resting OUT ring at the right endpoint). Two knock-on fixes vs the
+  legacy 5-arc values: `top_label.dy` 94 → 116 (keeps ~22px clearance below the new
+  innermost apex) — everything else ports unchanged (deltaR 36, anchor 0.5).
+- *Legacy values audited, not trusted*: theme-pf's `arc.r = 380` never actually
+  rendered — the legacy 640px window clamped it to ~312 via the widget's fit logic;
+  `hline.length = 820` drew clipped. Suite-e uses r=300 / length 624 sized to the
+  real frame. The legacy `T.colors.arc_in/arc_out` (SteelBlue1/sienna1) were unused
+  by the final legacy rendering (direction is encoded filled-vs-hollow, VLAN by
+  marker color), so the scaffold's `pf_arc_in`/`pf_arc_out` palette roles were
+  removed from both palettes; `pf_arc_base` is the one palette role, with per-VLAN
+  marker colors as fixed conventions in `theme.pf_markers` (same precedent as
+  `theme.astro` planets). Legacy trail config (`pf.trail`) was never defined in the
+  final theme (trails drew base-gray on gray, invisible) — omitted.
+- *Font note (pre-existing, suite-wide)*: `fonts.data` = "JetBrainsMono Nerd Font
+  Mono" is not installed on this machine (fc-match falls back to Noto Sans). The
+  legacy widget used the same family name, so the accepted legacy look already was
+  the fallback rendering; dash-leader lengths were tuned against that reality.
+- *Verified*: relaunched with stderr captured — no Lua errors; `flow_fractions`
+  exercised standalone in plain lua against the live cache (all 6 VLANs producing
+  moving, smoothed fractions; idle GUEST at 0). Screenshot of the running widget
+  (window at physical 5425,1635 — wmctrl 2×-position gotcha applies) compared
+  against `screenshots/pfsense.png`'s dome region: arc nesting/stagger, idle
+  markers resting on endpoints, live OUT rings riding the right side, label order
+  and DN/UP placement all match; retired content absent by design. The unconverted
+  `clean-media` instance (OSA-leftover `gap 0,1000`) was found overlapping the
+  pfSense region mid-verify ("(not playing)" bleed-through) and was stopped again
+  by PID, per the standing Fix Part 2 note — convert its layout before leaving it
+  running.
+- *Post-verify polish (same day, user-driven)*: dome enlarged to r=400 / dy=424 to
+  taste; frame resized around it (840×500). Geometry then converted to the
+  **zero-based standalone pattern** (calendar/notes precedent): `layout.pfsense`
+  margins all 0, `panels.pfsense` box = frame at (0,0), dome self-centering via
+  `width/2` — one box instead of two synced ones, which had already caused one
+  off-center bug when they diverged. The old margin headroom is now implicit:
+  keep `arc.r ≤ width/2 − 14` and `arc.dy ≥ r + 14` or the 12px markers (which
+  ride ON the arc line) clip at the window edge — commented at both sites.
+  Baseline hline dropped by choice (`baseline.enabled = false`, kept for easy
+  revival). Window lifted off the bottom edge with `gap_y = 150` (bottom_middle:
+  gap_y offsets upward from the monitor's bottom edge). The notes standalone was
+  also nudged in the same pass: gap_y 292 → 350 by preference, so its vertical
+  position is no longer the measured legacy reproduction (comment updated in
+  clean-layout.lua).
+
 ---
 
 ## Notes for Next Widgets
+
+- **Open items for the next session (as of 2026-08-27):** (1) the monitor chassis
+  (sys/net) is Done in the table above but the user has further visual tweaks
+  planned for it — treat those as polish on a converted widget, not a reopened
+  conversion; (2) music and lyrics are the last unconverted widgets (media chassis
+  layout is still the OSA leftover and overlaps the pfSense region when running).
 
 - Weather, astro, and time are all core-domain widgets like sys-info/net — expect the same
   two failure modes (positioning, cache wiring) if problems recur. Diagnosis pattern from
@@ -364,6 +451,13 @@ sessions can reuse them without reopening images):
 - Music and lyrics are suite-local (no core domain) — data issues there will be in
   the Lua module's direct file read, not a cache path. (Notes, also suite-local, is
   done — its conversion above is the reference for this pattern.)
+- **Core now has a media/lyrics provider that didn't exist when the above was written**
+  (`gtex62-core/providers/media/fetch_lyrics.py` → `shared/media/local/lyrics.json`,
+  confirmed live/updating as of 2026-08-27). The original conversion guide's domain
+  mapping called lyrics suite-local-only because no core provider existed yet. Before
+  converting music/lyrics, check whether lyrics should move to core-sourced instead of
+  assuming the old suite-local pattern still holds — don't carry `msc.lua`'s current
+  suite-local lyrics read forward on autopilot.
 - **Chassis-combination positioning pitfall (found on `tme`, resolved):** the legacy
   suite ran calendar as its own independent Conky instance with its own position; the
   conversion initially folded it into the `tme` chassis. Combining previously-separate
@@ -380,10 +474,13 @@ sessions can reuse them without reopening images):
   offset). When a legacy widget's theme has origin/offset values or a derived window
   size, launch the legacy widget and measure where it actually draws — the conf's gap
   values alone can be misleading.
-- **pfSense placement is an unaudited OSA leftover:** `layout.pfsense` currently says
-  `top_right gap 0,0` head 1 — that would collide with the calendar's corner. Legacy
-  `pfsense.conky.conf` is `top_middle, gap_y 740` (below the weather stack). Re-audit
-  against the legacy conf during the pfsense conversion, per the checklist.
+- **pfSense placement — resolved 2026-08-27 (and an exception to the "audit the
+  rendered position" rule):** the legacy `pfsense.conky.conf`'s `top_middle, gap_y 740`
+  predates correct monitor targeting — it offset from monitor 0 and pushed the window
+  onto monitor 1 manually, so reproducing its rendered position would reproduce a bug,
+  not intent. `layout.pfsense` was instead set to `bottom_middle` head 1 (660×520,
+  gap 0,0) and confirmed by direct observation. `bottom_middle` verified as a real
+  compiled-in alignment in the installed conky 1.19.6 binary, not an untested extension.
 - **Core-sourcing pitfall (found on `sys-info`):** don't assume a value is fine to pull
   from a Conky built-in or shell command just because it would be simple/efficient to do
   so. Every value, however trivial, should come from a core domain cache and render via
