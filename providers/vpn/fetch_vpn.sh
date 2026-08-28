@@ -9,6 +9,8 @@
 # Resolved"): connectionstate/region/protocol/vpnip come from piactl;
 # interface/latest_handshake/transfer come from `wg show <iface> dump`;
 # killswitch comes from PIA's policy routing table, independent of both;
+# killswitch_mode comes from PIA's own settings.json (world-readable, no
+# piactl support and no sudo needed — see "Killswitch Mode" below);
 # tunnel_latency_ms comes from a single ICMP echo sent through the tunnel
 # interface itself (see the "Tunnel latency" block below) — there is no
 # pre-computed source for this: piactl exposes no latency/ping subcommand,
@@ -198,6 +200,39 @@ export VPN_ROUTE_TABLE
 VPN_ROUTE_TABLE="$(ip route show table piavpnFwdrt 2>/dev/null || true)"
 
 # -------------------------------------------------------------------------
+# Killswitch mode — PIA's own settings.json, read-only, no sudo required.
+# Distinct from (and independent of) the route-table enforcement check
+# above: `killswitch` there answers "is it blocking traffic right now";
+# this answers "which mode is configured" (regular vs Advanced Kill
+# Switch) — a question the route table cannot answer on its own (see
+# docs/network-providers-roadmap.md, "Killswitch Detection — Verified
+# Mechanism": while Connected, both modes produce an identical
+# `dev <iface>` + `blackhole` table; they only diverge at/after a
+# voluntary disconnect, a moment fetch_vpn.sh deliberately doesn't
+# re-derive `killswitch` from, per the carry-forward logic above).
+#
+# `piactl get`/`set` have no `killswitch` type at all (confirmed via
+# `piactl --help`'s own type lists — not just trial-and-error). The
+# daemon persists the setting as a plain tri-state string field in
+# /opt/piavpn/etc/settings.json ("off" | "auto" | "on"), confirmed
+# live from the strings embedded in the PIA client binary itself:
+# "auto" is the regular "VPN Kill Switch", "on" is "Advanced Kill
+# Switch" (which the client's own UI states always implies regular KS
+# too). That file is world-readable (mode 644, root:piavpn, under 755
+# dirs) — no sudoers rule needed, unlike the wg dump above.
+# -------------------------------------------------------------------------
+
+PIA_SETTINGS_JSON="${GTEX62_PIA_SETTINGS_JSON:-/opt/piavpn/etc/settings.json}"
+KILLSWITCH_MODE_RAW=""
+KILLSWITCH_MODE_NOTE=""
+if [[ -r "$PIA_SETTINGS_JSON" ]]; then
+  KILLSWITCH_MODE_RAW="$(jq -r '.killswitch // empty' "$PIA_SETTINGS_JSON" 2>/dev/null || true)"
+  [[ -z "$KILLSWITCH_MODE_RAW" ]] && KILLSWITCH_MODE_NOTE="PIA settings.json had no killswitch key"
+else
+  KILLSWITCH_MODE_NOTE="PIA settings.json not readable ($PIA_SETTINGS_JSON)"
+fi
+
+# -------------------------------------------------------------------------
 # Build vpn.json
 # -------------------------------------------------------------------------
 
@@ -205,12 +240,14 @@ python3 - "$WG_RAW" "$VPN_JSON" \
   "$PROFILE_ID" "$CONNECTIONSTATE" "$REGION" "$PROTOCOL" "$VPNIP" \
   "$IFACE" "$WG_NOTE" "$PREV_KILLSWITCH" \
   "$TUNNEL_LATENCY_MS" "$PING_NOTE" \
+  "$KILLSWITCH_MODE_RAW" "$KILLSWITCH_MODE_NOTE" \
   "$(date -u +%Y-%m-%dT%H:%M:%SZ)" <<'PY'
 import json, os, sys, time
 
 (wg_raw_path, out_path, profile_id, connectionstate, region, protocol, vpnip,
  iface, wg_note, prev_killswitch, tunnel_latency_ms_raw, ping_note,
- generated_at) = sys.argv[1:14]
+ killswitch_mode_raw, killswitch_mode_note,
+ generated_at) = sys.argv[1:16]
 
 # --- wg dump parsing --------------------------------------------------
 # `wg show <iface> dump` (scoped to one device) writes an interface header
@@ -271,6 +308,22 @@ if connectionstate == "Connected" and route_table.strip():
 else:
     killswitch = prev_ks_bool
 
+# --- killswitch mode --------------------------------------------------
+# Configured mode, not enforcement state (see "Killswitch mode" block in
+# the shell script above) — read fresh every run regardless of
+# connectionstate, since it's a persisted setting, not something derived
+# from live routing. Only the three values PIA's own client emits are
+# trusted; anything else (unreadable file, unexpected value from a PIA
+# version this wasn't verified against) degrades to null with a note
+# rather than guessing.
+VALID_KILLSWITCH_MODES = ("off", "auto", "on")
+if killswitch_mode_raw in VALID_KILLSWITCH_MODES:
+    killswitch_mode = killswitch_mode_raw
+else:
+    killswitch_mode = None
+    if not killswitch_mode_note and killswitch_mode_raw:
+        killswitch_mode_note = f"unrecognized PIA killswitch value: {killswitch_mode_raw!r}"
+
 # --- health classification -------------------------------------------------
 # Rebased off WireGuard's own protocol constants, not the keepalive
 # interval (see docs/network-providers-roadmap.md, "Health Classification
@@ -308,7 +361,7 @@ except ValueError:
     tunnel_latency_ms = None
 
 # --- assemble payload -------------------------------------------------
-note_parts = [p for p in (wg_note, ping_note) if p]
+note_parts = [p for p in (wg_note, ping_note, killswitch_mode_note) if p]
 payload = {
     "state":        "ok",
     "profile":      profile_id,
@@ -326,6 +379,7 @@ payload = {
     "transfer":                    transfer,
     "tunnel_latency_ms":           tunnel_latency_ms,
     "killswitch":                  killswitch,
+    "killswitch_mode":             killswitch_mode,
     "health":                      health,
 }
 

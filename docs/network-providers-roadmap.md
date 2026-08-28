@@ -75,6 +75,11 @@ no remote round-trip cost — 10–15s is reasonable.
 as `status.json`/`pihole.json` — are omitted from this sample for brevity but are present
 in the real output; see the actual `vpn.json` samples in the build session log below.)
 
+**Schema update (Aug 28, 2026):** added `killswitch_mode` (`"off"`/`"auto"`/`"on"`, or
+`null`) alongside `killswitch` — a second, independent field answering "which mode is
+configured" rather than "is it enforcing right now". See "Killswitch Mode Detection —
+Advanced vs. Regular" below for why a second field was needed at all.
+
 All fields are collected regardless of whether SitRep surfaces all of them at any given
 moment — handshake age and killswitch state are the two fields most likely to drive
 display logic, but the rest (region, protocol, interface, IP) round out the picture for
@@ -216,6 +221,62 @@ since the table reads empty throughout, it never attempts to derive `killswitch`
 content and instead holds the last-known value the whole time, which was already `false` —
 the correct answer, arrived at safely rather than by reading (and getting lucky with) an
 empty table.
+
+### Killswitch Mode Detection — Advanced vs. Regular (Aug 28, 2026)
+
+PIA ships two distinct Kill Switch modes — regular "VPN Kill Switch" and "Advanced Kill
+Switch" — and `KS ON` alone couldn't tell the user which was active. Investigated whether
+`piavpnFwdrt` (the table `killswitch` above is derived from) can distinguish them at all,
+or whether that requires a separate source.
+
+**Config representation, verified live, not from docs:** `piactl get`/`set` have no
+`killswitch` type at all — confirmed via `piactl --help`'s own enumerated type lists
+(`allowlan`, `connectionstate`, `debuglogging`, `portforward`, `protocol`, `pubip`,
+`region`, `regions`, `requestportforward`, `vpnip` for `get`; a similarly short list for
+`set` — `killswitch` is in neither), a cleaner confirmation than the prior session's
+trial-and-error `Unknown type` result for the same conclusion. The daemon instead persists
+the setting as a plain string field in `/opt/piavpn/etc/settings.json`:
+`"killswitch": "on"`. That file is **world-readable** (mode `644`, `root:piavpn`, under
+`755` dirs) — no sudoers rule needed, unlike the `wg show` path.
+
+The three values and their meaning were pulled from the QML strings embedded in the
+`pia-client` binary itself (`strings /opt/piavpn/bin/pia-client | grep -i killswitch`),
+not assumed:
+
+| `settings.killswitch` | UI label | Notes |
+| --- | --- | --- |
+| `"off"` | (unchecked) | Kill Switch off |
+| `"auto"` | "VPN Kill Switch" | regular mode |
+| `"on"` | "Advanced Kill Switch" | client's own warning string: *"VPN Kill Switch is always enabled when Advanced Kill Switch is enabled."* — `"on"` implies regular KS too, not an independent toggle |
+
+**Live test:** this machine's live `settings.json` already had `killswitch: "on"`
+(Advanced) at investigation time, which doubled as the test case — no GUI driver was
+available to flip it via `piactl` (unsupported, per above), so the test rode the existing
+live setting rather than toggling it. Sampled `piactl get connectionstate` + `ip route
+show table piavpnFwdrt` at 0.5s cadence through a real `piactl disconnect` /
+`piactl connect` cycle:
+
+- **While Connected:** table read `dev wgpia0` + `blackhole` — **identical** to the
+  regular-mode "Connected, enabled" row already documented above. No distinguishing
+  signal at the source while connected, under either mode.
+- **Immediately after voluntary disconnect:** table read `blackhole` **only** — it did
+  **not** empty. This contradicts the regular-mode behavior documented above (Aug 19
+  session: voluntary disconnect clears the table completely, verified for `"auto"`/off).
+  Advanced Kill Switch keeps blocking traffic even once the tunnel is intentionally down,
+  which is the entire point of the mode — and the route table reflects that.
+
+**Verdict:** genuinely split, not cleanly either "easy display fix" or "hard detection
+limit". `piavpnFwdrt` alone **cannot** distinguish the two modes while Connected — the
+table renders identically either way, so no amount of smarter parsing of that table fixes
+it in that state. It *can* distinguish them at/after disconnect, but `fetch_vpn.sh`
+deliberately doesn't re-derive `killswitch` outside `connectionstate == "Connected"` (the
+carry-forward logic above), so that signal was structurally unreachable anyway. The fix
+that shipped instead: read `/opt/piavpn/etc/settings.json`'s `killswitch` field directly
+as a second, independent source — trivially readable, no privilege escalation, and
+authoritative about configured mode in a way route-table inspection never can be. Added
+as `killswitch_mode` on `vpn.json` (see schema update above); `vpn.lua`'s `KS` line now
+reads `KS ON (ADV)` when `killswitch_mode == "on"`, `KS ON` for regular, unchanged `KS
+OFF` otherwise (mode doesn't matter once nothing's being enforced).
 
 ### Health Classification (VPN)
 
