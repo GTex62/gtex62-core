@@ -186,7 +186,12 @@ regardless of TTL. Cache is invalidated immediately on VPN state change.
 
 connectivity's own `ping` probes (`.ping.primary`/`.ping.secondary` in its
 `current.json`) have no consumer anywhere in this codebase — `net` computes
-ping independently (see its row above) and owns display duty for it.
+ping independently (see its row above) and owns display duty for it. This is
+already the authoritative, pre-existing statement of net-vs-connectivity
+ownership in `docs/net-provider.md`'s Purpose section: "[net] is distinct
+from... the connectivity domain (speedtest snapshots). The net provider acts
+as a display-ready projection layer... refreshed at a faster cadence than
+either." Start there for the full picture.
 connectivity also has no `refresh_loop` wired in `gtex62-core-launch` (only
 `initial_refresh`, hence "on-demand" above) — that gap currently only matters
 for its speedtest staleness/age display, not ping. See the note above the
