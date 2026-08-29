@@ -67,7 +67,7 @@ actually done vs. assumed done.
 | Widget | Original Source Confirmed? | Domain Wired? | Geometry Correct? | Rendering Matches? | Status |
 | ------ | --------------------------- | -------------- | ------------------- | -------------------- | ------ |
 | sys-info | ☑ legacy sys-info.conky.conf + lua/widgets.lua | ☑ system (shared/system/local current+processes+storage via monitor_helpers.lua) | ☑ head 1; gap 55,40 reproduces the legacy *rendered* position (see 2026-07-19 Part 2 note) | ☑ Cairo via clean_monitor.lua, blank conky.text, palette-driven; verified vs screenshots/sys-info.png | Done 2026-07-19 (arch gap closed) |
-| net | ☑ legacy net-sys.conky.conf + net_extras.sh | ☑ network (shared/network/local) + connectivity (shared/connectivity/default); throughput fast-lane /sys statistics | ☑ same chassis window as sys-info | ☑ re-verified vs screenshots/network-info.png after move to Cairo (graphs now Cairo histograms) | Done 2026-07-19 |
+| net | ☑ legacy net-sys.conky.conf + net_extras.sh | ☑ network (shared/network/local) for interface/VLAN/WAN fields + net (shared/net/local/state.vars) for ping — CF_1111_MS/GOOGLE_8888_MS, fixed 2026-08-28 (was connectivity's current.json, a dead-end cache that never refreshed past launch; see note below); throughput fast-lane /sys statistics | ☑ same chassis window as sys-info | ☑ re-verified vs screenshots/network-info.png after move to Cairo (graphs now Cairo histograms) | Done 2026-07-19 |
 | weather | ☑ legacy weather.conky.conf + lua/owm.lua (draw_main/forecast/metar/taf) | ☑ weather (shared/weather/home) + aviation (shared/aviation/home) | ☑ ambient chassis, weather block 90px below chassis top (legacy gap_y 130) | ☑ main block + tiles + METAR/TAF verified vs time-and-weather.png | Done 2026-07-19 |
 | astro (orb) | ☑ legacy owm.lua draw_horizon/sun_labels + theme weather.arc | ☑ astro (shared/astro/home, canonical altitude/azimuth) | ☑ arc center at legacy weather.center offset within ambient chassis | ☑ arc/sun/moon/planets/labels verified vs screenshot + 6 simulated times of day | Done 2026-07-19 |
 | time (tme) | ☑ legacy date-time.conky.conf + calendar.conky.conf + lua/calendar.lua | ☑ time/calendar read at draw time (per guide §1.2); cal_offset suite-local at suites/clean-e/tme/ | ☑ clock: ambient chassis head 1, top_middle, gap_y 40 (legacy date-time position); calendar: standalone top_right window at measured legacy position (see note below) | ☑ clock stack verified vs time-and-weather.png; calendar verified pixel-level (±2px) against the running legacy widget + calendar.png (borderless) | Done 2026-07-19 (calendar reposition confirmed) |
@@ -222,6 +222,34 @@ all colors from `clean-palettes.lua`. Changes:
   positions overlap the monitor chassis and calendar (pfSense collision already
   predicted below). Both were stopped manually after verification — convert
   their layouts before leaving them running.
+
+**Reopened — NET ping display frozen after launch (found 2026-08-28):**
+Part 2's note above ("pings live once the connectivity provider runs") turned
+out to be true only for the very first read. Root cause: connectivity has no
+`refresh_loop` in `bin/gtex62-core-launch` — only `initial_refresh` — so its
+`current.json` never updates again after the suite launches (confirmed by
+watching the cache file's mtime stay frozen across minutes of wall-clock
+time, independent of the widget; see the note above the connectivity
+`initial_refresh` call in `bin/gtex62-core-launch` for the full
+investigation, including why this is a day-one launcher omission and not an
+abandoned continuous-refresh conversion). `monitor_helpers.lua`'s own
+per-second tick-cache was working correctly the whole time — it just had
+nothing new to read.
+
+Fixed by switching NET's ping reader to `shared/net/local/state.vars`
+(`CF_1111_MS`/`GOOGLE_8888_MS`), matching OSA's own pattern exactly — `net`
+independently re-implements ping against the same two hosts and already has a
+correctly-wired 1s `refresh_loop`, unlike connectivity. Verified live: 12
+consecutive per-second reads through `mon.net_ping()`, all genuinely
+different values, in lockstep with `state.vars`'s advancing mtime. Also
+confirmed connectivity's `ping` object has no consumer anywhere in the
+codebase — it was never the display source, `net` was. `gtex62-core-launch`
+was deliberately left untouched; the refresh_loop gap is real but is now
+understood to matter only for connectivity's speedtest staleness/age display,
+not ping.
+
+The **Domain Wired?** cell for `net` in the status table above has been
+updated in place to reflect this fix.
 
 **time (tme) completed 2026-07-19.** Root causes and notes:
 

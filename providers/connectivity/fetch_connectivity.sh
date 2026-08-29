@@ -73,6 +73,15 @@ if [[ "${ENABLED:-true}" != "true" ]]; then
   exit 0
 fi
 
+# CLEANUP CANDIDATE (found 2026-08-28, chasing a frozen NET-ping display in
+# gtex62-clean-suite-e — see bin/gtex62-core-launch's note above the
+# connectivity initial_refresh call for the full writeup): this function and
+# the PING_PRIMARY_MS/PING_SECONDARY_MS calls below feed connectivity's
+# `ping` object, which has no known consumer anywhere in the codebase —
+# providers/net/fetch_net.sh independently re-implements ping against these
+# same two hosts (1.1.1.1, 8.8.8.8) and is what every current display reader
+# (OSA, clean-suite-e) actually uses. A future pass should either remove this
+# block or confirm a real reason to keep duplicating it here.
 ping_ms() {
   local host="$1"
   ping -n -c1 -W1 "$host" 2>/dev/null | grep -o 'time=[0-9.]*' | head -n1 | cut -d= -f2 || true

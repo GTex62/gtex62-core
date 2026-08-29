@@ -536,6 +536,37 @@ initial_refresh "calendar-${CALENDAR_PROFILE}" "$CALENDAR_STAMP" "$CORE_DIR/prov
 initial_refresh "time-${TIME_PROFILE}" "$TIME_STAMP" "$CORE_DIR/providers/time/fetch_time.sh" "$TIME_PROFILE"
 initial_refresh "astro-${ASTRO_PROFILE}" "$ASTRO_STAMP" "$CORE_DIR/providers/astro/fetch_astro.sh" "$ASTRO_PROFILE"
 initial_refresh "network-${NETWORK_PROFILE}" "$NETWORK_STAMP" "$CORE_DIR/providers/network/fetch_network.sh" "$NETWORK_PROFILE"
+# NOTE (investigated 2026-08-28, chasing a frozen NET-ping display in
+# gtex62-clean-suite-e): connectivity gets initial_refresh only — no
+# refresh_loop below, unlike every other domain in this file. Confirmed via
+# git history this is a day-one omission (bin/gtex62-core-launch has never
+# had a `refresh_loop "connectivity-...` line, all the way back to the
+# founding commit 8c2b650), not an abandoned continuous-refresh conversion —
+# every other domain in that same commit got a matched initial_refresh +
+# refresh_loop pair; connectivity didn't.
+# Left unfixed here deliberately:
+#   - connectivity.ping_ms has NO known consumer anywhere in the codebase —
+#     confirmed by exhaustive grep across gtex62-core and every suite (osa,
+#     clean-suite-e, sitrep, lcars, tech-hud, tri-hud). Nothing reads
+#     .ping.primary/.ping.secondary out of connectivity's current.json.
+#   - `net` (providers/net/fetch_net.sh) independently re-implements ping
+#     against the same two hosts (1.1.1.1, 8.8.8.8) via its own
+#     parse_ping_ms(), and is the correct, evidenced, working display path —
+#     see docs/net-provider.md and architecture.md's TTL table (net: 1s,
+#     "Fast-track — VLAN, ping, WAN IP display"). net's independent-ping
+#     design (32eb926, 2026-05-12) predates architecture.md's current wording
+#     by 5 days, and architecture.md consistently treats net, never
+#     connectivity, as ping's owner everywhere either domain is mentioned.
+#   - If this refresh_loop gap is ever closed, treat it as being about
+#     keeping SPEEDTEST's staleness/age display fresh (net already
+#     re-projects connectivity's speedtest fields — see fetch_net.sh's
+#     CONNECTIVITY_JSON read) or a genuinely new future consumer of raw
+#     reachability data — not about ping, which already has a working
+#     continuous path via net.
+#   - fetch_connectivity.sh's own ping_ms() calls are therefore a cleanup
+#     candidate for a future pass (see the note at their definition) — either
+#     dead code to remove, or a redundant duplicate of what net already does
+#     independently. Not removed here.
 initial_refresh "connectivity-${CONNECTIVITY_PROFILE}" "$CONNECTIVITY_STAMP" "$CORE_DIR/providers/connectivity/fetch_connectivity.sh" "$CONNECTIVITY_PROFILE"
 if [[ "$PFSENSE_STATUS_ENABLED" == "true" ]]; then
   initial_refresh "pfsense-${PFSENSE_PROFILE}" "$PFSENSE_STAMP" "$CORE_DIR/providers/pfsense/fetch_pfsense.sh" "$PFSENSE_PROFILE"

@@ -156,7 +156,7 @@ normalization for these v1 domains:
 | `air` | AQI (OpenWeather + AirNow layering) | `shared/air/[profile]/` |
 | `solar` | UV index, shortwave radiation | `shared/solar/[profile]/` |
 | `network` | LAN interface, WAN IP, DNS, routing | `shared/network/[profile]/` |
-| `connectivity` | Reachability probes, speedtest snapshots | `shared/connectivity/[profile]/` |
+| `connectivity` | Reachability probes, speedtest snapshots (ping *display* is `net`'s job, not this domain's — see architecture.md) | `shared/connectivity/[profile]/` |
 | `pfsense` | Router/firewall telemetry via SSH | `suites/[id]/pf/` (suite-local) |
 
 **Suite-local data** — data that does not go through core providers:

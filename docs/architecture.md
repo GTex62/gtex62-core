@@ -184,6 +184,15 @@ making fast-track meters (VLAN, ping) appear frozen.
 WAN IP (within net) is internally rate-limited to one external call per 30s
 regardless of TTL. Cache is invalidated immediately on VPN state change.
 
+connectivity's own `ping` probes (`.ping.primary`/`.ping.secondary` in its
+`current.json`) have no consumer anywhere in this codebase — `net` computes
+ping independently (see its row above) and owns display duty for it.
+connectivity also has no `refresh_loop` wired in `gtex62-core-launch` (only
+`initial_refresh`, hence "on-demand" above) — that gap currently only matters
+for its speedtest staleness/age display, not ping. See the note above the
+connectivity `initial_refresh` call in `bin/gtex62-core-launch` for the full
+investigation.
+
 ---
 
 ## Design Principles
