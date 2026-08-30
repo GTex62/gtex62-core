@@ -591,6 +591,70 @@ harness's own wrapper shell and kills it, exit 144; kill by PID instead") — hi
 firsthand launching the test conky instance, confirming the existing warning is still
 accurate.
 
+**Monitor chassis polish — two bugs fixed 2026-08-29 (compliance-scan follow-up):**
+
+- *NET header text clipped by the frame's right edge.* `frame.lua`'s
+  `draw_net_content` right-aligned the "Updated: HH:MM:SS" pair against a
+  `right_x` computed as the separator-line width **plus 4 extra chars**
+  (`(sep_count + 4) * char_px`). At `sep_count = 50` that lands at x≈593,
+  but `layout.monitor.frame.width` is 568 (the "598×1880" comment in
+  `panels.lua` was already known-stale per the compliance scan's §1
+  finding — 598 was never true in committed code) — so the last ~2
+  characters rendered past the window edge and were clipped. Confirmed
+  live before fixing: screenshot showed `Updated: 20:55:4` cut off after
+  the seconds' tens digit. Fix: dropped the stray `+ 4`, so the header's
+  right edge now matches the separator line's own right edge (549.5px,
+  comfortably inside the 568px frame with ~18px to spare — matching
+  `layout.monitor.margin.right = 18`). Verified live: relaunched
+  `clean-monitor.conky.conf`, screenshot shows the full string
+  (`Updated: 20:56:47`) rendering inside the frame with visible margin.
+- *`theme.sep.count` dead config, confirmed live* — matches the compliance
+  scan's §3 finding exactly: `frame.lua` read `panels.sys.sep_count` (also
+  50) for the dash separator count in both SYS and NET content, never
+  `theme.sep.count`; two copies of the same constant, only one wired up.
+  **This also closes the scan's F4 dead-config item** (the `theme.sep.count`
+  half of F4 — the other half, calendar's two hardcoded RGBA colors and
+  `panels.cal.calendar.week_start`, is still open). Decision: kept
+  `theme.sep.count` as the sole source of truth and deleted
+  `panels.sys.sep_count` — `theme.lua` already holds the analogous
+  "how many repeated glyphs" style dial for the SYS slash bars
+  (`theme.slash.count`), so a user tuning separator-dash density would
+  look there first, and `panels.lua` is documented as per-widget
+  *geometry*, not suite-wide style. `frame.lua` now reads
+  `theme.sep.count` in both `draw_sys_content` and `draw_net_content`
+  (the NET header's `right_x` derives from the same value, since it
+  right-aligns to the separator line's width). Verified live: set
+  `theme.sep.count = 20`, relaunched, confirmed SYS's dash lines visibly
+  shortened suite-wide (proving the wiring, not just the math) — the
+  resulting header-label overlap at that extreme test value is expected
+  (20 dashes is narrower than the "GOnion Network" label itself) and not
+  a new bug; reverted to 50 and re-verified clean.
+- *Third item raised alongside these bugs — not yet implemented, holding
+  for a separate follow-up per instruction:* the user wants SYS's dash
+  count reduced (~5 fewer) and NET switched from dashes to solid
+  separator lines with its own independent width (legacy NET used solid
+  lines, not dashes — a different visual convention from SYS, which the
+  current shared `sep_str`/`sep()` helper doesn't distinguish). SYS's
+  count would now be a one-line change to `theme.sep.count`. NET's
+  solid-line style has no equivalent to reuse — `frame.lua` has no
+  solid-line separator drawing path at all (only the dash-repeat
+  `sep_str` helper) — so it needs new draw logic (e.g. a `draw_hline`-style
+  call) and a new NET-specific width/style config, decoupled from
+  `theme.sep.count` so tuning one doesn't move the other. This will also
+  need to reconcile with NET's header `right_x`, which currently derives
+  from the shared dash `sep_count` — once NET has its own line width,
+  `right_x` should switch to deriving from that instead.
+- Incidentally re-hit the runbook's own documented `pkill -f` pitfall a
+  third time (see the 2026-08-29 volume-marker note above) — this time via
+  `kill $(pgrep -f ".../clean-monitor.conky.conf")`, which is the same
+  pattern class (any `-f` match against a conf path can catch the
+  harness's own wrapper shell), not just literal `pkill -f`. Killed the
+  test conky instance's supervising shell (exit 144); recovered by
+  restarting via `scripts/start-conky.sh`, which resynced all six
+  chassis/standalone PID files. Widening the standing warning: avoid
+  `-f` process matching against conf paths in this harness at all,
+  `pkill` or `pgrep` alike — match by bare PID instead.
+
 ---
 
 ## Notes for Next Widgets
