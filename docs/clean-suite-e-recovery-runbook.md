@@ -868,6 +868,185 @@ literally described.
   SYS+NET section comment to describe the independent-positioning
   architecture instead of the retired cursor-threading one.
 
+**F2 (compliance-scan follow-up) — monitor profile resolution routed
+through suite config, 2026-08-29.** `lua/suite/monitor_helpers.lua`
+resolved its profiles by a different mechanism from every other view
+model in the suite (orb.lua, wxr.lua, pf.lua, msc.lua, tme.lua all read
+`[profiles]` out of `$GTEX62_CONFIG_DIR/suites/clean-e.toml`):
+
+- `NET_JSON` was a hardcoded literal path
+  (`shared/network/local/current.json`) — no profile variable at all.
+- `SYS_PROFILE` came from `os.getenv("GTEX62_SYSTEM_PROFILE") or
+  "local"` — nothing in the suite exports that var, so it was always
+  `"local"`.
+- The scan's snapshot also named a `CONN_PROFILE` /
+  `GTEX62_CONNECTIVITY_PROFILE` env var at this same spot. It no longer
+  exists in the file — the 2026-08-28 NET-ping-freeze fix (see above)
+  already dropped connectivity as a data source entirely when NET's ping
+  reader moved to `net`'s `state.vars`, taking the connectivity-profile
+  variable with it. Confirmed via grep: nothing in `monitor_helpers.lua`
+  reads `connectivity` any more (one stale comment in
+  `clean-monitor.conky.conf` is the only surviving mention, untouched —
+  out of this fix's scope). So the actual live bug was two hardcoded
+  profiles, not three.
+- The runtime `suites/clean-e.toml` already declared `network = "local"`
+  and `connectivity = "default"` under `[profiles]` — both inert as far
+  as this chassis was concerned, since nothing read them for it. Looked
+  config-driven; was a hardcoded copy that happened to currently match.
+
+*The GTEX62_NET_PROFILE question.* The same 2026-08-28 ping-freeze fix
+that switched NET's ping reader to `shared/net/<profile>/state.vars`
+also added its own override,
+`NET_PROFILE = os.getenv("GTEX62_NET_PROFILE") or "local"` — deliberately,
+matching this file's *existing* `SYS_PROFILE`/`CONN_PROFILE` env-var
+convention at the time. Investigated whether that makes it a legitimate,
+separate exception rather than more of the same bug, per instruction not
+to assume:
+
+- `docs/net-provider.md`'s own **Suite Consumption** section is
+  unambiguous: "Suites read from `shared/net/<profile>/` and resolve the
+  profile from their suite TOML `[profiles] net` key (default
+  `"local"`)." That is the documented, authoritative resolution
+  mechanism for this exact domain — an env var is not mentioned anywhere
+  in that doc.
+- The env var was added specifically *because* it matched this file's
+  own then-existing pattern — but that pattern is precisely the
+  anti-pattern this fix removes from the same file. Keeping `net` on env
+  resolution while moving `system`/`network` to config would leave the
+  file internally inconsistent for no documented reason, and would still
+  leave `suites/clean-e.toml`'s eventual `net` entry inert for this one
+  reader.
+- **Conclusion: not a legitimate exception — folded in.** `NET_PROFILE`
+  now resolves from suite config exactly like `SYS_PROFILE` and the new
+  `NETWORK_PROFILE`, with the env var removed. This matches
+  `docs/net-provider.md` and restores single-mechanism consistency
+  across the whole file.
+
+*Fix.* Ported the `parse_simple_toml`-into-`RUNTIME_ROOT ..
+"/suites/" .. SUITE_ID .. ".toml"` pattern (pf.lua's copy, byte-identical
+parser) into `monitor_helpers.lua`. All three profiles now derive from
+one `SUITE_PROFILES` table read once at module load:
+`SYS_PROFILE = SUITE_PROFILES.system or "local"`,
+`NETWORK_PROFILE = SUITE_PROFILES.network or "local"`,
+`NET_PROFILE = SUITE_PROFILES.net or "local"` — same fallback defaults
+the hardcoded/env-var versions always produced, so no behavior change
+until the config is actually edited. `NET_JSON` is now built from
+`NETWORK_PROFILE` instead of the literal path. Added explicit
+`system = "local"` and `net = "local"` entries to the runtime
+`suites/clean-e.toml` `[profiles]` block (matching `gtex62-osa`'s own
+`suites/osa.toml`, which already declares `system` explicitly rather
+than relying on silent fallback) — makes both profiles genuinely tunable
+instead of merely defaulting correctly.
+
+*Adjacent cleanup, same finding (scan §2 "two literal suite-config
+paths").* `wxr.lua:95` and `msc.lua:86` each hardcoded the literal
+string `"suites/clean-e.toml"` despite both files already defining and
+using a `SUITE_ID` variable elsewhere (`wxr.lua:9`/`:189`,
+`msc.lua:25`/`:89`) — copy-paste-vs-reference, not a design gap. Both
+now build the path from `SUITE_ID`.
+
+*Verified live, under an actual config change* (not just code
+inspection — same bar as the NET-ping-freeze fix, which also "looked
+wired" until tested):
+
+1. Baseline screenshot of the running `clean-monitor` window: SYS and
+   NET both fully populated (disk rows, CPU/RAM/GPU, NIC identity,
+   WAN/LAN IPs, DNS, VLAN gateway table, live throughput graphs).
+2. Set `system`, `net`, and `network` to a nonexistent profile literal
+   (`"bogus-test-profile"`) in the runtime `suites/clean-e.toml` and
+   relaunched via `scripts/start-conky.sh`.
+3. **NET visibly broke on screen**: "Network Interface: NIC UNKNOWN",
+   WAN Status "Offline", WAN/LAN IP/DNS/Subnet all "—", "VLAN Gateways:
+   VLAN data unavailable" — because the `network` provider, given an
+   unrecognized profile with no matching `profiles/network/*.toml`,
+   wrote only `status.json` under the new
+   `shared/network/bogus-test-profile/` dir, no `current.json`, so
+   `NET_JSON` (now correctly pointed at that bogus-profile path) had
+   nothing to read.
+4. SYS and NET-ping stayed populated with plausible live values even
+   under the bogus profile — this is not a fix failure. Inspected the
+   cache directly: `shared/system/bogus-test-profile/current.json` and
+   `shared/net/bogus-test-profile/state.vars` were both freshly created
+   and populated with real host telemetry, because the `system` and
+   `net` providers are host-local and run regardless of whether a
+   profile-specific TOML exists (matching the architecture doc's "missing
+   profile TOML falls back to a 60s TTL" note, for `system`) — unlike
+   `network`, which needs profile config to know what to query. The
+   `system` cache file even self-reports
+   `"profile": "bogus-test-profile"` inside its own JSON — direct proof
+   the Lua reader built and read that exact bogus path, not the old
+   `local` one. Ping values in the bogus `state.vars` (`CF_1111_MS`,
+   `GOOGLE_8888_MS`) matched what was on screen, confirming `NET_PROFILE`
+   resolution also took effect, just without a visible break for this
+   particular domain's data shape.
+5. Reverted all three to `"local"` and relaunched again: full screenshot
+   comparison against the step-1 baseline — SYS and NET both fully
+   restored (disk/CPU/RAM/GPU, NIC identity, WAN/LAN/DNS/Subnet, all 5
+   VLAN gateway rows). Throughput graphs started blank (fresh process,
+   empty ring buffer) — expected, not a regression.
+6. Confirmed via `wmctrl`/`pgrep` after the final relaunch: exactly six
+   conky processes, one per chassis/standalone, no orphans from the two
+   test relaunches. `luac -p` clean on every `.lua` file in the suite.
+   Screenshotted `clean-ambient` and `clean-media` (unaffected windows
+   that still exercise the touched `wxr.lua`/`msc.lua` code paths) —
+   both rendered normally (weather arc/forecast/METAR/TAF; idle media
+   panel with horn icon and volume markers), confirming the `SUITE_ID`
+   fix didn't change behavior since `SUITE_ID` already resolved to
+   `"clean-e"` either way. Deleted the three `bogus-test-profile` cache
+   directories afterward.
+
+**F2 follow-up — narrow pre-emptive slice of F7, 2026-08-29.** F2's fix
+(above) hand-added `system = "local"` and `net = "local"` to the *live*
+runtime `~/.config/gtex62-core/suites/clean-e.toml`. That file isn't
+tracked by git and isn't generated from a static `.example` template the
+way `osa.toml`/`sitrep.toml` are — grepped
+`examples/runtime/suites/` and found no `clean-e.toml.example` there at
+all. The actual generator is a heredoc inside
+`gtex62-clean-suite-e/scripts/bootstrap-runtime.sh` (invoked by
+`start-conky.sh` only when `clean-e.toml` doesn't already exist, and
+also directly by a fresh install / recovery). Left alone, that heredoc
+would have silently regenerated `clean-e.toml` *without* `system`/`net`
+on the next from-scratch bootstrap (new machine, deleted runtime dir,
+recovery), quietly reverting today's F2 fix for anyone who didn't know
+to redo it by hand — the same "looks fixed until the next full
+resync" trap this session was warned about. This is a **narrow,
+early slice of F7** (`docs/clean-suite-e-scan.html`'s "Resync bootstrap
+and docs" item) — just the two entries F2 depends on, done pre-emptively
+so they don't silently regress before a full F7 session gets to the rest
+of that item's list.
+
+- Added `system = "local"` and `net = "local"` to the `[profiles]` block
+  inside the heredoc at `gtex62-clean-suite-e/scripts/bootstrap-runtime.sh`
+  (same position/order as the live file).
+- **Deliberately NOT done here** (left for a full F7 session, per
+  instruction): dropping the stale `air` entry from the same block,
+  ceasing to create the dead `suites/clean-e/{pf,net}` cache dirs (the
+  script still `mkdir -p`s both — neither is read by any current view
+  model, per the earlier directory-cleanup notes), cleaning the existing
+  empty `pf`/`net`/`orb` dirs on disk, and — noticed in the course of
+  this narrow fix but *not* part of it either — the heredoc's
+  `[profiles]` block is also still missing `media = "local"` (added to
+  the *live* file during the 2026-08-28 music/lyrics conversion, never
+  backported to this generator; scan's F7 item already flags this as
+  "add media and system"). All of these are real, all are F7's to fix as
+  a set — not folded in here to keep this slice narrow, per instruction.
+- **Verified without touching the live config**: ran
+  `scripts/bootstrap-runtime.sh` with `GTEX62_CONFIG_DIR`/
+  `GTEX62_CACHE_DIR` pointed at a scratch directory under the session
+  scratchpad (never the live `~/.config/gtex62-core`), exercising the
+  "file doesn't exist yet" creation branch — the exact branch a fresh
+  install or recovery would hit. `diff -u` between the freshly generated
+  scratch `clean-e.toml` and the live file showed exactly one line of
+  difference: the live file's trailing `media = "local"` (the
+  pre-existing, separately-tracked F7 gap noted above, correctly left
+  alone). Every other line — including the new `system`/`net` entries —
+  matched byte-for-byte. `bash -n` clean on the edited script. The core
+  bootstrap utility's other generated files (`core.toml`, `site.toml`,
+  profile TOMLs, `osa.toml`/`sitrep.toml`) also wrote successfully into
+  the scratch dir during the same run, confirming the edit didn't
+  disturb anything else the script produces. Scratch directory deleted
+  after the diff.
+
 ---
 
 ## Notes for Next Widgets
