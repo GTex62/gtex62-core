@@ -1047,6 +1047,103 @@ of that item's list.
   disturb anything else the script produces. Scratch directory deleted
   after the diff.
 
+**F5 (compliance-scan follow-up) — dead functions swept from the ported
+view models, 2026-08-29.** The scan's §5 named 22 unreachable exported
+functions (`wxr.lua` 9, `tme.lua` 12, `orb.lua` 1, `monitor_helpers.lua` 1)
+left behind by the 2026-07-19 directory cleanup, which swept dead *files*
+(`net.lua`/`sys.lua`) but never dead functions inside surviving modules.
+Line numbers in the scan were long stale by this session (F1 moved
+`frame.lua` to `lua/ui/frame.lua` and rewrote `panels.lua`; F2/F3 rewrote
+chunks of `monitor_helpers.lua`), so every name was re-confirmed with a
+fresh repo-wide grep before deleting anything, per instruction — including
+checking for the `arc_fraction_for_azimuth`-class near-miss (an
+externally-dead-looking name that's actually live via an internal call)
+on every candidate.
+
+- **`orb.lua` — 1 deleted.** `moon_rise_set` had zero callers anywhere
+  (`sun_rise_set` is the one actually read, at `frame.lua:568`). Deleted
+  cleanly; `pick_today_rise_set` (its shared helper) stays live via
+  `sun_rise_set`.
+- **`monitor_helpers.lua` — 1 deleted.** `sys_available` had zero callers
+  (checked every other `M.*` export against `frame.lua` too — all 28 of
+  the rest are read). Deleted; `refresh_sys` stays live via `sys_value`.
+- **`wxr.lua` — 9 named deleted, plus a further cascade.** All 9
+  (`status_lines`, `current_box_title`, `current_headers`, `current_row`,
+  `forecast_box_title`, `forecast_headers`, `forecast_rows`,
+  `station_model_box_title`, `station_model`) confirmed dead — `frame.lua`
+  only ever calls `legacy_current`/`legacy_forecast`/`current_metar_lines`/
+  `forecast_taf_lines`. Removing the 9 wrappers left their entire backing
+  implementation newly dead too (nothing else read it): the whole
+  OWM-sky/METAR-station-model decoder tree — `decode_current`,
+  `decode_forecast_rows`, `decode_station_model`, `forecast_glyphs`,
+  `forecast_date_label`, `parse_station_model`, and ~25 wind/visibility/
+  temp/altimeter/cloud/remarks/tendency/wx-glyph parsing helpers below it
+  — plus the "DATA // NOMINAL" status-state machine (`weather_data_state`,
+  `aviation_data_state` — the latter already had *zero* callers even
+  before this sweep, a second dead function the named list didn't catch),
+  `json_number`, `json_timestamp`/`parse_timestamp`/`parse_iso_utc`,
+  `format_hhmm_local/_utc`, `file_exists`, `session_start_ts`,
+  `metar_observation_ts`, `taf_issue_ts`. Traced the whole closure by grep
+  count per name (def + call-sites) before deleting each one — file shrank
+  376 lines from ~1045. `wxr.lua:341`'s `dofile("lua/lib/weather_codes.lua")`
+  (a path that only exists in the read-only `gtex62-osa`/`gtex62-lcars`
+  suites; pcall-wrapped, silently set `WEATHER_CODES = false` here) had its
+  only three callers all inside this dead tree (`decode_current`,
+  `decode_station_model`, `forecast_glyphs`) — confirmed, then deleted
+  `load_weather_codes` and the `dofile` call itself, not just its
+  now-orphaned result. `extract_ob_line` and `aviation_station` survive —
+  both are also used by the live `decode_metar_lines` path.
+- **`tme.lua` — 12 named deleted, plus a further cascade.** All 12
+  (`calendar_box_title`, `calendar_event_dates`, `calendar_events`,
+  `calendar_title`, `calendar_today`, `calendar_weeks`, `clock_box_title`,
+  `clock_rows`, `local_date`, `local_time`, `status_lines`, `utc_time`)
+  confirmed dead — `frame.lua` only calls `local_time_hms`/`utc_line`/
+  `date_line`/`calendar_view`. Same cascade pattern as wxr.lua: with the
+  12 wrappers gone, their entire backing tree became dead too — the
+  calendar-events/astro-sunrise "next event" status line
+  (`event_status_line`, `sun_event_status_line`, `parse_calendar_status`,
+  `parse_json_events`, `parse_event_lines`, `days_from_today`,
+  `format_countdown`) and the whole core-cache profile-resolution stack
+  built only to feed it (`calendar_profile_id`/`astro_profile_id`/
+  `time_profile_id`, `*_shared_dir`, `*_json_path`, `calendar_profile`,
+  `event_cache_path`, `extra_events_path`, `engine_config`,
+  `engine_cache_root`, `suite_config`, `parse_simple_toml`, `read_file`,
+  `command_output`, `normalize_spaces`) and the clock-table decoders
+  (`parse_time_rows`, `parse_time_local`, `tz_date_parts`). Confirmed
+  `tz_date_parts()`'s `TZ=... date ...` shell call was reachable only from
+  the dead `M.clock_rows`, exactly as flagged — it disappears with the
+  sweep, no separate core-sourcing fix needed since it was never reachable
+  in production. `build_weeks`/`days_in_month`/`weekday_su0` survive —
+  `M.calendar_view` (live) uses `build_weeks` too, so that one didn't go
+  with the rest of the OSA-inherited calendar-table API. File shrank from
+  485 to 133 lines — nearly everything left was serving only the dead
+  wrappers.
+- **Judgment call, not just the named list**: the task explicitly allowed
+  trimming further unreachable code found nearby while in these files, not
+  just the scan's named functions — taken here because the cascade was a
+  direct, mechanical consequence of deleting the named wrappers (removing
+  a dead export and leaving its now-orphaned private implementation in
+  place would have been half a sweep), not a separate unscoped hunt.
+  `orb.lua` and `monitor_helpers.lua` had no such cascade — both were
+  already tight, single-purpose modules with no OSA-inherited parallel API
+  to strip.
+- **Verified.** `luac -p` clean on all four touched files. Standalone
+  `lua -e` smoke test of each module's surviving public API against live
+  caches (`wxr.current_metar_lines`/`forecast_taf_lines`/`legacy_current`/
+  `legacy_forecast`; `tme.local_time_hms`/`utc_line`/`date_line`/
+  `calendar_view`; `orb.sun_rise_set`/`sun_arc_fraction`/
+  `moon_arc_fraction`/`planet_arc_fractions`/`apex_label`;
+  `monitor_helpers.os_name`/`cpu_percent`/`net_iface_title`) — all
+  returned real values, no errors. Relaunched the full suite via
+  `scripts/start-conky.sh`: all six chassis/standalone processes came up
+  and stayed up (checked immediately and again 5s later — no crash-after-
+  launch). Additionally ran `clean-monitor`/`clean-ambient`/`clean-calendar`
+  (the three confs that load the touched view models) directly with stderr
+  captured for 5s each, alongside the launcher-managed instances, then
+  killed the test PIDs directly (not by `pkill -f` against the conf name,
+  per this runbook's own standing warning) — stderr showed only conky's
+  normal window-creation lines, no Lua errors.
+
 ---
 
 ## Notes for Next Widgets
