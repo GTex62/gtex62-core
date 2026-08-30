@@ -655,6 +655,121 @@ accurate.
   `-f` process matching against conf paths in this harness at all,
   `pkill` or `pgrep` alike — match by bare PID instead.
 
+**F1 (compliance-scan follow-up) — panel frame-geometry derivation
+generalized to every remaining panel, 2026-08-29.** Commit `2f7573c` did
+this for the media chassis only (panels.msc/panels.lyrics deriving from
+`layout.media.frame.width` instead of a copy); this session did the same
+for everything else the scan's §4 table flagged:
+
+- `panels.wxr.width`, `panels.orb.width`, `panels.tme.width`, and
+  `panels.tme.boxes.clock.width` now read a local `AMBIENT_W =
+  layout.ambient.frame.width` instead of each repeating `680`.
+- `panels.cal.width`/`.height` now read `layout.calendar.frame`.
+- `panels.notes.width`/`.height` now read `layout.notes.frame` — see the
+  "silent duplicate, confirmed" note below.
+- `panels.pfsense.width`/`.height` now read `layout.pfsense.frame` — see
+  "pfSense, the priority case" below.
+- All values were confirmed numerically unchanged before/after (`lua -e`
+  dump of the loaded `panels` table: wxr/orb/tme/clock width all still
+  680, cal 362×273, notes 404×1810, pfsense 840×500) — this was a pure
+  refactor, not a retune.
+
+*pfSense, the priority case — comment now matches reality.* Before this
+session, `panels.pfsense`'s comment already asserted "Box equals
+layout.pfsense's frame at (0,0)" but the box was still a hardcoded
+840×500 literal — true only because nothing had touched either value
+since the post-verify retune (660×520 -> 840×500 around the user-tuned
+r=400 dome, see the 2026-08-27 pfsense completion note above) drifted
+them apart yet. This is the exact divergence-prone pattern the same note
+says "already caused one off-center bug" the first time two boxes for
+one window went out of sync. Fixed: `panels.pfsense.width`/`.height` now
+read `layout.pfsense.frame` directly (`local PF_FRAME =
+layout.pfsense.frame`), so the comment's claim is enforced by code.
+Verified live (see below) with particular attention paid here given the
+history.
+
+*The ambient/media arc-axis mirror — this was the actual stakes.*
+`panels.msc.arc` references `panels.orb.arc` by value at load time (the
+deliberate weather-arc mirror from the music/lyrics conversion, see the
+2026-08-28 note above), and "the music arc axis renders at the same x as
+the ambient arc axis" only holds if BOTH chassis self-center on
+`width/2` of their OWN frame. Media already did (commit `2f7573c`);
+ambient didn't until this session's WXR/ORB/TME fix. Verified live, not
+just by inspection: temporarily widened `layout.ambient.frame.width`
+680 -> 880, relaunched `clean-ambient` + `clean-media`, screenshotted
+both windows, and confirmed by direct pixel measurement (window_left
+from `wmctrl -lG` [÷2 for the physical-vs-reported 2x position scale,
+per the notes-widget measurement gotcha above] + local arc-center pixel
+from the screenshot) that both arc axes landed at the identical absolute
+x (5755 — the same value the 2026-08-28 media note already recorded for
+both), confirmed visually with a marker line overlaid on crops of both
+screenshots. `media_widened.png` was byte-identical to the unwidened
+capture, confirming zero coupling in the other direction. Reverted to
+680 and reconfirmed both windows returned to their original `wmctrl`
+geometry before moving on.
+
+*Notes: confirmed silent duplicate, kept derived rather than deleted.*
+Per the scan's flag, `panels.notes.width`/`.height` are read by nothing
+— `draw_notes_content` (`frame.lua`) only uses `panel.x`/`panel.y` and
+`panel.grid.*`. Decision: derive from `layout.notes.frame` rather than
+delete, since (a) it costs nothing, (b) every other panel in the file
+carries width/height as part of its standard shape, and (c) a derived-
+but-unused field can't go silently stale the way a hardcoded-but-unused
+one already had (404×1810 happened to still match the frame, not
+because anything enforced it).
+
+*`panels.net.graph.width` — decided NOT to derive, decoupling
+preserved.* The scan's text described this value as "531," but by the
+time this session read the live file it was already `500` — the prior
+session's commit `e09c875` had already tuned it 531 -> 500 and
+deliberately broken its old coincidental equality with
+`lua/suite/monitor_helpers.lua`'s `TP.maxlen` (the throughput
+ring-buffer sample count, still 531), flagging the leftover duplicate
+"tracked separately under F1." This session's call: leave
+`panels.net.graph.width` a literal, not derived from
+`layout.monitor.frame.width` (568). Two reasons: (1) no clean formula
+ties either 500 or 531 to 568 — both were tuned by eye for on-screen
+headroom, not computed from the frame; (2) `monitor_helpers.lua` is a
+pure data view model (Phase 4 of the conversion guide) that has never
+loaded `theme/panels.lua` — wiring it in for one constant would cross
+the data/presentation line the whole suite otherwise respects. Re-read
+`draw_net_content`'s graph-drawing loop to confirm the coupling risk is
+one-directional: the ring buffer may safely hold MORE samples than the
+graph draws (older samples compute an off-panel x and are skipped), so
+`TP.maxlen ≥ graph.width` is safe; a graph WIDER than the buffer would
+show a permanently blank strip on its left edge. Documented at both
+definition sites (`panels.lua` and, informally, this note) so a future
+width bump raises both by hand together.
+
+*Margin-consistency audit.* `layout.monitor` and `layout.ambient`
+carried non-zero `margin` blocks (`top 24, left 18, right 18, gap 18`)
+while `layout.calendar`/`layout.notes`/`layout.pfsense` were all
+zero-margin "snug" frames. Grepped `lua/` + `theme/` + `widgets/` for
+any consumer of `layout.*.margin` — none exists anywhere; SYS/NET
+position off `panels.monitor_grid`, and WXR/ORB/TME position off their
+own panel x/y/dy offsets, none of it touching `.margin`. Confirmed dead,
+not load-bearing — an OSA-era leftover from the same original-copy
+problem the "Why This Stalled" section at the top of this runbook
+already documents. Zeroed both to match the snug-frame convention,
+noted why in a comment at each site.
+
+*Two stale header comments fixed* (also flagged by the scan's §4 note):
+`panels.lua`'s "MONITOR CHASSIS (598 × 1880)" -> "(568 × 1980,
+layout.monitor.frame)"; "PFSENSE STANDALONE (660 × 520)" -> "(layout.pfsense.frame,
+840 × 500)".
+
+*Verification method*: relaunched via `scripts/start-conky.sh` before
+and after the refactor, capturing window IDs/geometry via `wmctrl -lG`
+(all six windows reappeared at byte-identical position AND size) and
+screenshots via `import -window` for all six chassis/standalone windows.
+`media`/`notes`/`calendar` screenshots were byte-identical before vs
+after. `monitor`/`ambient`/`pfsense` showed only the expected live-data
+deltas (clock seconds ticking, CPU/RAM percentages, throughput graph
+bars, VLAN marker positions, sun-icon position) confirmed via
+`compare -metric AE` + visual inspection of the diff masks — no
+structural/positional differences. No Lua errors (`luac -p` clean on
+both touched files; suite relaunched without stderr errors).
+
 ---
 
 ## Notes for Next Widgets
