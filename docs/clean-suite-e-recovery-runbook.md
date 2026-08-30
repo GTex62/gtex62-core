@@ -70,8 +70,9 @@ actually done vs. assumed done.
 | net | ☑ legacy net-sys.conky.conf + net_extras.sh | ☑ network (shared/network/local) for interface/VLAN/WAN fields + net (shared/net/local/state.vars) for ping — CF_1111_MS/GOOGLE_8888_MS, fixed 2026-08-28 (was connectivity's current.json, a dead-end cache that never refreshed past launch; see note below); throughput fast-lane /sys statistics | ☑ same chassis window as sys-info; **individually audited 2026-08-29 (F3)** — fixed chassis-relative y0 = 1013 (`panels.net.y0`), independent of SYS's line count; see F3 note below | ☑ re-verified vs screenshots/network-info.png after move to Cairo (graphs now Cairo histograms) | Done 2026-07-19 (F3 position fix 2026-08-29) |
 | weather | ☑ legacy weather.conky.conf + lua/owm.lua (draw_main/forecast/metar/taf) | ☑ weather (shared/weather/home) + aviation (shared/aviation/home) | ☑ ambient chassis, weather block 90px below chassis top (legacy gap_y 130) | ☑ main block + tiles + METAR/TAF verified vs time-and-weather.png | Done 2026-07-19 |
 | astro (orb) | ☑ legacy owm.lua draw_horizon/sun_labels + theme weather.arc | ☑ astro (shared/astro/home, canonical altitude/azimuth) | ☑ arc center at legacy weather.center offset within ambient chassis | ☑ arc/sun/moon/planets/labels verified vs screenshot + 6 simulated times of day | Done 2026-07-19 |
-| time (tme) | ☑ legacy date-time.conky.conf + calendar.conky.conf + lua/calendar.lua | ☑ time/calendar read at draw time (per guide §1.2); cal_offset suite-local at suites/clean-e/tme/ | ☑ clock: ambient chassis head 1, top_middle, gap_y 40 (legacy date-time position); calendar: standalone top_right window at measured legacy position (see note below) | ☑ clock stack verified vs time-and-weather.png; calendar verified pixel-level (±2px) against the running legacy widget + calendar.png (borderless) | Done 2026-07-19 (calendar reposition confirmed) |
-| music (msc) | ☑ legacy music.conky.conf + lua/music.lua + cover_line.lua + screenshots/music*.png | ☑ split: playback/volume/cover suite-local (playerctl/pactl at draw time); arc geometry DERIVED from panels.orb.arc by reference (legacy weather-arc mirror, see 2026-08-28 note); volume during playback fixed to prefer pactl (system volume) over playerctl's own MPRIS field 2026-08-29 | ☑ media chassis top_middle head 1, 1700×1340 gap 0,413 — reproduces the *measured* rendered legacy positions (arc center abs (5755,938); legacy confs' raw gaps are not the rendered truth) | ☑ Cairo via clean_media.lua, blank conky.text, palette-driven; HR/arc/markers/labels verified numerically vs the running legacy widget (progress dot y identical, x −5 = deliberate ambient-axis alignment); marquee + idle verified; volume marker re-verified live during active playback 2026-08-29 | Done 2026-08-28 |
+| time (tme) | ☑ legacy date-time.conky.conf + lua/calendar.lua (clock stack) | ☑ time read at draw time (per guide §1.2) | ☑ ambient chassis head 1, top_middle, gap_y 40 (legacy date-time position) | ☑ clock stack verified vs time-and-weather.png | Done 2026-07-19 |
+| calendar | ☑ legacy calendar.conky.conf + lua/calendar.lua | ☑ time/calendar read at draw time (per guide §1.2); cal_offset suite-local at suites/clean-e/tme/ | ☑ standalone top_right window, head 1, 362×273 gap 67,41 — reproduces the *measured* rendered legacy position (see note below) | ☑ verified pixel-level (±2px) against the running legacy widget + calendar.png (borderless) | Done 2026-07-19 (calendar reposition confirmed) |
+| music (msc) | ☑ legacy music.conky.conf + lua/music.lua + cover_line.lua + screenshots/music*.png | ☑ split: playback/volume/cover suite-local (playerctl/pactl at draw time); arc geometry DERIVED from panels.orb.arc by reference (legacy weather-arc mirror, see 2026-08-28 note); volume during playback fixed to prefer pactl (system volume) over playerctl's own MPRIS field 2026-08-29 | ☑ media chassis top_middle head 1, 2460×1340 gap 0,413 — reproduces the *measured* rendered legacy positions (arc center abs (5755,938); legacy confs' raw gaps are not the rendered truth); width retuned 1700→2460 same day by commit 2f7573c to give lyrics its full ~785px clip capacity, table updated 2026-08-29 (F7) | ☑ Cairo via clean_media.lua, blank conky.text, palette-driven; HR/arc/markers/labels verified numerically vs the running legacy widget (progress dot y identical, x −5 = deliberate ambient-axis alignment); marquee + idle verified; volume marker re-verified live during active playback 2026-08-29 | Done 2026-08-28 |
 | notes | ☑ legacy notes.conky.conf + theme.lua notes_* keys | ☑ suite-local (no core domain): direct read of ~/Documents/conky-notes.txt via lua/suite/notes.lua, 3 s tick cache | ☑ standalone top_right head 1, gap_x 31 reproduces the legacy *rendered* position (see 2026-07-20 note); gap_y measured as 292 but later moved to 350 by user preference (2026-08-27) | ☑ Cairo via clean_notes.lua, blank conky.text, palette-driven; verified numerically vs the running legacy widget (±1 px) | Done 2026-07-20 |
 | lyrics | ☑ legacy music-lyrics.conky.conf + lua/lyrics.lua + theme.lyrics | ☑ CORE media domain (shared/media/local/lyrics.json, providers/media/fetch_lyrics.py; docs/lyrics-library-design.md) — suite side is display-only, no fetching | ☑ same media chassis window; panel at in-window (1296,5) 400×1324 reproduces the *measured* legacy rendered position (text left abs 6211, header baseline 441) | ☑ Cairo, palette-driven; verified pixel-exact vs the running legacy widget (identical text bbox 6212..6585 × 428..1326, 284 text rows, identical band starts); state messages + linger verified | Done 2026-08-28 |
 | pfsense (VLAN arcs) | ☑ legacy pfsense.conky.conf + theme-pf.lua + lua/pf_widget.lua + screenshots/pfsense.png | ☑ pfsense (shared/pfsense/main_router/ifaces.json, ~1s core poller, server-side rates) | ☑ head 1, bottom_middle 840×500 gap_y 150 (frame sized around the user-tuned r=400 dome) — legacy gap_y 740 deliberately NOT reproduced (see 2026-08-27 note) | ☑ Cairo arcs-only per guide §1.4, blank conky.text, palette-driven; dome verified vs pfsense.png (retired content excluded by design) | Done 2026-08-27 |
@@ -207,7 +208,10 @@ all colors from `clean-palettes.lua`. Changes:
 - Grid metrics (18 px mono glyphs, 23 px lines, columns at x 368/262) were
   measured off the accepted Conky-text rendering at this machine's font DPI and
   live in `panels.monitor_grid` / `panels.sys` / `panels.net`;
-  `layout.monitor.frame` is now 598×1880.
+  `layout.monitor.frame` is now 568×1980 (corrected 2026-08-29, F7 — this note
+  said 598×1880 since the commit that created it, 578325e; that number was
+  never true in committed code, and it had also been transcribed into
+  `panels.lua`'s header comment, fixed separately by F1).
 - **Rendered-position pitfall again** (matches the calendar finding): the legacy
   conf said gap 40,30 but the Conky-text window rendered its first glyph at
   head-relative (57, 45); the Cairo window draws at gap + (7, 10), so
@@ -503,8 +507,10 @@ values:
   center at (5760,938) = window-relative (width/2, 204 = weather.center.y);
   `music-lyrics.conky.conf` (conf: 560×940 gap −600,300) rendered at (6201,413) 795×1324.
   Both measured off the running legacy widgets with a live MPRIS player (VLC
-  `--no-audio`, silent). The media chassis is ONE top_middle window (1700×1340, gap
-  0,413 → window at (4905,408)) covering both rendered footprints — legitimate under the
+  `--no-audio`, silent). The media chassis is ONE top_middle window (1700×1340 at this
+  point in the conversion, gap 0,413 → window at (4905,408); retuned to 2460×1340 later
+  the same day by commit 2f7573c to give lyrics its full clip capacity — see the status
+  table's msc row) covering both rendered footprints — legitimate under the
   chassis-combination pitfall because both legacy windows share the top_middle anchor on
   head 1 (unlike calendar/notes, whose top_right positions were disjoint from their
   chassis). gap_x 0 + full-width msc panel keeps the legacy auto_x self-centering: the
@@ -1249,6 +1255,118 @@ named alongside it.
     throughout, including immediately before the final relaunch.
 - This closes F4 in full and resolves the compliance scan's §3
   rendering-compliance finding — §3 has no remaining open items.
+
+**F7 (compliance-scan follow-up) — bootstrap and docs resynced,
+2026-08-29.** Re-verified every item on the scan's F7 list fresh rather than
+reapplying it blindly, since F1–F5 had already closed some of it in passing
+(F2's own follow-up note above pre-emptively closed part of this item too).
+Findings and fixes, in the order F7 posed them:
+
+- **`bootstrap-runtime.sh` `[profiles]` block.** Confirmed `system`/`net`/
+  `network` were already present (F2's follow-up, 2026-08-29) — no action
+  needed there. Confirmed `media = "local"` was still missing from the
+  generator (present on the *live* runtime file since the 2026-08-28
+  music/lyrics conversion, never backported) and `air = "home"` was still
+  emitted despite `suite.toml`'s `[data] domains` list deliberately excluding
+  `air` (commented there as "reserved for a future ENV sub-panel"). Added
+  `media`, dropped `air`, in the heredoc. Also dropped the stale `air = "home"`
+  line from the *live* `~/.config/gtex62-core/suites/clean-e.toml`, so the
+  generator and the live file agree — the live file wasn't itself part of the
+  scan's literal ask, but the verify step below requires a zero-line diff
+  against it, which wasn't possible while it still carried the same stale
+  entry the generator was being fixed to drop.
+  - Verified with the same scratch-dir method the F2 follow-up used:
+    `GTEX62_CONFIG_DIR`/`GTEX62_CACHE_DIR` pointed at a scratch dir under the
+    session scratchpad, ran `bootstrap-runtime.sh`'s "file doesn't exist"
+    branch, `diff -u` against the live file. First pass (generator fixed,
+    live file not yet touched) showed exactly one line of difference — the
+    live file's leftover `air = "home"`. After dropping `air` from the live
+    file, re-ran the same diff: **zero differences** — `media`/`system`/`net`/
+    `network` all present in both, `air` absent from both, every other line
+    byte-identical. Scratch directory deleted after.
+- **Dead `pf`/`net` cache dirs.** Re-confirmed via grep: `pf.lua` reads
+  `shared/pfsense/<profile>/ifaces.json` under `$CACHE_ROOT` directly, never
+  `suites/clean-e/pf/`; `lua/suite/net.lua` doesn't exist (deleted
+  2026-07-19, per the Directory cleanup note above) so nothing reads
+  `suites/clean-e/net/` either. Both confirmed dead. Stopped the generator
+  from `mkdir -p`ing either (kept `msc/`, which is live — `msc.lua`'s cover-art
+  cache). The scan's noted orphan `orb/` was also still present on this
+  machine and empty; grepped for any live reader of `suites/clean-e/orb/` —
+  none (the astro conversion moved `orb.lua` onto the core `astro` domain
+  2026-07-19; only a stale comment in `orb.lua` still names the old path,
+  not a real read) — and it was never created by the current generator
+  either (not in its `mkdir -p` list even before this session's edit), so
+  it's a leftover from an earlier version of the script or a manual
+  bootstrap, not a live regression. Removed all three empty dirs
+  (`pf`/`net`/`orb`) from `~/.cache/gtex62-core/suites/clean-e/`; `msc/`
+  (with its populated `covers/` subdir) untouched.
+- **README.md.** All five inaccuracies confirmed still present (none had
+  been touched by F1–F5, which were code-focused) — fixed to match current
+  reality, not the scan's original wording where reality has since moved:
+  removed the false "`start-conky.sh` prompts for a palette" claim (F6 is
+  deferred, no prompt exists — see the deferral note below); moved NOTES out
+  of the Media chassis table into its own Standalone section (standalone
+  since 2026-07-20); added standalone sections for both Calendar and Notes
+  (previously omitted entirely); the ambient chassis's TME row no longer
+  claims "month calendar" now that Calendar has its own listing; pfSense's
+  VLAN list corrected from 5 to 6 (added CAM, confirmed live in
+  `panels.pfsense.iface_order` — `WAN`/`HOME`/`IOT`/`GUEST`/`INFRA`/`CAM`);
+  the WXR row no longer states SIGMET/AIRMET as current functionality —
+  confirmed `panels.wxr.aviation.advisories.enabled = false` is still the
+  live value (comment: "off in legacy theme as well"), so the row now notes
+  it as drawn-but-disabled rather than removing all mention or overstating
+  it as live. Two further inaccuracies found in the same pass, outside the
+  scan's named five but the same "match current reality" defect class: "AQI
+  panel added (air domain, not in original suite)" in the What Changed
+  section — false, grepped `theme/`/`lua/`/`widgets/` for any AQI panel and
+  found none, consistent with `air` being deliberately unwired (see the
+  bootstrap-generator finding above); and "9 Conky processes consolidated
+  into 3 chassis + 1 standalone" — undercounts the standalones now that
+  calendar/notes/pfsense are all standalone (3, not 1). Both corrected.
+- **`panels.lua` header comments.** Confirmed both scan-flagged headers
+  (`598 × 1880`, `660 × 520`) are still correct as F1 left them (`568×1980`
+  read from `layout.monitor.frame`; `840×500` read from `layout.pfsense.frame`
+  — actually a comment describing a value the code now derives, per F1's own
+  note above). Grepped every chassis/standalone header comment in the file
+  (`MONITOR`/`AMBIENT`/`CALENDAR`/`MEDIA`/`PFSENSE`, plus the NOTES section
+  header, which carries no fixed dimension) against its live
+  `layout.*.frame` value — no further drift found, despite pfsense/media/
+  monitor all having been retuned multiple times tonight (F1–F4). No changes
+  needed.
+- **Recovery runbook.** Both scan-flagged stale values confirmed still
+  present and fixed: the msc status-table row still said `1700×1340`
+  (superseded the same day by commit `2f7573c`, which retuned
+  `layout.media.frame.width` to `2460` for lyrics' full clip width — confirmed
+  against `theme/clean-layout.lua`'s live value and the commit's diff) — row
+  updated to `2460×1340`, with a note on the retune; the same stale number
+  also appeared in the music+lyrics completion note's narrative measurement
+  (not itself named by the scan, but the identical fact, so corrected for
+  consistency rather than left contradicting the fixed row). The Fix Part 2
+  note's `598×1880` claim for `layout.monitor.frame` was also still present
+  (F1's panels.lua-header fix and the monitor-chassis-polish session's own
+  note both already superseded this number without circling back to correct
+  the original Fix Part 2 text it was transcribed from) — corrected to
+  `568×1980`, confirmed against the live `layout.monitor.frame` value. Gave
+  Calendar its own status-table row (previously folded into `time (tme)`,
+  the scan's §1 finding) — split the old combined row: `tme` now covers only
+  the clock stack, `calendar` is a new row carrying the calendar-specific
+  cells (data source, geometry `362×273` gap `67,41`, verification), matching
+  the standalone-row treatment `notes` and `pfsense` already had.
+
+**F1–F7 status: all addressed.** F1 (frame-geometry derivation), F2 (monitor
+profile routing), F3 (NET position audit), F4 (calendar palette colors), and
+F5 (dead-function sweep) all closed in earlier sessions tonight per their own
+notes above; F7 (this session) closes the bootstrap/docs resync. **F6
+(palette + wallpaper selection at launch) remains open by deliberate
+decision, not oversight or an unaddressed gap**: `clean-suite-e` never had a
+launch-time palette or wallpaper prompt at any point in this conversion, in
+the legacy suite it was converted from, or before that — the scan's own §6
+finding was about a capability the *conversion guide* expects every suite to
+have eventually (`core-launcher-design.md`'s Open Items), not a regression
+introduced by this port. Porting OSA's `choose_palette`/`choose_wallpaper`
+(or landing the core-launcher consolidation those Open Items depend on) is a
+real, scoped feature addition — tracked as F6 for whenever that's prioritized,
+not folded into this docs/bootstrap resync.
 
 ---
 
