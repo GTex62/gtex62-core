@@ -71,7 +71,7 @@ actually done vs. assumed done.
 | weather | ☑ legacy weather.conky.conf + lua/owm.lua (draw_main/forecast/metar/taf) | ☑ weather (shared/weather/home) + aviation (shared/aviation/home) | ☑ ambient chassis, weather block 90px below chassis top (legacy gap_y 130) | ☑ main block + tiles + METAR/TAF verified vs time-and-weather.png | Done 2026-07-19 |
 | astro (orb) | ☑ legacy owm.lua draw_horizon/sun_labels + theme weather.arc | ☑ astro (shared/astro/home, canonical altitude/azimuth) | ☑ arc center at legacy weather.center offset within ambient chassis | ☑ arc/sun/moon/planets/labels verified vs screenshot + 6 simulated times of day | Done 2026-07-19 |
 | time (tme) | ☑ legacy date-time.conky.conf + calendar.conky.conf + lua/calendar.lua | ☑ time/calendar read at draw time (per guide §1.2); cal_offset suite-local at suites/clean-e/tme/ | ☑ clock: ambient chassis head 1, top_middle, gap_y 40 (legacy date-time position); calendar: standalone top_right window at measured legacy position (see note below) | ☑ clock stack verified vs time-and-weather.png; calendar verified pixel-level (±2px) against the running legacy widget + calendar.png (borderless) | Done 2026-07-19 (calendar reposition confirmed) |
-| music (msc) | ☑ legacy music.conky.conf + lua/music.lua + cover_line.lua + screenshots/music*.png | ☑ split: playback/volume/cover suite-local (playerctl/pactl at draw time); arc geometry DERIVED from panels.orb.arc by reference (legacy weather-arc mirror, see 2026-08-28 note) | ☑ media chassis top_middle head 1, 1700×1340 gap 0,413 — reproduces the *measured* rendered legacy positions (arc center abs (5755,938); legacy confs' raw gaps are not the rendered truth) | ☑ Cairo via clean_media.lua, blank conky.text, palette-driven; HR/arc/markers/labels verified numerically vs the running legacy widget (progress dot y identical, x −5 = deliberate ambient-axis alignment); marquee + idle verified | Done 2026-08-28 |
+| music (msc) | ☑ legacy music.conky.conf + lua/music.lua + cover_line.lua + screenshots/music*.png | ☑ split: playback/volume/cover suite-local (playerctl/pactl at draw time); arc geometry DERIVED from panels.orb.arc by reference (legacy weather-arc mirror, see 2026-08-28 note); volume during playback fixed to prefer pactl (system volume) over playerctl's own MPRIS field 2026-08-29 | ☑ media chassis top_middle head 1, 1700×1340 gap 0,413 — reproduces the *measured* rendered legacy positions (arc center abs (5755,938); legacy confs' raw gaps are not the rendered truth) | ☑ Cairo via clean_media.lua, blank conky.text, palette-driven; HR/arc/markers/labels verified numerically vs the running legacy widget (progress dot y identical, x −5 = deliberate ambient-axis alignment); marquee + idle verified; volume marker re-verified live during active playback 2026-08-29 | Done 2026-08-28 |
 | notes | ☑ legacy notes.conky.conf + theme.lua notes_* keys | ☑ suite-local (no core domain): direct read of ~/Documents/conky-notes.txt via lua/suite/notes.lua, 3 s tick cache | ☑ standalone top_right head 1, gap_x 31 reproduces the legacy *rendered* position (see 2026-07-20 note); gap_y measured as 292 but later moved to 350 by user preference (2026-08-27) | ☑ Cairo via clean_notes.lua, blank conky.text, palette-driven; verified numerically vs the running legacy widget (±1 px) | Done 2026-07-20 |
 | lyrics | ☑ legacy music-lyrics.conky.conf + lua/lyrics.lua + theme.lyrics | ☑ CORE media domain (shared/media/local/lyrics.json, providers/media/fetch_lyrics.py; docs/lyrics-library-design.md) — suite side is display-only, no fetching | ☑ same media chassis window; panel at in-window (1296,5) 400×1324 reproduces the *measured* legacy rendered position (text left abs 6211, header baseline 441) | ☑ Cairo, palette-driven; verified pixel-exact vs the running legacy widget (identical text bbox 6212..6585 × 428..1326, 284 text rows, identical band starts); state messages + linger verified | Done 2026-08-28 |
 | pfsense (VLAN arcs) | ☑ legacy pfsense.conky.conf + theme-pf.lua + lua/pf_widget.lua + screenshots/pfsense.png | ☑ pfsense (shared/pfsense/main_router/ifaces.json, ~1s core poller, server-side rates) | ☑ head 1, bottom_middle 840×500 gap_y 150 (frame sized around the user-tuned r=400 dome) — legacy gap_y 740 deliberately NOT reproduced (see 2026-08-27 note) | ☑ Cairo arcs-only per guide §1.4, blank conky.text, palette-driven; dome verified vs pfsense.png (retired content excluded by design) | Done 2026-08-27 |
@@ -553,6 +553,43 @@ values:
   after verifying" note applied to the unconverted OSA-leftover layout and is now
   retired. The next `start-conky.sh` relaunch picks it up normally. The legacy music and
   music-lyrics widgets launched for measurement were stopped by PID.
+
+**Reopened — volume marker frozen during active playback (found and fixed
+2026-08-29):** Not a stale-read bug — both the idle and playing paths in
+`read_player_state()` (`lua/suite/msc.lua`) were reading real, live values, just from
+two genuinely different volume controls. Idle reads only `pactl get-sink-volume`
+(system output/sink volume). While playing, the code preferred playerctl's `{{volume}}`
+field first — the *player's own* MPRIS `Volume` property — falling back to pactl only
+when that was unparseable. This exactly mirrors the legacy `get_volume_frac()` priority
+order (playerctl-first, pactl-fallback, called unconditionally), so it's a preexisting
+quirk carried over faithfully, not a conversion regression.
+
+Root cause confirmed live: launched a real MPRIS player (VLC, `--intf dummy`, playing a
+generated test tone) and set `pactl` sink volume to 50%, 80%, then 20% — `playerctl
+volume` reported a constant 0.649994 through all three changes. VLC's MPRIS `Volume` is
+its own internal software gain, decoupled from the system mixer; it never moves in
+response to system volume changes (tray, hardware keys, `pactl`). The "stuck at 50%"
+symptom the user saw was just whatever that player's internal gain happened to be —
+coincidental, not a hardcoded fallback literal.
+
+Fix: flipped the priority in the playing branch to match the idle branch — pactl
+(system volume) first, playerctl's own `{{volume}}` field only as a fallback when pactl
+itself is unavailable. Single source of truth for both states now.
+
+Verified live end to end (not just the view model): relaunched `clean-media.conky.conf`
+directly (`conky -c widgets/clean-media.conky.conf`) with VLC actively playing, screenshot
+via `import -window <id>` at three distinct pactl volumes (30% / 90% / 55%) — the red
+marker moved to the correct arc position each time, independent of the yellow playback
+progress marker's position. Then stopped VLC and confirmed the idle path still tracks a
+fourth pactl change (65%) correctly, matching pre-fix idle behavior. View-model level
+(`M.player().volume_frac`) also checked directly across four pactl values (30/60/90/45%)
+while `status = Playing`, all exact.
+
+Also reproduced, in the process, the runbook's own documented pitfall ("never put a
+conky conf name in a `pkill -f` pattern from this harness — the pattern matches the
+harness's own wrapper shell and kills it, exit 144; kill by PID instead") — hit it
+firsthand launching the test conky instance, confirming the existing warning is still
+accurate.
 
 ---
 
