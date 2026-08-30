@@ -1144,6 +1144,112 @@ on every candidate.
   per this runbook's own standing warning) — stderr showed only conky's
   normal window-creation lines, no Lua errors.
 
+**F4 (compliance-scan follow-up) — calendar's two hardcoded colors moved
+to the palette; two dead config keys resolved, 2026-08-29.** The
+`theme.sep.count` half of F4 was already closed by the monitor-chassis-
+polish session above; this session closes the remaining half — the
+scan's §3 rendering-compliance fail — plus the two §3 dead-config keys
+named alongside it.
+
+- *Line numbers re-verified, both stale.* The scan named
+  `panels.lua:215-216`; by this session the calendar block had moved to
+  `panels.lua:286-287` (F1/F5 restructuring in between). Re-found by
+  fresh grep before touching anything, per standing instruction.
+- *Not exempt, confirmed against the actual rationale.* Read
+  `theme.astro`/`theme.pf_markers`'s documented exemption in full
+  (`clean-theme.lua`'s own comments, ported to §3's wording): sun/moon/
+  planet colors are physical-object conventions, pfSense per-VLAN marker
+  colors are legacy direction/brightness encoding. `panels.cal.calendar`'s
+  `grid_color` (cell border) and `weekend_color` (Su/Sa day-number tint)
+  carry no such rationale — ordinary UI chrome, same class as
+  `slash_empty`/`pf_arc_base` (both already palette roles). Fixed
+  accordingly, not treated as a third exemption.
+- *New palette roles* `cal_grid`/`cal_weekend` added to both palettes in
+  `clean-palettes.lua`, same RGBA values the hardcoded literals had for
+  `default` (`{0.35,0.35,0.35,0.55}` / `{0.47,0.47,0.47,1.00}`, exact
+  preservation — this is a wiring fix, not a retune). `dark` variant
+  reuses `slash_empty`'s blue-shifted gray base for `cal_grid`
+  (`{0.30,0.32,0.38,0.55}`) and applies the same +0.12/channel lift
+  `default` uses between `slash_empty` and `weekend_color` to get
+  `cal_weekend` (`{0.42,0.44,0.50,1.00}`) — consistent with how the rest
+  of the dark palette derives its grays, not a fresh guess.
+- *Wired through `theme.cal`, not `panels.cal`* — matching the
+  `theme.pf = { arc_base = ... }` precedent (color/style lives in
+  `clean-theme.lua`, consumed by name from `frame.lua`; `panels.lua` stays
+  geometry-only, same principle the sep_count note above already
+  established for `panels.sys`). Added `theme.cal = { grid_color =
+  palette.cal_grid, weekend_color = palette.cal_weekend }` in
+  `clean-theme.lua`; `frame.lua`'s `draw_cal_content` now reads
+  `theme.cal.grid_color`/`theme.cal.weekend_color` (literal fallback kept
+  for safety, unchanged) instead of `panel.calendar.grid_color/
+  weekend_color`. The two RGBA literals were deleted from
+  `panels.cal.calendar` in `panels.lua`, replaced with a comment pointing
+  at `theme.cal` — same treatment as the sep_count duplicate.
+- **`theme.sep.count` — confirmed still correctly wired, no action
+  needed.** Grepped `frame.lua`: both `draw_sys_content` and
+  `draw_net_content` read `theme.sep.count` (with a literal `50`
+  fallback only), and `panels.sys.sep_count` no longer exists anywhere in
+  `panels.lua` — exactly the state the monitor-chassis-polish session
+  above left it in. Note the live value is currently `46`, not the `50`
+  that session's own note describes reverting to — a later, undocumented
+  hand-tune (plausibly the "SYS's dash count reduced ~5 fewer" item that
+  same note flagged as *not yet implemented, holding for a follow-up*).
+  Out of this session's scope to chase further; flagged here so a future
+  session doesn't mistake it for drift.
+- **`panels.cal.calendar.week_start = "SU"` — confirmed dead, deleted.**
+  Grepped the whole tree: zero readers anywhere. Week start is hardcoded
+  via `lua/suite/tme.lua`'s `weekday_su0` (`os.date(...).wday - 1`, always
+  Sunday-first) inside `build_weeks`, and `frame.lua`'s weekday header
+  uses a hardcoded `{"Su","Mo","Tu","We","Th","Fr","Sa"}` label array.
+  **Decision: delete, not wire up** — unlike `theme.sep.count`, which had
+  a live counterpart to consolidate into, `week_start` has no live
+  counterpart to fold into; making it real would mean rewriting
+  `weekday_su0`'s column math *and* rotating the frame.lua label array
+  together, a small feature addition with no stated user need (nothing in
+  this suite's history asks for a Monday-start week), not a wiring fix.
+  Deleted the dead key from `panels.lua`.
+- **Verified the palette wiring actually takes effect, not just that the
+  values moved files.** Baseline screenshot of the running
+  `clean-calendar` window (window `0x06800002`, `372×283` — legacy
+  `362×273` frame + Cairo's `+10` window-placement convention) matched
+  the accepted look: borderless grid (`border_lw = 0`), dim gray Su/Sa
+  weekend numbers, today (Aug 29) in accent gold. Noted mid-verification
+  that `grid_color` never actually renders today — `border_w > 0` gates
+  the stroke and `border_lw` is legacy's borderless `0` — so proving its
+  wiring needed a temporary `border_lw = 1` alongside the palette swap,
+  not just the color change alone.
+  - Temporarily set (both reverted after): `default` palette's
+    `cal_grid` → vivid red `{1,0,0,1}`, `cal_weekend` → vivid cyan
+    `{0,1,1,1}`, and `panels.cal.calendar.border_lw` → `1`.
+  - Killed the running calendar process by bare PID (`kill 3062940` —
+    not `pkill -f` against the conf path, per this runbook's own standing
+    warning, hit firsthand by two earlier sessions), relaunched directly
+    (`conky -c widgets/clean-calendar.conky.conf`) with the same env the
+    core launcher uses. Stderr showed only normal window-creation lines,
+    no Lua errors.
+  - Screenshot confirmed the swap rendered: red cell-border grid lines on
+    every cell, cyan Su/Sa day numbers, today (29) still gold (`colors
+    .accent`, untouched by this test) — direct proof both new roles reach
+    the draw call, not just the palette file.
+  - Reverted all three temporary values, killed the test process by PID,
+    then did a full clean relaunch via `scripts/start-conky.sh` (not a
+    second manual `conky -c`) so the launcher's own PID-file tracking
+    resynced — the manual test relaunch had left
+    `clean-e-clean-calendar-conky.pid` stale (still pointing at the
+    original, now-dead PID). Confirmed after: exactly six conky
+    processes, one per chassis/standalone, calendar's PID file updated to
+    the new live PID. Final screenshot of the same window ID/geometry is
+    pixel-identical to the pre-test baseline — borderless grid, dim
+    weekend gray, gold today-highlight — confirming normal appearance is
+    fully restored and matching the legacy `calendar.png` reference's
+    composition (borderless cells, dimmed weekend column, accent
+    today-highlight; different month, same structure).
+  - `luac -p` clean on all four touched files
+    (`panels.lua`/`clean-theme.lua`/`clean-palettes.lua`/`frame.lua`)
+    throughout, including immediately before the final relaunch.
+- This closes F4 in full and resolves the compliance scan's §3
+  rendering-compliance finding — §3 has no remaining open items.
+
 ---
 
 ## Notes for Next Widgets
