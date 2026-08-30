@@ -67,7 +67,7 @@ actually done vs. assumed done.
 | Widget | Original Source Confirmed? | Domain Wired? | Geometry Correct? | Rendering Matches? | Status |
 | ------ | --------------------------- | -------------- | ------------------- | -------------------- | ------ |
 | sys-info | ☑ legacy sys-info.conky.conf + lua/widgets.lua | ☑ system (shared/system/local current+processes+storage via monitor_helpers.lua) | ☑ head 1; gap 55,40 reproduces the legacy *rendered* position (see 2026-07-19 Part 2 note) | ☑ Cairo via clean_monitor.lua, blank conky.text, palette-driven; verified vs screenshots/sys-info.png | Done 2026-07-19 (arch gap closed) |
-| net | ☑ legacy net-sys.conky.conf + net_extras.sh | ☑ network (shared/network/local) for interface/VLAN/WAN fields + net (shared/net/local/state.vars) for ping — CF_1111_MS/GOOGLE_8888_MS, fixed 2026-08-28 (was connectivity's current.json, a dead-end cache that never refreshed past launch; see note below); throughput fast-lane /sys statistics | ☑ same chassis window as sys-info | ☑ re-verified vs screenshots/network-info.png after move to Cairo (graphs now Cairo histograms) | Done 2026-07-19 |
+| net | ☑ legacy net-sys.conky.conf + net_extras.sh | ☑ network (shared/network/local) for interface/VLAN/WAN fields + net (shared/net/local/state.vars) for ping — CF_1111_MS/GOOGLE_8888_MS, fixed 2026-08-28 (was connectivity's current.json, a dead-end cache that never refreshed past launch; see note below); throughput fast-lane /sys statistics | ☑ same chassis window as sys-info; **individually audited 2026-08-29 (F3)** — fixed chassis-relative y0 = 1013 (`panels.net.y0`), independent of SYS's line count; see F3 note below | ☑ re-verified vs screenshots/network-info.png after move to Cairo (graphs now Cairo histograms) | Done 2026-07-19 (F3 position fix 2026-08-29) |
 | weather | ☑ legacy weather.conky.conf + lua/owm.lua (draw_main/forecast/metar/taf) | ☑ weather (shared/weather/home) + aviation (shared/aviation/home) | ☑ ambient chassis, weather block 90px below chassis top (legacy gap_y 130) | ☑ main block + tiles + METAR/TAF verified vs time-and-weather.png | Done 2026-07-19 |
 | astro (orb) | ☑ legacy owm.lua draw_horizon/sun_labels + theme weather.arc | ☑ astro (shared/astro/home, canonical altitude/azimuth) | ☑ arc center at legacy weather.center offset within ambient chassis | ☑ arc/sun/moon/planets/labels verified vs screenshot + 6 simulated times of day | Done 2026-07-19 |
 | time (tme) | ☑ legacy date-time.conky.conf + calendar.conky.conf + lua/calendar.lua | ☑ time/calendar read at draw time (per guide §1.2); cal_offset suite-local at suites/clean-e/tme/ | ☑ clock: ambient chassis head 1, top_middle, gap_y 40 (legacy date-time position); calendar: standalone top_right window at measured legacy position (see note below) | ☑ clock stack verified vs time-and-weather.png; calendar verified pixel-level (±2px) against the running legacy widget + calendar.png (borderless) | Done 2026-07-19 (calendar reposition confirmed) |
@@ -769,6 +769,104 @@ bars, VLAN marker positions, sun-icon position) confirmed via
 `compare -metric AE` + visual inspection of the diff masks — no
 structural/positional differences. No Lua errors (`luac -p` clean on
 both touched files; suite relaunched without stderr errors).
+
+**F3 (compliance-scan follow-up) — NET individually audited and anchored
+to a fixed position, 2026-08-29.** The scan flagged NET as the one
+converted panel with no recorded pixel value: `frame.lua`'s
+`draw_monitor` ran `draw_sys_content` then threaded its returned
+end-of-content cursor into `draw_net_content`, so NET's vertical origin
+was emergent — wherever SYS's text flow happened to end, not a measured
+position. **Upfront correction to the scan's own claim**: the scan named
+`mon.disk_rows()` as the concrete trigger — "filesystem rows are not
+capped... mounting or unmounting a filesystem shifts every NET row below
+it by 23px." That specific claim does **not** reproduce against the
+actual code: `disk_rows()` iterates a hardcoded 2-entry label list, not
+the live filesystem array, so no mount/unmount of any real or synthetic
+filesystem changes its row count — verified below. The scan was wrong
+about the trigger. It was right that NET's position was architecturally
+emergent, and that the general risk class (SYS's line count silently
+changing and dragging NET with it) was real, just via a different,
+still-live mechanism (`gpu_present()` / top-N row counts, see below) —
+that's what this fix actually addresses, not the disk-mount scenario as
+literally described.
+
+- *Investigated both options per the scan's framing.* Before picking,
+  checked `mon.disk_rows()` itself (`lua/suite/monitor_helpers.lua`):
+  it iterates a hardcoded 2-entry `DISK_ROWS` spec list (`/ROOT`, `/WD`),
+  not the live `.filesystems[]` array from `storage.json` — a missing
+  entry just renders dash placeholders in the same row, it doesn't drop
+  the row. **Verified live/standalone**: fed the function synthetic
+  `storage.json` payloads (zero filesystems, an unrelated `/USB` entry,
+  `/WD` absent) via a `GTEX62_CACHE_DIR`-pointed harness — row count
+  stayed at exactly 2 in every case. So `disk_rows()` was already
+  deterministically bounded; the scan's "filesystem rows are not
+  capped" claim did not hold against the actual code. Option B's
+  proposed action (cap it) had nothing left to do.
+- *Checked ambient/media for an analogous unbounded-row situation*, per
+  the instruction to look for the more direct parallel before choosing.
+  Neither has one: `draw_ambient` calls `draw_wxr_content` /
+  `draw_orb_content` / `draw_tme_content` independently, and `draw_media`
+  calls `draw_msc_content` / `draw_lyrics_content` independently —
+  `draw_monitor`'s cursor-threading between `draw_sys_content` and
+  `draw_net_content` was the *only* place in `frame.lua` where one
+  content function's draw position depends on another's runtime output.
+  Every other combined chassis already uses individually fixed, measured
+  sub-positions (ambient's weather 90px below chassis top; media's msc/
+  lyrics rendered-position measurements) — confirming Option A matches
+  the codebase's standing convention, and monitor's threading was the
+  outlier, not precedent to extend.
+- *Residual real risk, distinct from disk_rows()*: SYS's total line
+  count still depends on `mon.gpu_present()` (5 lines vs. 1) and on
+  `top_cpu_rows`/`top_mem_rows` returning fewer than their 5-row request
+  on a near-idle box — either would have silently moved NET under the
+  old threaded design with no visible cause, same fragility class the
+  scan was pointing at even though its named trigger (mount/unmount)
+  turned out to be a non-issue.
+- **Decision: Option A.** Added `panels.net.y0 = 1013` (chassis-relative,
+  fixed) in `theme/panels.lua`. `frame.lua`'s `grid_cursor()` now takes
+  an optional `y0` override; `draw_net_content` builds its own cursor
+  from `panels.net.y0` instead of receiving `cur` from `draw_sys_content`
+  as a parameter, and `draw_sys_content` no longer returns a cursor.
+  `M.draw_monitor` now calls both content functions independently,
+  matching `draw_ambient`/`draw_media`. NET's old leading `nl() x4`
+  (four blank lines before its header) was folded into the measured
+  `y0` value instead of staying a draw-time offset.
+- *Value derivation, measured not guessed*: ran `draw_sys_content`'s
+  exact line-advance sequence against this machine's live caches (GPU
+  present, 5 top_cpu + 5 top_mem + 2 disk rows, the same "audit the
+  rendered position" discipline used for calendar/notes/media) — SYS's
+  content ends at cursor y 921 (chassis-relative, `monitor_grid`
+  units); +4 lines (23px each) for the gap NET's header used to open
+  with = 1013. This preserves today's "NET follows immediately after
+  SYS" visual relationship as a snapshot, the same way legacy's own
+  fixed 750px sys-info/net-sys offset was itself just a chosen number —
+  just measured against this port's grid instead of legacy's. A future
+  change to SYS's content that shifts where its text naturally ends
+  will now show a gap or overlap rather than silently relocating NET;
+  that tradeoff is Option A's own stated one, accepted here since the
+  ambient/media precedent treats it as normal (both already show minor
+  seams between their own individually-positioned sub-elements when
+  content varies).
+- **Verified live under the actual failure condition**: temporarily
+  added a synthetic third `DISK_ROWS` entry (`/NAS_Data`) to
+  `monitor_helpers.lua`, relaunched via `start-conky.sh`, and confirmed
+  via screenshot + pixel diff (`compare -metric AE`, cropped to the
+  "GOnion Network" header region) that NET's header rendered at
+  **0 differing pixels** vs. the pre-change screenshot, while SYS
+  visibly grew by one full line above it (3 disk rows shown, CPU/RAM/
+  GPU/footer all shifted down 23px as expected). This is the direct
+  proof that NET is now decoupled from SYS's line count — a real mount/
+  unmount wouldn't have moved anything either way (per the disk_rows()
+  finding above), so the synthetic row was used to actually exercise a
+  SYS-row-count change, which is the true failure-condition class the
+  scan was warning about. Reverted the synthetic row immediately after
+  and relaunched again to confirm the suite returned to its normal
+  2-disk-row state with NET still at the same measured position. No Lua
+  errors on any of the three relaunches (`luac -p` clean on both touched
+  files throughout).
+- Updated `panels.lua`'s MONITOR CHASSIS header comment and `frame.lua`'s
+  SYS+NET section comment to describe the independent-positioning
+  architecture instead of the retired cursor-threading one.
 
 ---
 
