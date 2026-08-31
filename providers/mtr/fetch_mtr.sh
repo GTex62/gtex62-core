@@ -18,23 +18,24 @@
 # [alerts].gateway_offline_duration_sec — so this script doesn't need its
 # own copy of that threshold. Reuse, not re-derivation.
 #
-# "Is it running" is answered from our own last-written state, not a
-# pgrep-every-poll check (no per-poll SSH cost — matches the standing
-# design decision, see sitrep-design-notes.md). SSH is only used to (a)
-# start the script the first time the trigger fires, (b) confirm — on a
-# later poll, never blocking the start — that the start actually took,
-# and (c) periodically re-confirm (every reconfirm_interval_sec, default
-# 30min) even after confirmation, so a process that died on Pi5 for an
-# unrelated reason (crash, reboot, manual kill) doesn't leave the display
-# reporting RUNNING forever. That periodic re-check is what also makes
-# this correct across a Titan restart: mtr_state.json lives under the
-# normal persistent cache root (survives reboot), but its "confirmed"
-# belief is never trusted blindly past the reconfirm interval — the
-# first poll after any restart that's more than reconfirm_interval_sec
-# since the last real check re-verifies via pgrep rather than assuming.
-# This is a correctness check, not the rejected "auto-stop on gateway
-# recovery" — it only ever corrects the display to match reality, it
-# does not add a new way for this script to kill the process.
+# "Is it running" is answered from our own last-written state, but never
+# trusted blindly: SSH is used to (a) start the script the first time the
+# trigger fires, (b) confirm — on a later poll, never blocking the start —
+# that the start actually took, and (c) re-confirm via a live pgrep on
+# every single poll for as long as our own state says running=true, so a
+# process that died on Pi5 for an unrelated reason (crash, reboot, manual
+# kill) can't leave the display reporting RUNNING for longer than one
+# refresh cycle (cache_ttl_sec — the file-age guard below already bounds
+# how often this script's body runs at all, so "every poll" here doesn't
+# mean uncapped SSH traffic). That per-poll re-check is also what makes
+# this correct across a Titan restart with no separate restart-detection
+# needed: mtr_state.json lives under the normal persistent cache root
+# (survives reboot), but the very first poll after any restart is just an
+# ordinary poll under this same rule — if it says running=true, it gets
+# pgrep-verified right then, not assumed. This is a correctness check,
+# not the rejected "auto-stop on gateway recovery" — it only ever
+# corrects the display to match reality, it does not add a new way for
+# this script to kill the process.
 set -euo pipefail
 
 MTR_PROFILE_ID="${1:-pi5}"
@@ -213,14 +214,6 @@ fi
 CACHE_TTL="$(parse_root_value "$PROFILE_TOML" cache_ttl_sec || true)"
 CACHE_TTL="${CACHE_TTL:-15}"
 
-# How often a confirmed "running" belief gets re-verified via a live
-# pgrep, even though nothing else would trigger a check. Generous by
-# design — this exists to catch an unexpected exit (crash, reboot,
-# manual kill) and to make a post-restart first poll trustworthy, not to
-# approximate real-time liveness.
-RECONFIRM_INTERVAL_SEC="$(parse_root_value "$PROFILE_TOML" reconfirm_interval_sec || true)"
-RECONFIRM_INTERVAL_SEC="${RECONFIRM_INTERVAL_SEC:-1800}"
-
 # Outer safety bound — deliberately distinct from the rejected
 # "auto-stop on gateway recovery" idea (confirmed with user, Aug 24,
 # 2026): this is a disk/resource backstop against an unbounded run
@@ -280,24 +273,17 @@ STARTED_EPOCH="${PREV_STARTED_EPOCH:-null}"
 LAST_CONFIRMED_EPOCH="${PREV_LAST_CONFIRMED_EPOCH:-null}"
 NOTE=""
 
-# Needs a live pgrep check if: never confirmed yet since the last start,
-# OR it's been >= reconfirm_interval_sec (or never) since the last real
-# check. The second arm is what makes a stale "confirmed" belief
-# self-correcting — including on the first poll after a Titan restart,
-# since mtr_state.json's last_confirmed_at_epoch predates the downtime
-# and will already be older than the interval.
+# Needs a live pgrep check whenever our own last-written belief says
+# running=true — unconditionally, not just the first time after a start.
+# This is what makes a stale "confirmed" belief self-correcting on every
+# poll, including the first poll after a Titan restart (mtr_state.json
+# survives reboot, but that belief is re-verified here rather than
+# trusted). The file-age guard above already bounds how often this
+# script's body runs at all (cache_ttl_sec), so this doesn't mean
+# uncapped SSH traffic — just no more than one pgrep per refresh cycle.
 NEED_CONFIRM="false"
 if [[ "$PREV_RUNNING" == "true" ]]; then
-  if [[ "$PREV_CONFIRMED" != "true" ]]; then
-    NEED_CONFIRM="true"
-  else
-    now_epoch="$(date +%s)"
-    last_epoch="${PREV_LAST_CONFIRMED_EPOCH:-0}"
-    [[ "$last_epoch" =~ ^[0-9]+$ ]] || last_epoch=0
-    if (( now_epoch - last_epoch >= RECONFIRM_INTERVAL_SEC )); then
-      NEED_CONFIRM="true"
-    fi
-  fi
+  NEED_CONFIRM="true"
 fi
 
 if [[ "$NEED_CONFIRM" == "true" ]]; then
@@ -311,8 +297,18 @@ if [[ "$NEED_CONFIRM" == "true" ]]; then
   # confirm) — reset to not-running so the next poll can retry while the
   # trigger holds.
   # ---------------------------------------------------------------------
+  # Redirect applied to the local ssh invocation, not embedded in the
+  # quoted remote command: a redirect *inside* the remote string forces
+  # sshd's shell to fork a child for pgrep rather than exec-replacing
+  # itself into it, so the parent wrapper survives with this same command
+  # text as its own /proc/PID/cmdline — which `pgrep -f` (full-cmdline
+  # match) then matches, unconditionally reporting "running" regardless
+  # of whether mtr_overnight_log.sh actually is. Keeping the remote
+  # command a single bare `pgrep -f ...` lets the remote shell
+  # exec-replace into it, so pgrep's own self-exclusion (skip own PID)
+  # is the only process being excluded — verified live against Pi5.
   _ssh_rc=0
-  ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "pgrep -f mtr_overnight_log.sh >/dev/null 2>&1" || _ssh_rc=$?
+  ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "pgrep -f mtr_overnight_log.sh" >/dev/null 2>&1 || _ssh_rc=$?
   if [[ $_ssh_rc -eq 0 ]]; then
     CONFIRMED="true"
     LAST_CONFIRMED_EPOCH="$(date +%s)"
