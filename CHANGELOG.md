@@ -14,6 +14,44 @@ not yet backfilled here.
 
 ---
 
+## 0.6.1 — 2026-08-31
+
+- **Aviation provider (`providers/aviation/fetch_aviation.sh`) — TAF stuck-data
+  fix.** `taf_raw.txt` had been frozen at issue time `140251Z` for 18 days
+  while METAR kept updating normally and `status.json` reported `"ok"`
+  throughout. Root-caused to aviationweather.gov's `/api/data/taf` endpoint
+  now hard-rejecting the `hours=0&sep=true` query params with HTTP 400
+  ("Unexpected query parameter provided") — confirmed against the endpoint's
+  published OpenAPI spec (`/data/schema/openapi.yaml`), which only documents
+  `ids`/`bbox`/`format`/`metar`/`time`/`date` for that endpoint; `hours` was
+  never a TAF param (METAR-only) and `sep` isn't in the spec either. METAR's
+  own params were unaffected, which is why only TAF went stale. Two fixes:
+  - TAF fetch now requests `?ids=${station}&format=raw` (no `hours`/`sep`).
+    Verified live: TAF updates to a current issue time again; confirmed
+    dropping `sep=true` doesn't change `taf_raw`'s line-wrapping (still
+    multi-line FM-group text) — moot regardless, since nothing downstream
+    parses `taf_raw` yet (grepped both `gtex62-core` and `gtex62-sitrep`).
+  - A failed TAF (or METAR) fetch was previously silently swallowed — the
+    tmp file was discarded, the old cache left untouched, and `status.json`
+    only went non-`"ok"` when *both* fields were empty, so a stuck TAF alone
+    never surfaced. `status.json` now carries per-field `metar`/`taf`
+    sub-objects (`state`/`last_ok`/`age_seconds`, matching
+    `docs/astro-schema.md`'s recommended staleness block), derived from each
+    raw cache file's own mtime rather than a separately tracked timestamp.
+    The envelope `state` goes `"degraded"` (matching the existing modem/vpn
+    convention for a partial failure) when exactly one field is failing,
+    with `note` naming which field and since when. `fetch.log` lines are now
+    tagged `METAR:`/`TAF:` with a timestamp, so failures no longer require
+    correlating against file mtimes to tell which call produced them.
+    Verified live: simulated a forced TAF failure (old rejected params,
+    aged cache past TTL) and confirmed the cache file was left untouched,
+    `status.json` showed `state: "degraded"`, `taf.state: "error"` with the
+    correct `last_ok`/`age_seconds`, and the log line was tagged `TAF:`.
+  - Provider-side only — does not touch WXR/SitRep display logic. Adding
+    staleness validation on that side (so a stale-but-`"ok"`-looking TAF gets
+    caught at render time too) is a separate, later task; nothing in
+    `gtex62-sitrep` reads aviation's `taf_raw`/`status.json` yet.
+
 ## 0.6.0 — 2026-08-28
 
 - **Lyrics-library provider (`providers/media/fetch_lyrics`)** — promotes

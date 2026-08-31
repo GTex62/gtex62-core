@@ -62,6 +62,27 @@ write_status() {
     '{state:$state, profile:$profile, generated_at:$generated_at, note:$note}' > "$STATUS_JSON"
 }
 
+# Per-field state/last_ok/age_seconds, astro-schema's recommended shape.
+# last_ok/age come from the raw cache file's own mtime (mv -f only happens
+# on a successful fetch, so mtime IS last-known-good) rather than a
+# separately tracked timestamp that could drift from reality.
+field_status_json() {
+  local path="$1"
+  local field_state="$2"
+  if [[ -f "$path" ]]; then
+    local mtime now
+    mtime="$(stat -c %Y "$path" 2>/dev/null || echo 0)"
+    now="$(date +%s)"
+    jq -n \
+      --arg state "$field_state" \
+      --arg last_ok "$(date -u -d "@$mtime" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" \
+      --argjson age_seconds "$(( now - mtime ))" \
+      '{state:$state, last_ok:$last_ok, age_seconds:$age_seconds}'
+  else
+    jq -n --arg state "$field_state" '{state:$state, last_ok:null, age_seconds:null}'
+  fi
+}
+
 if [[ ! -f "$PROFILE_TOML" ]]; then
   write_status "error" "missing profile toml"
   exit 0
@@ -105,31 +126,55 @@ is_fresh() {
   [[ $(( $(date +%s) - mtime )) -lt $ttl ]]
 }
 
+# Tags each error line with which call produced it and when, so fetch.log
+# no longer requires correlating against file mtimes to tell METAR and TAF
+# failures apart. curl stays silent (-fsS) on success, so the pipe is a
+# no-op then; PIPESTATUS[0] is returned explicitly so the tag/log pipeline
+# never masks curl's real exit code.
 fetch_metar() {
   local station="$1"
   local out="$2"
-  curl -fsS "https://aviationweather.gov/api/data/metar?ids=${station}&format=raw&hours=1" -o "$out" 2>>"$LOG_FILE"
+  curl -fsS "https://aviationweather.gov/api/data/metar?ids=${station}&format=raw&hours=1" -o "$out" 2>&1 \
+    | sed -u "s/^/$(date -u +%Y-%m-%dT%H:%M:%SZ) METAR: /" >> "$LOG_FILE"
+  return "${PIPESTATUS[0]}"
 }
 
 fetch_taf() {
   local station="$1"
   local out="$2"
-  curl -fsS "https://aviationweather.gov/api/data/taf?ids=${station}&hours=0&sep=true" -o "$out" 2>>"$LOG_FILE"
+  # format=raw is the endpoint default but named explicitly for parity with
+  # the METAR call. hours/sep are gone: aviationweather.gov's TAF endpoint
+  # (per its published OpenAPI spec, /data/schema/openapi.yaml) only ever
+  # documented ids/bbox/format/metar/time/date for /api/data/taf — hours was
+  # never a TAF param (it's a METAR-only param) and sep isn't in the spec
+  # either. Both now hard-reject with HTTP 400 "Unexpected query parameter
+  # provided". Confirmed live that dropping them doesn't change taf_raw's
+  # line-wrapping (still multi-line FM-group text) — moot anyway since
+  # nothing downstream parses taf_raw yet.
+  curl -fsS "https://aviationweather.gov/api/data/taf?ids=${station}&format=raw" -o "$out" 2>&1 \
+    | sed -u "s/^/$(date -u +%Y-%m-%dT%H:%M:%SZ) TAF: /" >> "$LOG_FILE"
+  return "${PIPESTATUS[0]}"
 }
 
+METAR_STATE="ok"
 if ! is_fresh "$RAW_METAR" "$METAR_TTL"; then
   if fetch_metar "$METAR_STATION" "$TMP_METAR" && [[ -s "$TMP_METAR" ]]; then
     mv -f "$TMP_METAR" "$RAW_METAR"
+    METAR_STATE="ok"
   else
     rm -f "$TMP_METAR"
+    METAR_STATE="error"
   fi
 fi
 
+TAF_STATE="ok"
 if ! is_fresh "$RAW_TAF" "$TAF_TTL"; then
   if fetch_taf "$TAF_STATION" "$TMP_TAF" && [[ -s "$TMP_TAF" ]]; then
     mv -f "$TMP_TAF" "$RAW_TAF"
+    TAF_STATE="ok"
   else
     rm -f "$TMP_TAF"
+    TAF_STATE="error"
   fi
 fi
 
@@ -162,4 +207,35 @@ jq -n \
   --rawfile station_model_raw "$RAW_STATION_MODEL" \
   '{generated_at:$generated_at, stations:{metar:$metar_station, taf:$taf_station, station_model:$station_model}, metar_raw:$metar, taf_raw:$taf, station_model_raw:$station_model_raw}' > "$CURRENT_JSON"
 
-write_status "ok" ""
+# Envelope state: "error" only in the total-failure case above (unchanged).
+# "degraded" is new — one field failing while the other is fine, matching
+# the modem/vpn convention of degraded-for-partial-failure rather than
+# masking it as "ok". note names which field and, when available, since when
+# (the field's own last_ok) so a human doesn't have to open status.json's
+# sub-objects to see what's wrong.
+METAR_FIELD_JSON="$(field_status_json "$RAW_METAR" "$METAR_STATE")"
+TAF_FIELD_JSON="$(field_status_json "$RAW_TAF" "$TAF_STATE")"
+
+OVERALL_STATE="ok"
+NOTE=""
+if [[ "$METAR_STATE" == "error" && "$TAF_STATE" == "error" ]]; then
+  OVERALL_STATE="degraded"
+  NOTE="metar and taf both failing; serving cached data"
+elif [[ "$TAF_STATE" == "error" ]]; then
+  OVERALL_STATE="degraded"
+  TAF_LAST_OK="$(jq -r '.last_ok // "unknown"' <<<"$TAF_FIELD_JSON")"
+  NOTE="taf fetch failing; serving cached data from $TAF_LAST_OK"
+elif [[ "$METAR_STATE" == "error" ]]; then
+  OVERALL_STATE="degraded"
+  METAR_LAST_OK="$(jq -r '.last_ok // "unknown"' <<<"$METAR_FIELD_JSON")"
+  NOTE="metar fetch failing; serving cached data from $METAR_LAST_OK"
+fi
+
+jq -n \
+  --arg state "$OVERALL_STATE" \
+  --arg profile "$PROFILE_ID" \
+  --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --arg note "$NOTE" \
+  --argjson metar "$METAR_FIELD_JSON" \
+  --argjson taf "$TAF_FIELD_JSON" \
+  '{state:$state, profile:$profile, generated_at:$generated_at, note:$note, metar:$metar, taf:$taf}' > "$STATUS_JSON"
