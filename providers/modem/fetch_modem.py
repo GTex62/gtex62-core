@@ -359,14 +359,28 @@ EVENT_FIELDS = (
     "docsDevEvCounts", "docsDevEvLevel", "docsDevEvId", "docsDevEvText",
 )
 
-# Observed T3-related event text from the Aug 18, 2026 incident read (see
-# roadmap "Motivating Incident"). Substring match, case-insensitive.
-T3_PATTERNS = (
-    "t3 time-out",
-    "t3 timeout",
-    "no ranging response received",
-    "ucd invalid or channel unusable",
-)
+# DOCSIS Device Event MIB IDs for T3 (ranging-response) timeouts. Confirmed
+# live (2026-08-31, real modem capture, two back-to-back sync-loss episodes):
+# 82000200 ("No Ranging Response received - T3 time-out") is the primary/
+# common variant, present in every confirmed real occurrence that day;
+# 82000500 ("Started Unicast Maintenance Ranging - No Response received -
+# T3 time-out") is a secondary variant seen once and since aged off the log.
+# Matched by ID first (authoritative, locale-independent), with a
+# "t3 time-out" text-substring fallback so an undiscovered future ID variant
+# doesn't silently repeat this same undercount.
+#
+# NOTE: an earlier text-pattern-only version of this match also included
+# "no ranging response received" and "ucd invalid or channel unusable" as
+# standalone substrings (no "T3" qualifier required). Both those texts DO
+# still match today via the substring fallback below where they co-occur
+# with "T3 time-out" in the same string — that part was never actually
+# broken (confirmed live against 82000200's real text). But
+# "ucd invalid or channel unusable" alone is docsDevEvId 85000200, a
+# *different*, non-T3 DOCSIS event confirmed to occur adjacent to real T3
+# bursts in live data — keeping it as a bare pattern over-counted unrelated
+# events into recent_t3_timeouts, so it's dropped here rather than kept.
+T3_EVENT_IDS = {"82000200", "82000500"}
+T3_TEXT_PATTERNS = ("t3 time-out", "t3 timeout")
 
 
 def _unescape_js_string(s: str) -> str:
@@ -403,9 +417,11 @@ def parse_event_log(html: str):
     return events, None
 
 
-def matches_t3(text) -> bool:
-    t = (text or "").lower()
-    return any(p in t for p in T3_PATTERNS)
+def matches_t3(event) -> bool:
+    if (event.get("docsDevEvId") or "").strip() in T3_EVENT_IDS:
+        return True
+    text = (event.get("docsDevEvText") or "").lower()
+    return any(p in text for p in T3_TEXT_PATTERNS)
 
 
 # Candidate formats for docsDevEvFirstTime/docsDevEvLastTime. Confirmed
@@ -454,10 +470,24 @@ def compute_recent_t3(events, window_minutes, now_dt):
     total = 0
     unparsed = 0
     for ev in events:
-        if not matches_t3(ev.get("docsDevEvText")):
+        if not matches_t3(ev):
             continue
         counts = extract_int(ev.get("docsDevEvCounts") or "") or 0
         last_dt = parse_event_time(ev.get("docsDevEvLastTime"), now_dt.date())
+        if last_dt is None:
+            # LastTime missing/unparseable — confirmed live (2026-08-31) as
+            # the modem's own "Time Not Established" placeholder on a row
+            # that otherwise had a valid FirstTime and a large repeat count,
+            # i.e. a still-updating/in-progress row, not corrupt data. Fall
+            # back to FirstTime rather than dropping the row: FirstTime is
+            # always <= the real LastTime, so if FirstTime alone lands
+            # inside the window the row is *at least* that recent and
+            # belongs in the count; a genuinely stale leftover row's
+            # FirstTime would fall outside the window too, so this fallback
+            # can only recover a true positive, never manufacture a false
+            # one. Without this, an in-progress T3 burst — the one case
+            # where the count matters most — was silently zeroed.
+            last_dt = parse_event_time(ev.get("docsDevEvFirstTime"), now_dt.date())
         if last_dt is None:
             unparsed += 1
             continue
@@ -468,8 +498,8 @@ def compute_recent_t3(events, window_minutes, now_dt):
 
     note = None
     if unparsed:
-        note = (f"{unparsed} matching event row(s) had unparseable timestamps "
-                f"and were excluded from the {window_minutes}m window count")
+        note = (f"{unparsed} matching event row(s) had unparseable First/Last "
+                f"timestamps and were excluded from the {window_minutes}m window count")
     return total, note
 
 
