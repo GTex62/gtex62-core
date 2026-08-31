@@ -56,6 +56,27 @@ not yet backfilled here.
   config change, and doc notes on pfSense-conversion completion.
   (The fast pfSense interface poller that landed alongside the 0.5.0 bump
   is already fully described in the entry below and isn't repeated here.)
+- **(2026-08-31) `recent_t3_timeouts` undercount fix
+  (`providers/modem/fetch_modem.py`)** — not independently bump-worthy (bugfix,
+  no schema change). `recent_t3_timeouts` was observed stuck at `0` across
+  three real T3 sync-loss episodes despite genuine events well inside the
+  trailing window. Root cause: `compute_recent_t3()` dropped any matching row
+  outright when `docsDevEvLastTime` was unparseable (the modem's own "Time
+  Not Established" placeholder on a still-updating row) — no fallback, even
+  when `docsDevEvFirstTime` was valid. Live cross-check ruled out the
+  originally-suspected cause (a `docsDevEvId`/text matching gap for
+  `82000200`) — the old text-substring pattern already matched that event's
+  real text correctly. Fixed by: (1) `matches_t3()` now matches by DOCSIS
+  event ID first (`82000200`, `82000500`, both confirmed live) with a
+  `"t3 time-out"` text-substring fallback for undiscovered future variants,
+  dropping the old bare `"ucd invalid or channel unusable"` pattern that was
+  actually a *different*, non-T3 event (`85000200`) inflating the count; (2)
+  `compute_recent_t3()` now falls back to `docsDevEvFirstTime` when
+  `docsDevEvLastTime` is unparseable, before excluding the row — safe
+  because `FirstTime` <= real `LastTime` always, so it can only recover a
+  true positive. Verified against a live modem capture plus synthetic
+  regression cases. See `docs/network-providers-roadmap.md` § Modem-Level
+  Corroboration Provider, Session Log — Aug 31, 2026.
 
 ## 0.5.0 — 2026-08-25
 

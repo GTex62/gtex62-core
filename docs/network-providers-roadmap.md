@@ -833,6 +833,67 @@ classification logic repeats the mistake fixed in `fetch_pfsense.sh`'s inline
 - `gtex62-osa`/`gtex62-tech-hud` stayed read-only throughout, as with prior domains.
 - Not committed yet — awaiting confirmation per this project's guardrails.
 
+### Session Log — Aug 31, 2026 (`recent_t3_timeouts` Undercount Fix)
+
+- **Reported symptom:** `recent_t3_timeouts` observed stuck at `0` across three independent
+  real-world checks the same day, despite the modem's own Event Log recording genuine T3
+  timeout events (`docsDevEvId=82000200`, "No Ranging Response received - T3 time-out")
+  well inside the default 60-minute window each time. Original hypothesis going in: an
+  `82000200`/text matching gap in `matches_t3()`.
+- **Investigated before implementing, per this project's guardrails — hypothesis did not
+  survive contact with live data.** A fresh real T3 episode was captured live from the
+  modem during this session (two-event burst, 11:21–11:29 CDT) and run through the
+  then-current `matches_t3()`/`compute_recent_t3()` unmodified. Result: the existing
+  `"no ranging response received"` substring pattern already matched `82000200`'s real
+  text correctly, and the window math was also correct (60-minute window correctly
+  excluded the episode once it aged past 60 minutes; a 180-minute window correctly summed
+  it). So the originally-suspected ID/text matching gap was not actually present in the
+  shipped code.
+- **Real root cause found instead:** at least one real Event Log row had a valid
+  `docsDevEvFirstTime` but `docsDevEvLastTime="Time Not Established"` (the modem's own
+  placeholder, most likely for a row still being updated) and a large `docsDevEvCounts`
+  (2416). `compute_recent_t3()` had no fallback for this — any matching row with an
+  unparseable `docsDevEvLastTime` was dropped outright (`unparsed += 1; continue`),
+  regardless of `docsDevEvFirstTime`'s validity or the row's repeat count. This is the
+  mechanism that best explains the reported symptom: an in-progress T3 burst — the one
+  case where the count matters most — landing on this placeholder and getting silently
+  zeroed rather than counted.
+- **Adjacent bug found in the same investigation:** the old `T3_PATTERNS` also bare-matched
+  `"ucd invalid or channel unusable"` with no "T3" qualifier required. Live data confirmed
+  this text belongs to `docsDevEvId=85000200`, a distinct DOCSIS event that occurs adjacent
+  to real T3 bursts but is not itself a T3 timeout — this was inflating
+  `recent_t3_timeouts`, the opposite direction from the reported symptom, but wrong either
+  way.
+- **Fix (`providers/modem/fetch_modem.py`):**
+  1. `matches_t3()` now matches by DOCSIS event ID first — `T3_EVENT_IDS = {"82000200",
+     "82000500"}`, both confirmed live (`82000500`, "Started Unicast Maintenance Ranging -
+     No Response received - T3 time-out", was seen once earlier the same day and had since
+     aged off the log by the time of this session's live capture) — falling back to a
+     `"t3 time-out"` text substring so an undiscovered future ID variant doesn't silently
+     repeat this same failure. The old bare `"ucd invalid or channel unusable"` /
+     `"no ranging response received"` patterns were dropped; text carrying either phrase
+     alongside "T3 time-out" still matches via the substring fallback, so no real coverage
+     was lost.
+  2. `compute_recent_t3()` now falls back to `docsDevEvFirstTime` when
+     `docsDevEvLastTime` is unparseable, before excluding the row. `FirstTime` <= the real
+     `LastTime` always, so this can only recover a true positive (a row whose `FirstTime`
+     alone lands inside the window is *at least* that recent) — it can't manufacture a
+     false include, since a genuinely stale leftover row's `FirstTime` would fall outside
+     the window too. A row with both timestamps unparseable is still excluded and still
+     surfaced via the existing `note` field.
+- **Verified:** live modem capture (real `82000200` rows still match; real `85000200` rows
+  no longer counted — window=180 total dropped from 75, which included the non-T3 UCD
+  events, to 2, the genuine T3 rows only) plus synthetic regression cases — a row shaped
+  exactly like the reported malformed one (valid `FirstTime`, `LastTime="Time Not
+  Established"`, `counts=2416`) now correctly contributes `2416`; a row with both
+  timestamps genuinely unparseable is still excluded with an accurate note; the
+  `82000500` variant still matches via the text-substring fallback.
+- **No `modem/status.json` schema change** — same fields, same types throughout. No
+  `gtex62-sitrep`-side change required (confirmed against `docs/reading-the-widget.md`'s
+  CM1000 column section and `design/sitrep-design-notes.md`'s CM1000/WAN panel section —
+  both describe `recent_t3_timeouts`/`event_log_window_minutes` at the field-semantics
+  level, which is unchanged).
+
 ### Open Items
 
 - Sampling interval and packet count per cycle not yet tuned — needs to be frequent enough
