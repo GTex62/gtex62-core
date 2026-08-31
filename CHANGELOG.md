@@ -55,6 +55,29 @@ this file and has not been backfilled — see each domain's own
     staleness validation on that side (so a stale-but-`"ok"`-looking TAF gets
     caught at render time too) is a separate, later task; nothing in
     `gtex62-sitrep` reads aviation's `taf_raw`/`status.json` yet.
+- **Weather provider (`providers/weather/fetch_openweather.sh`) — same
+  no-partial-failure-state gap found and fixed proactively.** Found while
+  writing `docs/weather-provider-status.md` (new doc, same session — see
+  `docs/README.md`'s Provider Reference section): `status.json`'s `"ok"`
+  write fired unconditionally once both raw cache files existed on disk,
+  checking presence, not freshness — the identical failure shape as the
+  aviation TAF incident above, just not yet triggered by a real upstream
+  break. Ported the aviation fix directly: `field_status_json()` (identical
+  helper) plus `CURRENT_STATE`/`FORECAST_STATE` tracking around the
+  current-conditions and forecast fetches. `status.json` gains `current`/
+  `forecast` sub-objects (`state`/`last_ok`/`age_seconds`) and a `"degraded"`
+  state for a single-field failure, with `note` naming which field and
+  since when; the early-exit stub paths (missing profile/disabled/missing
+  credentials, and the cold-start total-failure case) are unchanged. Verified
+  live against a scratch cache root: both-fields-fresh → `"ok"`; one field
+  stale with its fetch forced to fail (bogus API key, real 401) →
+  `"degraded"` with the correct `note` and the stale raw file's mtime
+  confirmed unchanged; cold-start with no raw files → `"error"`, no
+  `current`/`forecast` keys, confirming the early-exit path untouched. See
+  [docs/weather-provider-status.md](docs/weather-provider-status.md) §
+  Known Quirks / History. Provider-side only, same scope note as the
+  aviation fix above — WXR/SitRep display-side staleness validation remains
+  a separate follow-up for both domains.
 
 ## 0.6.0 — 2026-08-28
 

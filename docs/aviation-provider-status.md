@@ -19,10 +19,10 @@ abbreviations for two unrelated domains. `providers/mtr/` has no dedicated doc y
 this writing (flagged, not addressed here — see Remaining Work).
 
 Companion docs: [Architecture](architecture.md), [Weather Provider Status](weather-provider-status.md)
-(sibling atmospheric-data domain, written the same session, same `current.json`-plus-
-`status.json` cache shape but a simpler ok/error-only envelope — see that doc's Known
-Constraints for a staleness-detection gap this domain used to share, before the fix
-below).
+(sibling atmospheric-data domain, written the same session; its own per-field
+staleness-detection gap — the same failure shape as this domain's TAF incident below —
+was found while writing that doc and fixed the same day, ported directly from this
+domain's fix, per its own Known Quirks / History entry).
 
 ---
 

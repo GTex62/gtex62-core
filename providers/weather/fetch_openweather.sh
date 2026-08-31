@@ -68,6 +68,33 @@ write_status() {
     '{state:$state, profile:$profile, provider:$provider, generated_at:$generated_at, provider_updated_at:$provider_updated_at, note:$note}' > "$STATUS_JSON"
 }
 
+# Per-field state/last_ok/age_seconds, same convention as
+# providers/aviation/fetch_aviation.sh's metar/taf sub-objects (see
+# docs/aviation-provider-status.md). last_ok/age come from the raw cache
+# file's own mtime (mv -f only happens on a successful fetch, so mtime IS
+# last-known-good) rather than a separately tracked timestamp. Ported here
+# Aug 31, 2026 to close the gap flagged while writing
+# docs/weather-provider-status.md: without this, a stuck-but-present raw
+# file read state:"ok" indefinitely regardless of how many fetch attempts
+# had actually failed since — the same failure shape as the aviation TAF
+# incident, just not yet triggered here.
+field_status_json() {
+  local path="$1"
+  local field_state="$2"
+  if [[ -f "$path" ]]; then
+    local mtime now
+    mtime="$(stat -c %Y "$path" 2>/dev/null || echo 0)"
+    now="$(date +%s)"
+    jq -n \
+      --arg state "$field_state" \
+      --arg last_ok "$(date -u -d "@$mtime" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" \
+      --argjson age_seconds "$(( now - mtime ))" \
+      '{state:$state, last_ok:$last_ok, age_seconds:$age_seconds}'
+  else
+    jq -n --arg state "$field_state" '{state:$state, last_ok:null, age_seconds:null}'
+  fi
+}
+
 if [[ ! -f "$PROFILE_TOML" ]]; then
   write_status "error" "" "missing profile toml"
   exit 0
@@ -121,19 +148,29 @@ TMP_FORECAST="$TMP_DIR/weather_${PROFILE_ID}_forecast.tmp"
 URL_CURRENT="https://api.openweathermap.org/data/2.5/weather?lat=${LAT}&lon=${LON}&units=${UNITS}&lang=${LANG}&appid=${API_KEY}"
 URL_FORECAST="https://api.openweathermap.org/data/2.5/forecast?lat=${LAT}&lon=${LON}&units=${UNITS}&lang=${LANG}&appid=${API_KEY}"
 
+# CURRENT_STATE/FORECAST_STATE track only *this run's* fetch attempt outcome
+# (unchanged "ok" when TTL-fresh and no attempt was made) — freshness itself
+# is reported separately via field_status_json()'s age_seconds, not folded
+# into this flag. Same split as aviation's METAR_STATE/TAF_STATE.
+CURRENT_STATE="ok"
 if ! is_fresh "$RAW_CURRENT"; then
   if fetch_url "$URL_CURRENT" "$TMP_CURRENT" && jq -e '.weather and .main and .wind and .clouds' "$TMP_CURRENT" >/dev/null 2>&1; then
     mv -f "$TMP_CURRENT" "$RAW_CURRENT"
+    CURRENT_STATE="ok"
   else
     rm -f "$TMP_CURRENT"
+    CURRENT_STATE="error"
   fi
 fi
 
+FORECAST_STATE="ok"
 if ! is_fresh "$RAW_FORECAST"; then
   if fetch_url "$URL_FORECAST" "$TMP_FORECAST" && jq -e '.list and .city' "$TMP_FORECAST" >/dev/null 2>&1; then
     mv -f "$TMP_FORECAST" "$RAW_FORECAST"
+    FORECAST_STATE="ok"
   else
     rm -f "$TMP_FORECAST"
+    FORECAST_STATE="error"
   fi
 fi
 
@@ -244,4 +281,38 @@ jq -n \
   ' > "$FORECAST_JSON"
 
 PROVIDER_TS="$(jq -r '.provider_updated_at // empty' "$CURRENT_JSON" 2>/dev/null || true)"
-write_status "ok" "$PROVIDER_TS" ""
+
+# Envelope state: "error" (both-missing) is handled above and exits early,
+# unchanged. "degraded" is new — one field's fetch failed this run while the
+# other is fine, matching aviation's modem/vpn-derived convention of
+# degraded-for-partial-failure rather than masking it as "ok". note names
+# which field and, when available, since when (that field's own last_ok) so
+# a human doesn't have to open status.json's sub-objects to see what's wrong.
+CURRENT_FIELD_JSON="$(field_status_json "$RAW_CURRENT" "$CURRENT_STATE")"
+FORECAST_FIELD_JSON="$(field_status_json "$RAW_FORECAST" "$FORECAST_STATE")"
+
+OVERALL_STATE="ok"
+NOTE=""
+if [[ "$CURRENT_STATE" == "error" && "$FORECAST_STATE" == "error" ]]; then
+  OVERALL_STATE="degraded"
+  NOTE="current and forecast both failing; serving cached data"
+elif [[ "$FORECAST_STATE" == "error" ]]; then
+  OVERALL_STATE="degraded"
+  FORECAST_LAST_OK="$(jq -r '.last_ok // "unknown"' <<<"$FORECAST_FIELD_JSON")"
+  NOTE="forecast fetch failing; serving cached data from $FORECAST_LAST_OK"
+elif [[ "$CURRENT_STATE" == "error" ]]; then
+  OVERALL_STATE="degraded"
+  CURRENT_LAST_OK="$(jq -r '.last_ok // "unknown"' <<<"$CURRENT_FIELD_JSON")"
+  NOTE="current fetch failing; serving cached data from $CURRENT_LAST_OK"
+fi
+
+jq -n \
+  --arg state "$OVERALL_STATE" \
+  --arg profile "$PROFILE_ID" \
+  --arg provider "openweather" \
+  --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --arg provider_updated_at "$PROVIDER_TS" \
+  --arg note "$NOTE" \
+  --argjson current "$CURRENT_FIELD_JSON" \
+  --argjson forecast "$FORECAST_FIELD_JSON" \
+  '{state:$state, profile:$profile, provider:$provider, generated_at:$generated_at, provider_updated_at:$provider_updated_at, note:$note, current:$current, forecast:$forecast}' > "$STATUS_JSON"
