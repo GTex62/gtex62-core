@@ -78,6 +78,42 @@ this file and has not been backfilled — see each domain's own
   Known Quirks / History. Provider-side only, same scope note as the
   aviation fix above — WXR/SitRep display-side staleness validation remains
   a separate follow-up for both domains.
+- **MTR provider (`providers/mtr/fetch_mtr.sh`) — RUNNING state never
+  clearing after the script exits.** SitRep's WAN panel kept showing "MTR
+  (PI5) HH:MM" (still counting) even after `mtr_overnight_log.sh` was
+  manually killed on Pi5, and survived a full SitRep restart too. Two bugs
+  in the Aug 24 reconfirm mechanism:
+  - **Self-match (root cause).** The confirm step's `pgrep -f
+    mtr_overnight_log.sh >/dev/null 2>&1` had its redirect embedded inside
+    the quoted remote SSH command, which forces sshd's shell to fork a
+    child for `pgrep` instead of exec-replacing into it — so the parent
+    wrapper shell survived with that same command text as its own
+    `/proc/PID/cmdline`, which `pgrep -f` (full-cmdline match) then
+    matched. The confirm check unconditionally reported "running"
+    regardless of the real process state; it could never have detected a
+    dead process, at any cadence. Fixed by moving the redirect to the
+    local `ssh` invocation instead of the remote command string, so the
+    remote side stays a single bare `pgrep -f ...` and the shell
+    exec-replaces cleanly (only `pgrep`'s own self-exclusion applies).
+  - **Cadence.** The confirm only ran every `reconfirm_interval_sec`
+    (default 1800s/30min) since the last successful check, so even with
+    self-match fixed, a manual kill or Pi5 reboot could go unnoticed for
+    up to 30 minutes, and a SitRep restart inherited whatever the interval
+    gate last decided rather than re-verifying. Removed the interval gate
+    — confirm now runs on every poll while `running=true`, bounded to once
+    per `cache_ttl_sec` by the existing file-age guard, which also makes
+    restart-survival unconditional (the first poll after any restart is
+    just an ordinary poll under the same rule). Dropped the now-dead
+    `reconfirm_interval_sec` knob from the script and from the live
+    `profiles/mtr/pi5.toml`.
+  - Confirm/reconfirm still only clears the display on a dead process — it
+    never restarts the script itself; that stays gated on the SEVERE
+    `gateway-offline` trigger being active, unchanged from the original
+    design.
+  - Verified live: confirmed the real process was already dead via direct
+    `ps` on Pi5, watched `mtr_state.json` self-correct to `running:false`
+    on the next poll after deploying the fix, stayed cleared with no
+    restart triggered while the trigger was inactive.
 
 ## 0.6.0 — 2026-08-28
 

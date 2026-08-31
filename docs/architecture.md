@@ -196,7 +196,7 @@ making fast-track meters (VLAN, ping) appear frozen.
 | network      | varies      | NIC state                               |
 | pfsense      | varies      | Firewall/SSH gate                       |
 | github       | varies      | Traffic data                            |
-| mtr          | trigger-driven | Not poll-cadence — see pfsense-provider-status.md's gate table |
+| mtr          | trigger-driven | Start/stop gated on SEVERE `gateway-offline`; live-pgrep-confirmed every poll while running (see `fetch_mtr.sh`) |
 | media        | write-through  | Lyrics library — not TTL-cadence, see lyrics-library-design.md |
 
 WAN IP (within net) is internally rate-limited to one external call per 30s

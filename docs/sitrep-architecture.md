@@ -305,9 +305,6 @@ verification time, so `banner.json` correctly reported `alert_count: 0`, all-cle
 
 ### Deferred
 
-- The mtr_overnight_log.sh SSH trigger to Pi5 — self-terminating runtime, cooldown-window
-  logic. `gateway-offline`'s `children` array is structured to accept an "MTR SCRIPT ON PI5
-  BEGAN..." entry once this exists; not populated yet.
 - Any SitRep-side Lua reading/rendering `banner.json` — the actual widget build, not
   started.
 - Wiring `providers.alerts` into `gtex62-core-launch`'s `initial_refresh`/`refresh_loop` —
