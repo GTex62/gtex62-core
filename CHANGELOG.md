@@ -4,13 +4,17 @@ All notable changes to `gtex62-core` are documented here. Dates are per-entry
 (when that piece of work landed), not per-release — several 0.1.0 entries
 predate this file and are backfilled from existing docs.
 
-**Scope note:** this file currently covers the network/pfSense-family
+**Scope note:** this file was started covering only the network/pfSense-family
 provider domains (`pfsense`, `ap`, `vpn`, `modem`) — backfilled from
 [docs/network-providers-roadmap.md](docs/network-providers-roadmap.md),
 [docs/pfsense-provider-status.md](docs/pfsense-provider-status.md), and
-[docs/ap-provider-status.md](docs/ap-provider-status.md). Other engine
-providers (weather, solar, astro, aviation, etc.) predate this file and are
-not yet backfilled here.
+[docs/ap-provider-status.md](docs/ap-provider-status.md). As of 0.6.0/0.6.1 it
+also carries live entries for other domains as they land (`media`,
+`aviation`) — new work on any provider gets an entry here going forward,
+regardless of family. Most pre-0.6.0 history for providers outside the
+original pfSense family (weather, solar, astro, `mtr`, etc.) still predates
+this file and has not been backfilled — see each domain's own
+`docs/<domain>-provider-status.md` where one exists.
 
 ---
 

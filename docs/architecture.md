@@ -35,11 +35,16 @@ gtex62-core/
     gtex62-conky-launch           — Conky wrapper
   providers/
     air/           — AQI and pollution (AirNow + OpenWeather)
+    alerts/        — cross-cutting alert banner watcher (thresholds over other domains' caches)
+    ap/            — Zyxel access-point fleet status and named clients
     astro/         — astronomical data (moon phase, solar events)
     aviation/      — METAR/TAF weather
     calendar/      — calendar events
     connectivity/  — speedtest snapshots
     github/        — GitHub traffic
+    media/         — lyrics library (player status, cover art)
+    modem/         — cable modem status (HTTP scrape via pfSense NAT path)
+    mtr/           — Pi5 overnight mtr-capture trigger on sustained gateway outage
     net/           — fast-refresh display cache (ping, VLAN, WAN IP)
     network/       — NIC and interface state
     orb/           — ephemeris (planet/sun/moon positions)
@@ -47,6 +52,7 @@ gtex62-core/
     solar/         — UV index and solar radiation
     system/        — CPU, RAM, GPU, storage
     time/          — clock rows (timezone names, times, dates)
+    vpn/           — PIA WireGuard tunnel status (local piactl/wg, no SSH)
     weather/       — current conditions and forecast
   lua/             — shared Lua helpers and runtime modules
   examples/
@@ -103,18 +109,24 @@ time    = "local"
 ~/.cache/gtex62-core/
   shared/
     air/           — AQI + pollution cache
+    alerts/        — banner.json alert queue + transition log
     astro/         — astronomical cache
     aviation/      — METAR/TAF cache
     calendar/      — calendar event cache
     connectivity/  — speedtest snapshot cache
     github/        — GitHub traffic cache
+    media/         — lyrics cache
+    modem/         — modem status cache
+    mtr/           — mtr-trigger state cache
     net/           — fast-refresh net display cache
     network/       — NIC/interface state cache
     orb/           — ephemeris cache
-    pfsense/       — pfSense data cache
+    pfsense/       — pfSense data cache (also holds AP status/named-client cache — ap
+                     has no shared/ap/ tree of its own, see docs/ap-provider-status.md)
     solar/         — UV/radiation cache
     system/        — system metrics cache
     time/          — clock data cache
+    vpn/           — VPN tunnel status cache
     weather/       — weather cache
   suites/          — suite-specific cache (if needed)
   runtime/
@@ -170,16 +182,22 @@ making fast-track meters (VLAN, ping) appear frozen.
 | net          | 1s          | Fast-track — VLAN, ping, WAN IP display |
 | time         | 1s          | Fast-track — clock rows                 |
 | system       | 1s          | Fast-track — CPU, RAM, GPU, storage     |
+| vpn          | 10s         | PIA WireGuard tunnel status             |
 | orb          | 60s         | Ephemeris positions                     |
+| alerts       | 60s         | Cross-cutting; recomputes from other domains' caches, no cache_ttl_sec of its own |
+| ap           | 120s        | Zyxel AP fleet status + named clients   |
 | weather      | 300s        | Current conditions + forecast           |
 | air          | 300s        | AQI + pollution                         |
 | solar        | 300s        | UV + radiation                          |
+| modem        | 300s        | Cable modem status                      |
+| aviation     | 600s        | METAR/TAF, independent metar_ttl_sec/taf_ttl_sec |
 | astro        | varies      | Moon phase, solar events                |
 | connectivity | on-demand   | Manual speedtest snapshots              |
 | network      | varies      | NIC state                               |
-| aviation     | varies      | METAR/TAF                               |
 | pfsense      | varies      | Firewall/SSH gate                       |
 | github       | varies      | Traffic data                            |
+| mtr          | trigger-driven | Not poll-cadence — see pfsense-provider-status.md's gate table |
+| media        | write-through  | Lyrics library — not TTL-cadence, see lyrics-library-design.md |
 
 WAN IP (within net) is internally rate-limited to one external call per 30s
 regardless of TTL. Cache is invalidated immediately on VPN state change.
