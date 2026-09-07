@@ -25,21 +25,21 @@ password = "CHANGE_ME"
 [eventlog]
 # Trailing window recent_t3_timeouts is summed over.
 window_minutes = 60
-# Correction added to every modem-reported event timestamp before it's
-# compared to host time, in seconds. Default 0 (no correction) — only set
-# this if you've confirmed your own modem's clock is actually skewed;
-# don't copy 3600 blindly onto a different modem/deployment.
+# FALLBACK ONLY, in seconds. fetch_modem.py normally self-calibrates this
+# every poll by reading DocsisStatus.asp's own #Current_systemtime field
+# and comparing it to host time (resolve_clock_offset_sec()) — that live
+# measurement is used whenever it's available and sane, and this
+# configured value is only consulted if it isn't (field missing, or
+# implying something wild like a modem whose clock hasn't synced since a
+# reboot). You should NOT need to hand-tune this for normal operation,
+# and it does NOT need revisiting across DST transitions the way it did
+# before self-calibration existed.
 #
-# Discovered 2026-09-07 (see docs/network-providers-roadmap.md's Sept 7
-# session log): this deployment's CM1000 was found to be consistently
-# ~63-67 minutes *behind* host time during a live, actively-flapping T3
-# burst (new rows landing seconds apart in modem-time across three
-# independent measurements — not staleness, a real clock offset). Leading
-# theory: the modem's clock doesn't observe DST and stays on Standard
-# Time (CST, UTC-6) while the host correctly runs CDT (UTC-5) — a clean
-# one-hour gap. Set to 3600 for this deployment while DST is in effect.
-# **Revisit when DST ends (~Nov 2026)**: if the theory holds, the offset
-# should drop to ~0 once the host reverts to CST and both clocks agree
-# again — leaving this at 3600 past that point would reintroduce the
-# opposite failure (events counted as more recent than they really are).
+# Discovered 2026-09-07 (see docs/network-providers-roadmap.md's Sept 6/7
+# and Sept 7 session logs): this deployment's CM1000 clock was found
+# running ~60 minutes behind host time (modem stuck on Standard Time
+# while the host observes DST is the leading theory) — that's what this
+# value reflects, as a reasonable best-effort fallback for the rare case
+# self-calibration can't run. Set to 0 for a fresh deployment unless
+# you've independently confirmed your own modem is skewed the same way.
 clock_offset_sec = 3600

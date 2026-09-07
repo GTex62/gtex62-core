@@ -261,6 +261,89 @@ def test_sept7_corrected_clock_skew_fixes_it():
     )
 
 
+# ---------------------------------------------------------------------
+# Sept 7, 2026 (follow-up) — self-calibrating clock offset via
+# DocsisStatus.asp's #Current_systemtime field, replacing the purely
+# static clock_offset_sec from the fix above. `testdata_docsis_status_
+# live_capture.html` is a real authenticated DocsisStatus.asp response,
+# captured live at host time 2026-09-07 10:12:19 CDT (see the roadmap
+# doc's "DocsisStatus.asp ToD" session log for the 3-sample verification
+# this came from) — not synthesized, so this locks in the real HTML
+# shape, not an assumption about it.
+# ---------------------------------------------------------------------
+_LIVE_DOCSIS_HTML = (Path(__file__).parent / "testdata_docsis_status_live_capture.html").read_text()
+
+
+def test_parse_modem_current_time_reads_the_real_live_field():
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(_LIVE_DOCSIS_HTML, "lxml")
+    parsed = fm.parse_modem_current_time(soup)
+    check(
+        "parse_modem_current_time(): reads the real captured field correctly",
+        parsed == datetime(2026, 9, 7, 9, 11, 33),
+        f"parsed={parsed}",
+    )
+
+
+def test_resolve_clock_offset_sec_prefers_live_measurement():
+    # Real host time at the moment of this exact capture (see docstring
+    # above) vs. the real modem_reported_now parsed from it -> the ~60min
+    # skew this whole investigation was chasing, measured directly rather
+    # than inferred from event freshness.
+    modem_reported_now = datetime(2026, 9, 7, 9, 11, 33)
+    now_dt = datetime(2026, 9, 7, 10, 12, 19)
+    offset_sec, note = fm.resolve_clock_offset_sec(modem_reported_now, now_dt, configured_offset_sec=3600)
+    check(
+        "resolve_clock_offset_sec(): live measurement used, no fallback note",
+        note is None and abs(offset_sec - 3646) < 1,
+        f"offset_sec={offset_sec} note={note!r}",
+    )
+
+
+def test_resolve_clock_offset_sec_falls_back_when_field_missing():
+    now_dt = datetime(2026, 9, 7, 10, 12, 19)
+    offset_sec, note = fm.resolve_clock_offset_sec(None, now_dt, configured_offset_sec=3600)
+    check(
+        "resolve_clock_offset_sec(): missing field falls back to configured value, with a note",
+        offset_sec == 3600 and note is not None and "unavailable" in note,
+        f"offset_sec={offset_sec} note={note!r}",
+    )
+
+
+def test_resolve_clock_offset_sec_rejects_insane_live_reading():
+    # e.g. a modem that just rebooted with its clock not yet synced
+    # (reporting something like 1970) shouldn't be trusted just because
+    # the field parsed successfully.
+    modem_reported_now = datetime(1970, 1, 1, 0, 0, 0)
+    now_dt = datetime(2026, 9, 7, 10, 12, 19)
+    offset_sec, note = fm.resolve_clock_offset_sec(modem_reported_now, now_dt, configured_offset_sec=3600)
+    check(
+        "resolve_clock_offset_sec(): wildly-off live reading rejected, falls back",
+        offset_sec == 3600 and note is not None and "sanity bound" in note,
+        f"offset_sec={offset_sec} note={note!r}",
+    )
+
+
+def test_end_to_end_real_capture_self_calibrates_and_counts_correctly():
+    # The actual bug, fixed the actual way it ships: parse the real
+    # captured DocsisStatus.asp for modem_reported_now, resolve the live
+    # offset against it (no configured value needed at all here), then
+    # feed that into compute_recent_t3() against the real captured
+    # EventLog.asp burst from the earlier fix. No hardcoded 3600 anywhere
+    # in this test — it's derived exactly the way main() derives it.
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(_LIVE_DOCSIS_HTML, "lxml")
+    modem_reported_now = fm.parse_modem_current_time(soup)
+    now_dt = datetime(2026, 9, 7, 10, 12, 19)  # real host time of this capture
+    offset_sec, offset_note = fm.resolve_clock_offset_sec(modem_reported_now, now_dt, configured_offset_sec=0)
+    total, note = fm.compute_recent_t3(_SEPT7_LIVE_EVENTS, 60, now_dt, offset_sec)
+    check(
+        "End-to-end: self-calibrated offset (no static config) correctly counts the real burst",
+        offset_note is None and total == 2 and note is None,
+        f"offset_sec={offset_sec} offset_note={offset_note!r} total={total} note={note!r}",
+    )
+
+
 if __name__ == "__main__":
     test_unparseable_lasttime_falls_back_to_firsttime()
     test_both_timestamps_unparseable_excluded_with_note()
@@ -271,6 +354,11 @@ if __name__ == "__main__":
     test_out_of_window_match_surfaces_diagnostic_note()
     test_sept7_uncorrected_clock_skew_reproduces_the_reported_bug()
     test_sept7_corrected_clock_skew_fixes_it()
+    test_parse_modem_current_time_reads_the_real_live_field()
+    test_resolve_clock_offset_sec_prefers_live_measurement()
+    test_resolve_clock_offset_sec_falls_back_when_field_missing()
+    test_resolve_clock_offset_sec_rejects_insane_live_reading()
+    test_end_to_end_real_capture_self_calibrates_and_counts_correctly()
 
     if FAILURES:
         print(f"\n{len(FAILURES)} failure(s): {FAILURES}")

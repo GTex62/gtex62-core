@@ -319,28 +319,56 @@ def parse_startup_procedure(soup):
     return result, note
 
 
+CURRENT_SYSTEMTIME_FORMAT = "%a %b %d %H:%M:%S %Y"  # e.g. "Mon Sep 07 09:11:33 2026"
+
+
+def parse_modem_current_time(soup):
+    """Extract #Current_systemtime as a naive datetime, or None.
+
+    Correction (2026-09-07): the Aug 18/19, 2026 session concluded this
+    field was dead — true of the *client-side* path (`InitTagValue()`'s
+    JS literally contains a hardcoded fallback string ending in
+    "Mon Jun 11 15:30:50 2012", confirmed by reading the JS source
+    itself) — but that conclusion doesn't extend to what this scraper
+    actually reads. `fetch_modem.py` never executes JS; it only ever
+    sees the plain HTTP response, and the *server-rendered* value already
+    present in that raw HTML (before any JS would run) is live: three
+    back-to-back fetches a few seconds apart showed it ticking forward
+    in step with real elapsed time, not stuck on the 2012 dummy. The
+    earlier investigation's "dead" finding was real but answered a
+    different question (what a browser would show after its JS ran) than
+    the one that matters here (what a plain GET returns).
+
+    Used by main() as a live, self-calibrating reference for the modem's
+    own clock skew — see compute_recent_t3()'s `clock_offset_sec` and the
+    roadmap doc's Sept 7 (DocsisStatus.asp ToD) follow-up session log for
+    why a static configured offset needed replacing at all."""
+    el = soup.find(id="Current_systemtime")
+    if el is None:
+        return None
+    m = re.search(r"Current System Time:\s*(.+)", el.get_text(strip=True), re.IGNORECASE)
+    if not m:
+        return None
+    try:
+        return datetime.strptime(m.group(1).strip(), CURRENT_SYSTEMTIME_FORMAT)
+    except ValueError:
+        return None
+
+
 def parse_docsis_status(html: str):
     soup = BeautifulSoup(html, "lxml")
     upstream, us_note = parse_channel_table(soup, "usTable", US_COLUMN_MAP, US_REQUIRED)
     downstream_ofdm, ds_note = parse_channel_table(soup, "d31dsTable", DS_OFDM_COLUMN_MAP, DS_OFDM_REQUIRED)
     startup, startup_note = parse_startup_procedure(soup)
+    modem_reported_now = parse_modem_current_time(soup)
 
-    # #Current_systemtime / #SystemUpTime are NOT used as a "now" reference.
-    # Confirmed live (this session) that Current_systemtime is populated by
-    # leftover placeholder JS (InitTagValue() in DocsisStatus.asp's own
-    # source returns a hardcoded dummy string ending in a literal
-    # "Mon Jun 11 15:30:50 2012") — dead code on this firmware, not live
-    # data, despite the doc's original assumption it could be read for
-    # freshness confirmation. compute_recent_t3() uses local host time
-    # instead (see its comment) — empirically consistent with the real
-    # docsDevEvLastTime values observed, which read as local wall-clock
-    # timestamps with no timezone marker.
     notes = [n for n in (us_note, ds_note, startup_note) if n]
     return {
         "upstream_channels": upstream,
         "downstream_ofdm_channels": downstream_ofdm,
         "connectivity_state": startup.get("connectivity_state"),
         "boot_state": startup.get("boot_state"),
+        "modem_reported_now": modem_reported_now,
         "notes": notes,
     }
 
@@ -455,6 +483,44 @@ def parse_event_time(text, ref_date):
         return datetime.combine(ref_date, t)
     except ValueError:
         return None
+
+
+MAX_SANE_CLOCK_OFFSET_SEC = 6 * 3600  # beyond this, a "live" reading is more likely bogus than real
+
+
+def resolve_clock_offset_sec(modem_reported_now, now_dt, configured_offset_sec):
+    """Added 2026-09-07, replacing a purely-static clock_offset_sec (see
+    compute_recent_t3()'s docstring for that fix's own history) with a
+    self-calibrating one. Prefers a *live* offset measured against the
+    modem's own reported Current System Time (parse_modem_current_time())
+    over the configured fallback — the live reading self-corrects across
+    DST transitions with no one needing to remember to update a TOML
+    value (the static fix's own known weak point; see the roadmap doc's
+    Sept 7 "DocsisStatus.asp ToD" follow-up session log). Confirmed live:
+    three back-to-back DocsisStatus.asp fetches a few seconds apart
+    showed this field ticking forward in step with real elapsed time —
+    genuinely live, not the dead client-side JS fallback a prior session
+    ruled out (that finding was real, just about a different code path
+    than this scraper exercises — see parse_modem_current_time()).
+
+    Returns (offset_sec, note). `note` is None on the ordinary path;
+    set whenever the live reading isn't usable (field missing, or
+    implying an offset past MAX_SANE_CLOCK_OFFSET_SEC — e.g. a modem
+    that just rebooted with its clock not yet synced) and the configured
+    fallback was used instead, so that isn't silently invisible."""
+    if modem_reported_now is not None:
+        live_offset_sec = (now_dt - modem_reported_now).total_seconds()
+        if abs(live_offset_sec) <= MAX_SANE_CLOCK_OFFSET_SEC:
+            return live_offset_sec, None
+        return configured_offset_sec, (
+            f"modem's live Current System Time implies a {live_offset_sec / 3600:.1f}h clock "
+            f"offset (beyond the {MAX_SANE_CLOCK_OFFSET_SEC / 3600:.0f}h sanity bound) — "
+            f"ignored as unreliable, using configured clock_offset_sec={configured_offset_sec}s instead"
+        )
+    return configured_offset_sec, (
+        "modem's Current System Time field unavailable this poll — using configured "
+        f"clock_offset_sec={configured_offset_sec}s instead"
+    )
 
 
 def compute_recent_t3(events, window_minutes, now_dt, clock_offset_sec=0):
@@ -579,7 +645,10 @@ def main():
     timeout = float(conn.get("timeout_sec") or DEFAULT_TIMEOUT_SEC)
     password = str(creds.get("password") or "")
     window_minutes = int(evlog_cfg.get("window_minutes") or DEFAULT_WINDOW_MINUTES)
-    clock_offset_sec = int(evlog_cfg.get("clock_offset_sec") or DEFAULT_CLOCK_OFFSET_SEC)
+    # Fallback only — resolve_clock_offset_sec() prefers a live measurement
+    # against the modem's own Current System Time field every run; this
+    # configured value only matters when that field can't be read.
+    configured_clock_offset_sec = int(evlog_cfg.get("clock_offset_sec") or DEFAULT_CLOCK_OFFSET_SEC)
     cache_ttl = int(profile.get("cache_ttl_sec") or DEFAULT_CACHE_TTL_SEC)
 
     modem_ip = base_url.split("//", 1)[-1].split("/", 1)[0].split(":", 1)[0]
@@ -625,9 +694,11 @@ def main():
     docsis = parse_docsis_status(docsis_html)
     # Local host time, naive — matches the timezone convention observed in
     # real docsDevEvLastTime values (no tz marker, reads as local wall
-    # clock). See compute_recent_t3()'s docstring and parse_docsis_status()
-    # for why the modem's own #Current_systemtime isn't used here instead.
+    # clock).
     now_dt = datetime.now()
+    clock_offset_sec, offset_note = resolve_clock_offset_sec(
+        docsis.get("modem_reported_now"), now_dt, configured_clock_offset_sec
+    )
 
     events, evlog_note = parse_event_log(eventlog_html)
     recent_t3, window_note = compute_recent_t3(events, window_minutes, now_dt, clock_offset_sec)
@@ -635,6 +706,8 @@ def main():
     notes = list(docsis.get("notes") or [])
     if evlog_note:
         notes.append(evlog_note)
+    if offset_note:
+        notes.append(offset_note)
     if window_note:
         notes.append(window_note)
     if perm_warning:

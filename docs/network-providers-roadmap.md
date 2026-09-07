@@ -1056,6 +1056,68 @@ that over. That one observation was the missing piece.
   out-of-window diagnostic note from the session above remain shipped and worthwhile
   regardless, but neither was the actual mechanism here.
 
+### Session Log — Sept 7, 2026 (Follow-up #2: Self-Calibrating Clock Offset via DocsisStatus.asp)
+
+The static `clock_offset_sec = 3600` fix above worked but had a known, flagged weak point: it
+would need hand-revisiting when DST ends (~Nov 2026) or it'd start running the wrong direction.
+The user asked whether `DocsisStatus.asp`'s own reported time (sourced from the CMTS via
+DOCSIS ToD) could replace it. Investigated and implemented — it works, and removes the
+maintenance trap entirely.
+
+- **The field the Aug 18/19, 2026 session ruled out (`#Current_systemtime`) turned out to be
+  usable after all — that session answered a different question than the one that matters
+  here.** Re-reading `DocsisStatus.asp`'s own JS: `InitTagValue()` genuinely does contain a
+  hardcoded dummy string ending in `"Mon Jun 11 15:30:50 2012"` — that part of the Aug 18/19
+  finding was correct, confirmed again this session by reading the same JS source. But that
+  function only runs in an actual **browser** — `fetch_modem.py` uses `requests`, which never
+  executes JS and only ever sees the **server-rendered HTML as returned**, and that raw HTML
+  already contains a live, real value in the `#Current_systemtime` element *before* the dead
+  JS would ever touch it. Confirmed genuinely live, not another dummy: three back-to-back
+  authenticated fetches a few seconds apart returned `"Mon Sep 07 09:12:22 2026"`,
+  `"...09:12:25..."`, `"...09:12:29..."` — ticking forward in step with real elapsed time
+  between requests. The earlier "dead" conclusion wasn't wrong, it just never distinguished
+  "what a browser's JS produces" from "what a plain HTTP GET returns," which are different
+  things on this page.
+- **Same clock, same skew, measured directly instead of inferred.** Comparing that live field
+  against host time at the same three fetches: `10:12:19` vs `09:12:22` (59m57s), `10:12:23`
+  vs `09:12:25` (59m58s), `10:12:26` vs `09:12:29` (59m57s) — a precise, direct, near-exactly-
+  60-minute offset, tighter and more confident than the 63-67-minute band inferred indirectly
+  from event freshness in the session above (that band's few extra minutes were just ordinary
+  "time since the last real event within an active-but-not-continuous burst" slop; this field
+  removes that slop entirely by measuring the clock itself, not a proxy for it).
+- **Fix, `providers/modem/fetch_modem.py`:**
+  - `parse_modem_current_time(soup)` — new function, extracts and parses `#Current_systemtime`
+    (format `"%a %b %d %H:%M:%S %Y"`, e.g. `"Mon Sep 07 09:11:33 2026"`). `parse_docsis_status()`
+    now returns it as `modem_reported_now`.
+  - `resolve_clock_offset_sec(modem_reported_now, now_dt, configured_offset_sec)` — new
+    function. Computes `now_dt - modem_reported_now` as the live offset and uses it whenever
+    it's available and within a sanity bound (`MAX_SANE_CLOCK_OFFSET_SEC`, 6h — guards against
+    e.g. a modem whose clock hasn't synced since a reboot reporting something like 1970).
+    Falls back to the configured `[eventlog].clock_offset_sec` only when the live field is
+    missing or fails that bound, surfacing a `note` either way so a broken live reading isn't
+    silently invisible.
+  - `main()` calls this right after `now_dt` is captured and feeds the *resolved* offset into
+    `compute_recent_t3()`, in place of the raw configured value from the fix above.
+  - `[eventlog].clock_offset_sec` in both TOML files is **not removed** — repurposed as a
+    documented fallback-only value (still `3600` for this deployment, since it's a reasonable
+    best-effort guess if the live path ever breaks), with the "revisit at DST" caveat dropped
+    from its comment since it no longer drives day-to-day behavior.
+- **Verified live, in production, twice:** re-ran `fetch_modem.sh local` against the real,
+  still-ongoing burst (the same one from the session above, which had continued flapping in
+  the meantime) — `recent_t3_timeouts: 12`, `note: ""` (no fallback triggered, live path used
+  cleanly). This is the actual shipped code path, not a replay.
+- **New regression cases**, `providers/modem/test_fetch_modem_regressions.py` — now includes
+  `testdata_docsis_status_live_capture.html`, a real authenticated `DocsisStatus.asp` response
+  saved as a fixture (not synthesized), plus 5 new cases: the field parses correctly from that
+  real capture; `resolve_clock_offset_sec()` prefers the live measurement and reproduces the
+  same ~60-minute offset found above; falls back with a note when the field's missing; rejects
+  an insane live reading (1970 test case) and falls back; and an end-to-end case deriving the
+  offset from the real capture with no static config at all and confirming it still correctly
+  counts the real burst from the earlier fix. 14 cases total in the file now.
+- **Bottom line:** the maintenance trap flagged in the session above — remembering to revisit
+  `clock_offset_sec` when DST ends — is closed. The modem's own clock is now measured fresh
+  every poll instead of assumed from a dated config value.
+
 ### Open Items
 
 - Sampling interval and packet count per cycle not yet tuned — needs to be frequent enough

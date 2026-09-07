@@ -1,0 +1,569 @@
+<!DOCTYPE HTML>
+<html>
+    <head>
+        <META name="description" content='CM1000'>
+        <META http-equiv="Content-Type" content="text/html; charset=utf-8">
+        <META http-equiv="Content-Style-Type" content="text/css">
+        <META http-equiv="Pragma" content="no-cache">
+        <META HTTP-equiv="Cache-Control" content="no-cache">
+        <META HTTP-EQUIV="Expires" CONTENT="Mon, 06 Jan 1990 00:00:01 GMT">
+        <title>NETGEAR Modem CM1000</title>
+        <link rel="stylesheet" href="css/table.css">
+        <link rel="stylesheet" href="css/scrollbar.css">
+        <link rel="stylesheet" href="css/button.css">
+        <script src="script/jquery.js"></script>
+        <script src="script/jquery.mousewheel.js"></script>
+        <script type="text/javascript" src="script/jquery.jscrollpane.min.js"></script>
+        <script src="script/script.js"></script>
+        <link rel="stylesheet" href="css/form.css">
+        <STYLE TYPE="text/javascript">
+            classes.num.all.fontFamily = "Courier";
+            classes.num.all.fontSize = "10pt" ;
+        </style>
+        <script language="javascript" type="text/javascript" src="script/func.js"></script>
+        <script language="javascript" type="text/javascript" src="script/msg.js"></script>
+        <script language="javascript" type="text/javascript" src="script/utility.js"></script>
+        <script language="javascript" type="text/javascript" src="script/browser.js"></script>
+        <script language="javascript" type="text/javascript" src="script/md5.js"></script>
+        <script language="javascript" type="text/javascript" src="script/wep.js"></script>
+        <script language="javascript" type="text/javascript">
+            var isInited = 0;
+
+            $(document).ready(function()
+            {
+                // $('.scroll-pane').jScrollPane('scrollbarMargin:5px');
+                $("#target").submit(function()
+                {
+                    buttonFilter();
+                });
+            });
+
+            function setHelpIframeVisible()
+            {
+                $('.help-frame-div').css("visibility","visible");
+            }
+
+            function showHelpIframe()
+            {
+                var imgSrc=document.getElementById('help-button');
+
+                if (imgSrc.src.search("up")>=0)
+                {
+                    $(".help-frame-div").show();
+                    window.frames["helpframe"].$('#content').jScrollPane({showArrows:true});
+                    imgSrc.src="img/helparrowdown-icon.gif";
+                }
+                else
+                {
+                    $(".help-frame-div").hide();
+                    imgSrc.src="img/helparrowup-icon.gif";
+                    setTimeout(setHelpIframeVisible,500);
+                }
+                if ((navigator.appName.indexOf("Internet Explorer")==-1) ||
+                    (navigator.appVersion.indexOf("MSIE 9")==-1))
+                    change_size();
+            }
+
+            function moveToHTMLend()
+            {
+                window.location.href='#helpframe-anchor';
+                setHelpIframeVisible();
+            }
+
+            function loadhelp(fname,anchname)
+            {
+                var pane = window.frames["helpframe"].$('#content');
+                var imgSrc=document.getElementById('help-button');
+                if (imgSrc.src.search("up")<0)
+                {
+                    $(".help-frame-div").show();
+                    pane.jScrollPane({showArrows:true});
+
+                    if ((loadhelp.arguments.length == 1 ) || (anchname == "" ))
+                    {
+                        window.frames["helpframe"].location.href=fname+"_h.htm";
+                        $(".help-frame-div").show();
+                    }
+                    else
+                    {
+                        window.frames["helpframe"].location.href=fname+"_h.htm#" + anchname;
+                        $(".help-frame-div").show();
+                    }
+
+                    $(".help-frame-div").show();
+                    pane.jScrollPane({showArrows:true});
+                }
+            }
+
+            /*
+            function loadhelp(fname,anchname)
+            {
+                top.helpframe.location.href=fname+"_"+anchname+".html";
+            }
+            */
+
+            function InitTagValue()
+            {
+                /*
+                  Acquire Downstream Channel (text) | Acquire Downstream Channel Comment (text) |
+                  Connectivity State (text) | Connectivity State Comment (text) |
+                  Boot State (text) | Boot State Comment (text) |
+                  Configuration File (text) | Configuration File Comment (text) |
+                  Security (text) | Security Comment (text) |
+                  Current System Time (text)
+                */
+                //var tagValueList = "0|In Progress|In Progress|Not Synchronized|In Progress|Unknown|In Progress|Unknown|Disabled|Disabled|--- --- -- --:--:-- ----";
+                //var tagValueList = "399|Done|Done|Synchronized|Done|Unknown|In Progress|Unknown|Disabled|Disabled|123 456 78 90:12:34 5678";
+                var tagValueList = '453000000|Locked|OK|Operational|OK|Operational|OK|CM.cfg|Disabled|Disabled|Mon Jun 11 15:30:50 2012|0|';
+
+                return tagValueList.split("|");
+            }
+
+            function InitUpdateView(tagValues)
+            {
+                document.getElementById("AcquireDsChanelStatus").innerHTML = tagValues[0] + " Hz";
+                document.getElementById("AcquireDsChanelComment").innerHTML = tagValues[1];
+                document.getElementById("ConnectivityStateStatus").innerHTML = tagValues[2];
+                document.getElementById("ConnectivityStateComment").innerHTML = tagValues[3];
+                document.getElementById("BootStateStatus").innerHTML = tagValues[4];
+                document.getElementById("BootStateComment").innerHTML = tagValues[5];
+                document.getElementById("ConfigurationFileStatus").innerHTML = tagValues[6];
+                document.getElementById("ConfigurationFileComment").innerHTML = tagValues[7];
+                document.getElementById("SecurityStatus").innerHTML = tagValues[8];
+                document.getElementById("SecurityComment").innerHTML = tagValues[9];
+                document.getElementById("Current_systemtime").innerHTML = '<font face="Helvetica" size="2"><b>Current System Time: </b>' + tagValues[10] + '</font>';
+                $("#Startupfreq").val(tagValues[11]);   //20120525 jeffery implement goto freq
+            }
+
+            function InitUsTableTagValue()
+            {
+                /*
+                  Channel (text) | Lock Status (text) | US Channel Type (text) | Channel ID (text) | Symbol Rate (text) | Frequency (text) | Power (text)
+                */
+                /*
+                    var tagValueList = "4" +
+                        "|1|Not Locked|Unknown|0|0|0|0.0" +
+                        "|2|Not Locked|Unknown|0|0|0|0.0" +
+                        "|3|Not Locked|Unknown|0|0|0|0.0" +
+                        "|4|Not Locked|Unknown|0|0|0|0.0";
+                */
+                var tagValueList = '4|1|Locked|TDMA|1|2560|33000000 Hz|34.8|2|Not Locked|Unknown|0|0|0 Hz|0.0|3|Not Locked|Unknown|0|0|0 Hz|0.0|4|Not Locked|Unknown|0|0|0 Hz|0.0';
+
+                return tagValueList.split("|");
+            }
+
+            function onAddUsRowCB(newRow, rowId, firstCellIdx, tags)
+            {
+                var cellsArray = new Array();
+
+                cellsArray [0] = tags[firstCellIdx + 0];
+                cellsArray [1] = tags[firstCellIdx + 1];
+                cellsArray [2] = tags[firstCellIdx + 2];
+                cellsArray [3] = tags[firstCellIdx + 3];
+                cellsArray [4] = tags[firstCellIdx + 4] + " Ksym/sec";
+                cellsArray [5] = tags[firstCellIdx + 5];
+                cellsArray [6] = tags[firstCellIdx + 6] + " dBmV";
+
+                return cellsArray;
+            }
+
+            function InitDsTableTagValue()
+            {
+                /*
+                  Channel (text) | Lock Status (text) | Modulation (text) | Channel ID (text) | Frequency (text) | Power (text) | SNR (text)
+                */
+                /*
+                    var tagValueList = "8" +
+                        "|1|Locked|Unknown|0|809500000|-61.6|0.0" +
+                        "|2|Not Locked|Unknown|0|0|0.0|0.0" +
+                        "|3|Not Locked|Unknown|0|0|0.0|0.0" +
+                        "|4|Not Locked|Unknown|0|0|0.0|0.0" +
+                        "|5|Not Locked|Unknown|0|0|0.0|0.0" +
+                        "|6|Not Locked|Unknown|0|0|0.0|0.0" +
+                        "|7|Not Locked|Unknown|0|0|0.0|0.0" +
+                        "|8|Not Locked|Unknown|0|0|0.0|0.0";
+                */
+                var tagValueList = '8|1|Locked|QAM64|143|453000000 Hz|-2.5|48.5|2|Not Locked|Unknown|0|0 Hz|0.0|0.0|3|Not Locked|Unknown|0|0 Hz|0.0|0.0|4|Not Locked|Unknown|0|0 Hz|0.0|0.0|5|Not Locked|Unknown|0|0 Hz|0.0|0.0|6|Not Locked|Unknown|0|0 Hz|0.0|0.0|7|Not Locked|Unknown|0|0 Hz|0.0|0.0|8|Not Locked|Unknown|0|0 Hz|0.0|0.0';
+
+                return tagValueList.split("|");
+            }
+
+            function onAddDsRowCB(newRow, rowId, firstCellIdx, tags)
+            {
+                var cellsArray = new Array();
+
+                cellsArray [0] = tags[firstCellIdx + 0];
+                cellsArray [1] = tags[firstCellIdx + 1];
+                cellsArray [2] = tags[firstCellIdx + 2];
+                cellsArray [3] = tags[firstCellIdx + 3];
+                cellsArray [4] = tags[firstCellIdx + 4];
+                cellsArray [5] = tags[firstCellIdx + 5] + " dBmV";
+                cellsArray [6] = tags[firstCellIdx + 6] + " dB";
+
+                return cellsArray;
+            }
+
+            function InitUsTableUpdateView(tagValues)
+            {
+                /* draw table and insert content value */
+                drawTable('usTable', tagValues, onAddUsRowCB);
+            }
+
+            function InitDsTableUpdateView(tagValues)
+            {
+                /* draw table and insert content value */
+                drawTable('dsTable', tagValues, onAddDsRowCB);
+            }
+
+            function BodyInit()
+            {
+                InitUpdateView(InitTagValue());
+                InitUsTableUpdateView(InitUsTableTagValue());
+                InitDsTableUpdateView(InitDsTableTagValue());
+            }
+
+            // Implement goto freq
+            function checkData()
+            {
+                var cf = document.forms[0];
+                var txt,i,c;
+
+                if (cf.Startupfreq.value == "")
+                {
+                    alert("This value cannot be blank.");
+                    return false;
+                }
+                txt = cf.Startupfreq.value;
+                for (i=0;i<txt.length;i++)
+                {
+                    c=txt.charAt(i);
+                    if ("0123456789".indexOf(c,0)<0)
+                    {
+                        alert("This value is invalid!");
+                        return false;
+                    }
+                }
+                if (parseInt(cf.Startupfreq.value,10) < 88000000 || parseInt(cf.Startupfreq.value,10) > 859000000)
+                {
+                    alert("This value is invalid! Should be 88000000-859000000.");
+                    return false;
+                }
+                else
+                {
+                    return true;
+                }
+            }
+        </script>
+        <style type="text/css">
+            .style1 {
+            text-align: left;
+            }
+        </style>
+    </head>
+    <!-- Remove loadhelp -->
+    <!--
+    <body onload='BodyInit();loadhelp("help","Connect");' style="margin:0px;background-color:#e5e5e5">
+    -->
+    <body  class="page-body" onLoad="change_size();" onResize="change_size();">
+        <img class="body-image" src="img/subhead2-background.jpg">
+        <img class="cover-image" src="img/cover-image.gif">
+        <div id="full-page-container">
+            <img class="subtop-image" src="img/subhead2-top.gif">
+            <div class="subhead2">Cable Connection</div>
+            <table border="0" style="height:370px" class="subhead2-table">
+                <tr>
+                    <td class="scrollpane-table-seperate-border" colspan="2">
+                        <div class="scroll-pane" style="height:410px;width:620px;overflow:auto;scrolling:auto">
+                            <table style="border-collapse:collapse;width:97%">
+                                <tr>
+                                    <td colspan="2">
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td colspan="2" height="12" >
+                                        <div style="background-image:url('img/liteblue.gif');width:100%">&nbsp;</div>
+                                    </td>
+                                </tr>
+                                <!-- Implement goto freq -->
+                                <form id="target" name="gotodsfreq" method="POST" action="/goform/DocsisStatus">
+                                    <tr>
+                                        <td>
+                                            <center>
+                                                <button id="apply" value="Apply"  type="SUBMIT" onClick="buttonClick(this,'Apply'); return checkData();"  name="Apply" class="button-apply" > <span class="roundleft_apply" >Apply&nbsp;<span class="apply-icon">&nbsp;&nbsp;&nbsp;&nbsp;</span></span><span class="roundright_apply">&nbsp;&nbsp;&nbsp;</span></button>
+                                                <button id="cancel" value="Cancel" onClick="buttonClick(this,'Cancel');window.location.reload(true);" type="BUTTON" name="Cancel" class="button-rule" ><span class="roundleft_button"><span class ="cancel-icon">&nbsp;&nbsp;&nbsp;&nbsp;Cancel</span></span><span class="roundright_button">&nbsp;&nbsp;&nbsp;&nbsp;</span></button>
+                                            </center>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td><b> Frequency start Value </b></td>
+                                    </tr>
+                                    <tr>
+                                        <td>This field below allows you to modify the frequency the cable modem start with its scan during initialization and registration.                 Enter the new start frequency and restart the cable modem for it to take effect.     </td>
+                                    </tr>
+                                    <input type="hidden" name="buttonHit"><input type="hidden" name="buttonValue">
+                                    <tr>
+                                        <td>
+                                            <table border ="1" cellpadding ="2" cellspacing ="0" class="TableStyle">
+                                                <tr>
+                                                    <td><b>Starting Frequency</b></td>
+                                                    <td><input id="start_freq" type="text" name="Startupfreq" size="10" maxlength="9" id="Startupfreq" value="483000000"></td>
+                                                </tr>
+                                            </table>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <hr size="2" color="#0099cc">
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td colspan="2"><b><tabindex=-1>Startup Procedure</tabindex=-1></b></td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <table id="startup_procedure_table" name="Startup_Procedure" border="1" cellpadding="2" cellspacing="0" class="TableStyle">
+                                                <tr>
+                                                    <td><span class="thead"><b>Procedure</b></span></td>
+                                                    <td><span class="thead"><b>Status</b></span></td>
+                                                    <td><span class="thead"><b>Comment</b></span></td>
+                                                </tr>
+                                                <tr>
+                                                    <td class="style1">Acquire Downstream Channel</td>
+                                                    <td>483000000 Hz</td>
+                                                    <td>Locked</td>
+                                                </tr>
+                                                <tr>
+                                                    <td class="style1">Connectivity State</td>
+                                                    <td>OK</td>
+                                                    <td>Operational</td>
+                                                </tr>
+                                                <tr>
+                                                    <td class="style1">Boot State</td>
+                                                    <td>OK</td>
+                                                    <td>Operational</td>
+                                                </tr>
+                                                <tr style="display:none"><!-- Hidden config file field -->
+                                                    <td class="style1">Configuration File</td>
+                                                    <td>OK</td>
+                                                    <td>d11_m_cm1000_biperformance_c05.cm</td>
+                                                </tr>
+                                                <tr>
+                                                    <td class="style1">Security</td>
+                                                    <td>Enable</td>
+                                                    <td>BPI+</td>
+                                                </tr>
+                                                <tr>
+                                                    <td class="style1">IP Provisioning Mode</td>
+                                                    <td>Honor MDD</td>
+                                                    <td>IPv6 only</td>
+                                                </tr>
+                                            </table>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <hr size="2" color="#0099cc">
+                                        </td>
+                                    </tr>
+                                        <tr><td><b><tabindex=-1>Downstream Bonded Channels</tabindex=-1></b></td></tr>
+    <tr><td>
+       <div class="in-frame-table">
+       <table border="1" cellpadding="2" cellspacing="0" id="dsTable" class="TableStyle">
+         <tr>
+           <td><span class="thead">Channel</span></td>
+           <td><span class="thead">Lock Status</span></td>
+           <td><span class="thead">Modulation</span></td>
+           <td><span class="thead">Channel ID</span></td>
+           <td><span class="thead">Frequency</span></td>
+           <td><span class="thead">Power</span></td>
+           <td><span class="thead">SNR / MER</span></td>
+           <td><span class="thead">Unerrored Codewords</span></td>
+           <td><span class="thead">Correctable Codewords</span></td>
+           <td><span class="thead">Uncorrectable Codewords</span></td>
+           </tr>
+    <tr><td>1</td><td>Locked</td><td>QAM256</td><td>20</td><td>483000000 Hz</td><td> 3.6 dBmV</td><td>40.3 dB</td><td>1431840091</td><td>753280</td><td>296510</td></tr>
+    <tr><td>2</td><td>Locked</td><td>QAM256</td><td>1</td><td>369000000 Hz</td><td> 4.7 dBmV</td><td>41.0 dB</td><td>1438367278</td><td>531809</td><td>538159</td></tr>
+    <tr><td>3</td><td>Locked</td><td>QAM256</td><td>2</td><td>375000000 Hz</td><td> 4.8 dBmV</td><td>41.0 dB</td><td>1530937455</td><td>500918</td><td>278409</td></tr>
+    <tr><td>4</td><td>Locked</td><td>QAM256</td><td>3</td><td>381000000 Hz</td><td> 4.8 dBmV</td><td>41.1 dB</td><td>1531428024</td><td>501091</td><td>281562</td></tr>
+    <tr><td>5</td><td>Locked</td><td>QAM256</td><td>4</td><td>387000000 Hz</td><td> 4.8 dBmV</td><td>40.9 dB</td><td>1530956861</td><td>501574</td><td>280900</td></tr>
+    <tr><td>6</td><td>Locked</td><td>QAM256</td><td>5</td><td>393000000 Hz</td><td> 4.7 dBmV</td><td>40.8 dB</td><td>1530945211</td><td>501727</td><td>283651</td></tr>
+    <tr><td>7</td><td>Locked</td><td>QAM256</td><td>6</td><td>399000000 Hz</td><td> 4.7 dBmV</td><td>41.0 dB</td><td>1530966498</td><td>502607</td><td>285057</td></tr>
+    <tr><td>8</td><td>Locked</td><td>QAM256</td><td>7</td><td>405000000 Hz</td><td> 4.8 dBmV</td><td>40.9 dB</td><td>1530946379</td><td>502992</td><td>286365</td></tr>
+    <tr><td>9</td><td>Locked</td><td>QAM256</td><td>8</td><td>411000000 Hz</td><td> 4.7 dBmV</td><td>40.5 dB</td><td>1530947692</td><td>501364</td><td>285511</td></tr>
+    <tr><td>10</td><td>Locked</td><td>QAM256</td><td>9</td><td>417000000 Hz</td><td> 4.6 dBmV</td><td>40.8 dB</td><td>1505698694</td><td>56099</td><td>99501</td></tr>
+    <tr><td>11</td><td>Locked</td><td>QAM256</td><td>10</td><td>423000000 Hz</td><td> 4.5 dBmV</td><td>40.9 dB</td><td>1505189808</td><td>55169</td><td>91832</td></tr>
+    <tr><td>12</td><td>Locked</td><td>QAM256</td><td>11</td><td>429000000 Hz</td><td> 4.5 dBmV</td><td>40.9 dB</td><td>1505206570</td><td>55502</td><td>94569</td></tr>
+    <tr><td>13</td><td>Locked</td><td>QAM256</td><td>12</td><td>435000000 Hz</td><td> 4.4 dBmV</td><td>40.8 dB</td><td>1505733340</td><td>55859</td><td>95993</td></tr>
+    <tr><td>14</td><td>Locked</td><td>QAM256</td><td>13</td><td>441000000 Hz</td><td> 4.3 dBmV</td><td>40.8 dB</td><td>1505682524</td><td>58616</td><td>107852</td></tr>
+    <tr><td>15</td><td>Locked</td><td>QAM256</td><td>14</td><td>447000000 Hz</td><td> 4.2 dBmV</td><td>40.7 dB</td><td>1505204401</td><td>55060</td><td>90416</td></tr>
+    <tr><td>16</td><td>Locked</td><td>QAM256</td><td>15</td><td>453000000 Hz</td><td> 4.1 dBmV</td><td>40.6 dB</td><td>1505214092</td><td>55365</td><td>93708</td></tr>
+    <tr><td>17</td><td>Locked</td><td>QAM256</td><td>16</td><td>459000000 Hz</td><td> 4.0 dBmV</td><td>40.5 dB</td><td>1505216869</td><td>56510</td><td>98541</td></tr>
+    <tr><td>18</td><td>Locked</td><td>QAM256</td><td>17</td><td>465000000 Hz</td><td> 3.9 dBmV</td><td>40.6 dB</td><td>1505222604</td><td>55603</td><td>95530</td></tr>
+    <tr><td>19</td><td>Locked</td><td>QAM256</td><td>18</td><td>471000000 Hz</td><td> 3.7 dBmV</td><td>40.4 dB</td><td>1505246794</td><td>55899</td><td>97917</td></tr>
+    <tr><td>20</td><td>Locked</td><td>QAM256</td><td>19</td><td>477000000 Hz</td><td> 3.6 dBmV</td><td>40.4 dB</td><td>1505225749</td><td>56821</td><td>104114</td></tr>
+    <tr><td>21</td><td>Locked</td><td>QAM256</td><td>21</td><td>489000000 Hz</td><td> 3.5 dBmV</td><td>40.4 dB</td><td>1505229354</td><td>55654</td><td>96357</td></tr>
+    <tr><td>22</td><td>Locked</td><td>QAM256</td><td>22</td><td>495000000 Hz</td><td> 3.4 dBmV</td><td>40.3 dB</td><td>1265814683</td><td>139840</td><td>717048</td></tr>
+    <tr><td>23</td><td>Locked</td><td>QAM256</td><td>23</td><td>501000000 Hz</td><td> 3.3 dBmV</td><td>40.4 dB</td><td>1286764604</td><td>147940</td><td>726290</td></tr>
+    <tr><td>24</td><td>Locked</td><td>QAM256</td><td>24</td><td>507000000 Hz</td><td> 3.3 dBmV</td><td>40.3 dB</td><td>1286787320</td><td>132132</td><td>642696</td></tr>
+    <tr><td>25</td><td>Locked</td><td>QAM256</td><td>25</td><td>513000000 Hz</td><td> 3.3 dBmV</td><td>40.3 dB</td><td>1286781051</td><td>133509</td><td>614348</td></tr>
+    <tr><td>26</td><td>Locked</td><td>QAM256</td><td>26</td><td>519000000 Hz</td><td> 3.2 dBmV</td><td>40.2 dB</td><td>1286765646</td><td>129146</td><td>606609</td></tr>
+    <tr><td>27</td><td>Locked</td><td>QAM256</td><td>27</td><td>525000000 Hz</td><td> 3.1 dBmV</td><td>40.3 dB</td><td>1286778499</td><td>136704</td><td>642503</td></tr>
+    <tr><td>28</td><td>Locked</td><td>QAM256</td><td>28</td><td>531000000 Hz</td><td> 3.1 dBmV</td><td>40.2 dB</td><td>1286764153</td><td>140644</td><td>689097</td></tr>
+    <tr><td>29</td><td>Locked</td><td>QAM256</td><td>29</td><td>537000000 Hz</td><td> 3.2 dBmV</td><td>40.3 dB</td><td>1283420376</td><td>122705</td><td>600808</td></tr>
+    <tr><td>30</td><td>Locked</td><td>QAM256</td><td>30</td><td>543000000 Hz</td><td> 3.0 dBmV</td><td>40.1 dB</td><td>1286747325</td><td>123450</td><td>608807</td></tr>
+    <tr><td>31</td><td>Locked</td><td>QAM256</td><td>31</td><td>549000000 Hz</td><td> 2.9 dBmV</td><td>40.0 dB</td><td>1286732817</td><td>126825</td><td>629255</td></tr>
+    <tr><td>32</td><td>Locked</td><td>QAM256</td><td>32</td><td>555000000 Hz</td><td> 3.0 dBmV</td><td>40.0 dB</td><td>1288580579</td><td>131079</td><td>654342</td></tr>
+   </table>
+</div>
+                                    <!--
+                                        <tr><td>1</td><td>Locked</td><td>unknown</td><td>0</td><td>809500000 Hz</td><td>-61.6 dBmV</td><td> 0.0 dB</td></tr>
+                                        <tr><td>2</td><td>Not Locked</td><td>Unknown</td><td>0</td><td>0 Hz</td><td> 0.0 dBmV</td><td> 0.0 dB</td></tr>
+                                        <tr><td>3</td><td>Not Locked</td><td>Unknown</td><td>0</td><td>0 Hz</td><td> 0.0 dBmV</td><td> 0.0 dB</td></tr>
+                                        <tr><td>4</td><td>Not Locked</td><td>Unknown</td><td>0</td><td>0 Hz</td><td> 0.0 dBmV</td><td> 0.0 dB</td></tr>
+                                        <tr><td>5</td><td>Not Locked</td><td>Unknown</td><td>0</td><td>0 Hz</td><td> 0.0 dBmV</td><td> 0.0 dB</td></tr>
+                                        <tr><td>6</td><td>Not Locked</td><td>Unknown</td><td>0</td><td>0 Hz</td><td> 0.0 dBmV</td><td> 0.0 dB</td></tr>
+                                        <tr><td>7</td><td>Not Locked</td><td>Unknown</td><td>0</td><td>0 Hz</td><td> 0.0 dBmV</td><td> 0.0 dB</td></tr>
+                                        <tr><td>8</td><td>Not Locked</td><td>Unknown</td><td>0</td><td>0 Hz</td><td> 0.0 dBmV</td><td> 0.0 dB</td></tr>
+                                        -->
+                                    <!--
+                                        <table border>
+                                         <tr><td colspan="4"><b>Downstream Channel 0</b></td></tr>
+                                         <tr><td>Lock Status</td><td>In Progress</td><td>Modulation</td><td>Unknown</td></tr>
+                                         <tr><td>Channel ID</td><td>0</td><td>Symbol rate</td><td>0 sym/sec</td></tr>
+                                         <tr><td>Downstream Frequency</td><td>0 Hz</td><td>Downstream Power</td><td>0 dBmV</td></tr>
+                                         <tr><td>SNR</td><td>0 dBmV</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+                                        </table>
+                                        -->
+                                    </td></tr>
+                                    <tr>
+                                        <td>
+                                            <hr size="2" color="#0099cc">
+                                        </td>
+                                    </tr>
+                                        <tr><td><b><tabindex=-1>Upstream Bonded Channels</tabindex=-1></b></td></tr>
+     <tr><td>
+       <div class="in-frame-table">
+       <table border ="1" cellpadding ="2" cellspacing ="0" class="TableStyle" id="usTable">
+        <tr>
+           <td><span class="thead">Channel</span></td>
+           <td><span class="thead">Lock Status</span></td>
+           <td><span class="thead">Modulation</span></td>
+           <td><span class="thead">Channel ID</span></td>
+           <td><span class="thead">Frequency</span></td>
+           <td><span class="thead">Power</span></td>
+        </tr>
+    <tr><td>1</td><td>Locked</td><td>ATDMA</td><td>17</td><td>16400000 Hz</td><td>45.8 dBmV</td></tr>
+    <tr><td>2</td><td>Locked</td><td>ATDMA</td><td>18</td><td>22800000 Hz</td><td>46.0 dBmV</td></tr>
+    <tr><td>3</td><td>Locked</td><td>ATDMA</td><td>19</td><td>29200000 Hz</td><td>46.0 dBmV</td></tr>
+    <tr><td>4</td><td>Locked</td><td>ATDMA</td><td>20</td><td>35600000 Hz</td><td>46.5 dBmV</td></tr>
+    <tr><td>5</td><td>Not Locked</td><td>Unknown</td><td>0</td><td>0 Hz</td><td> 0.0 dBmV</td></tr>
+    <tr><td>6</td><td>Not Locked</td><td>Unknown</td><td>0</td><td>0 Hz</td><td> 0.0 dBmV</td></tr>
+    <tr><td>7</td><td>Not Locked</td><td>Unknown</td><td>0</td><td>0 Hz</td><td> 0.0 dBmV</td></tr>
+    <tr><td>8</td><td>Not Locked</td><td>Unknown</td><td>0</td><td>0 Hz</td><td> 0.0 dBmV</td></tr>
+   </table>
+</div>
+                                    <!--
+                                        <tr><td>1</td><td>Not Locked</td><td>Unknown</td><td>0</td><td>0 Ksym/sec</td><td>0 Hz</td><td> 0.0 dBmV</td></tr>
+                                        <tr><td>2</td><td>Not Locked</td><td>Unknown</td><td>0</td><td>0 Ksym/sec</td><td>0 Hz</td><td> 0.0 dBmV</td></tr>
+                                        <tr><td>3</td><td>Not Locked</td><td>Unknown</td><td>0</td><td>0 Ksym/sec</td><td>0 Hz</td><td> 0.0 dBmV</td></tr>
+                                        <tr><td>4</td><td>Not Locked</td><td>Unknown</td><td>0</td><td>0 Ksym/sec</td><td>0 Hz</td><td> 0.0 dBmV</td></tr>
+                                        -->
+                                    <!--
+                                        <table border>
+                                         <tr><td colspan="4"><b>Upstream Channel</b></td></tr>
+                                         <tr><td>Lock Status</td><td>Not Locked</td><td>Modulation</td><td>QPSK</td></tr>
+                                         <tr><td>Channel ID</td><td>2152232456</td><td>Symbol rate</td><td>0 Ksym/sec</td></tr>
+                                         <tr><td>Upstream Frequency</td><td>-2142734840 Hz</td><td>Upstream Power</td><td>0 dBmV</td></tr>
+                                        </table>
+                                        -->
+                                    </td></tr>
+                                    <tr>
+                                        <td>
+                                            <hr size="2" color="#0099cc">
+                                        </td>
+                                    </tr>
+                                        <tr><td><b><tabindex=-1>Downstream OFDM Channels</tabindex=-1></b></td></tr>
+    <tr><td>
+       <div class="in-frame-table">
+       <table border="1" cellpadding="2" cellspacing="0" id="d31dsTable" class="TableStyle">
+         <tr>
+           <td><span class="thead">Channel</span></td>
+           <td><span class="thead">Lock Status</span></td>
+           <td><span class="thead">Modulation / Profile ID</span></td>
+           <td><span class="thead">Channel ID</span></td>
+           <td><span class="thead">Frequency</span></td>
+           <td><span class="thead">Power</span></td>
+           <td><span class="thead">SNR / MER</span></td>
+           <td><span class="thead">Active Subcarrier Number Range</span></td>
+           <td><span class="thead">Unerrored Codewords</span></td>
+           <td><span class="thead">Correctable Codewords</span></td>
+           <td><span class="thead">Uncorrectable Codewords</span></td>
+           </tr>
+<tr><td>1</td><td>Locked</td><td>0, 1, 2, 3</td><td>193</td><td>690000000 Hz</td><td> 2.9 dBmV</td><td>36.3 dB</td><td>268 ~ 3827</td><td>10361667060</td><td>6659280144</td><td>9342623</td></tr>
+<tr><td>2</td><td>Locked</td><td>0, 1, 2, 3</td><td>194</td><td>957000000 Hz</td><td> 0.5 dBmV</td><td>36.3 dB</td><td>148 ~ 3947</td><td>12571415148</td><td>6861970585</td><td>29847</td></tr>
+</table>
+</div>
+                                    </td></tr>
+                                    <tr>
+                                        <td>
+                                            <hr size="2" color="#0099cc">
+                                        </td>
+                                    </tr>
+                                        <tr><td><b><tabindex=-1>Upstream OFDMA Channels</tabindex=-1></b></td></tr>
+    <tr><td>
+       <div class="in-frame-table">
+       <table border="1" cellpadding="2" cellspacing="0" id="d31usTable" class="TableStyle">
+         <tr>
+           <td><span class="thead">Channel</span></td>
+           <td><span class="thead">Lock Status</span></td>
+           <td><span class="thead">Modulation / Profile ID</span></td>
+           <td><span class="thead">Channel ID</span></td>
+           <td><span class="thead">Frequency</span></td>
+           <td><span class="thead">Power</span></td>
+           </tr>
+<tr><td>1</td><td>Not Locked</td><td>Unknown</td><td>0</td><td>0 Hz</td><td>0 dBmV</td></tr>
+<tr><td>2</td><td>Not Locked</td><td>Unknown</td><td>0</td><td>0 Hz</td><td>0 dBmV</td></tr>
+</table>
+</div>
+                                    </td></tr>
+                                    <tr>
+                                        <td>
+                                            <hr size="2" color="#0099cc">
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td id="Current_systemtime" name="CurrentSystemTime"><font face="Helvetica" size="2"><b>Current System Time:&nbsp;</b>Mon Sep 07 09:11:33 2026
+</font><br></td>
+                                    </tr>
+                                    <tr>
+                                        <td id="SystemUpTime" name="SystemUpTime"><font face="Helvetica" size="2"><b>System Up Time:&nbsp;</b>167:28:28</font><br></td>
+                                    </tr>
+                            </table>
+                        </div>
+                    </td>
+                </tr>
+                <tr valign="middle" align="center"><td class="table-seperate-border" colspan="2" style="padding-left:0px"><div class="help-frame-div" > <iframe  src="DocsisStatus_h.htm" class="help-iframe" scrolling="no" name="helpframe" frameborder="0" onload="showHelpIframe();"></iframe> </div> </td> </tr>
+            </table>
+            <img class="subfooter-image" src="img/subhead2-bottom.gif">
+            <div class="subhead2-bottom" >
+            <span style="float:left;padding-left:10px;padding-top:5px"><img src="img/help-icon.gif" onmouseover="changeCursorPointer();" onclick="showHelpIframe();" onmouseout="changeCursorDefault();"></span>
+            <span class="subhead2-text" style="float:left;padding-left:3px;" onclick="showHelpIframe();" onmouseover="changeCursorPointer();" onmouseout="changeCursorDefault();"> Help Center </span>
+            <span class="button-help-arrow">
+            <img src="img/helparrowdown-icon.gif" id="help-button" onclick="showHelpIframe();" onmouseover="changeCursorPointer();" onmouseout="changeCursorDefault();" ></span>
+            <span class="subhead2-text" style="text-decoration:underline;float:right;padding-right:10px" onclick="showHelpIframe();" onmouseover="changeCursorPointer();" onmouseout="changeCursorDefault();"> Show/Hide Help Center </span>
+            </div>
+            <input type="hidden" name="RetailSessionId" value="">
+            <input type="hidden" name="webToken" value=1132116492 />
+            <a name="helpframe-anchor"></a>
+            </form>
+        </div>
+    </body>
+    <head>
+        <META name="description" content='CM1000'>
+        <META http-equiv="Content-Type" content="text/html; charset=utf-8">
+        <META http-equiv="Content-Style-Type" content="text/css">
+        <META http-equiv="Pragma" content="no-cache">
+        <META HTTP-equiv="Cache-Control" content="no-cache">
+        <META HTTP-EQUIV="Expires" CONTENT="Mon, 06 Jan 1990 00:00:01 GMT">
+    </head>
+</html>
