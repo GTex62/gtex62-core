@@ -3,7 +3,8 @@
 # Core alert-banner watcher. Not an SSH provider — no gate, no remote target.
 # Reads other providers' already-written cache files (status.json, pihole.json,
 # ap_status.json, ap_clients.json under shared/pfsense/{profile}/, vpn.json
-# under shared/vpn/{vpn_profile}/), applies threshold/duration logic from
+# under shared/vpn/{vpn_profile}/, status.json under shared/modem/{modem_profile}/),
+# applies threshold/duration logic from
 # core.toml's [alerts] section, and writes one
 # shared, severity-sorted, parent/child-grouped alert queue that SitRep (and
 # any other consumer) can render without re-deriving anything.
@@ -28,6 +29,11 @@ MTR_PROFILE_ID="${2:-pi5}"
 # shared/vpn/{vpn_profile}/vpn.json, written by providers/vpn/fetch_vpn.sh.
 # Default "local" matches fetch_vpn.sh's and the launcher's own default.
 VPN_PROFILE_ID="${3:-local}"
+# MODEM_PROFILE_ID: cross-domain read only, same shape as MTR_PROFILE_ID/
+# VPN_PROFILE_ID above — shared/modem/{modem_profile}/status.json, written by
+# providers/modem/fetch_modem.py. Default "local" matches fetch_modem.py's
+# own profile default and pf.lua's suite_profile("modem", "local") fallback.
+MODEM_PROFILE_ID="${4:-local}"
 CONFIG_ROOT="${GTEX62_CONFIG_DIR:-${GTEX62_CONKY_CONFIG_DIR:-$HOME/.config/gtex62-core}}"
 CACHE_ROOT="${GTEX62_CACHE_DIR:-${GTEX62_CONKY_CACHE_DIR:-$HOME/.cache/gtex62-core}}"
 CORE_TOML="$CONFIG_ROOT/core.toml"
@@ -38,6 +44,9 @@ AP_STATUS_JSON="$PF_DIR/ap_status.json"
 AP_CLIENTS_JSON="$PF_DIR/ap_clients.json"
 MTR_JSON="$CACHE_ROOT/shared/mtr/${MTR_PROFILE_ID}/mtr_state.json"
 VPN_JSON="$CACHE_ROOT/shared/vpn/${VPN_PROFILE_ID}/vpn.json"
+# fetch_modem.py's status.json — distinct file from pfsense's own
+# status.json above (same basename, different provider dir).
+MODEM_STATUS_JSON="$CACHE_ROOT/shared/modem/${MODEM_PROFILE_ID}/status.json"
 OUT_DIR="$CACHE_ROOT/shared/alerts/${PROFILE_ID}"
 BANNER_JSON="$OUT_DIR/banner.json"
 ALERT_LOG="$OUT_DIR/alert_log.txt"
@@ -81,6 +90,19 @@ PIHOLE_INACTIVE_DURATION_SEC="${PIHOLE_INACTIVE_DURATION_SEC:-600}"
 ADV_KILLSWITCH_DURATION_SEC="$(parse_section_value "$CORE_TOML" alerts advanced_killswitch_duration_sec || true)"
 ADV_KILLSWITCH_DURATION_SEC="${ADV_KILLSWITCH_DURATION_SEC:-10}"
 
+# comcast-degraded (CAUTION) — OR of a T3-timeout count and a sustained
+# gateway loss-% reading. See the evaluation block below for the full
+# reasoning; these three are its config knobs, same naming shape as the
+# duration keys above.
+COMCAST_DEGRADED_T3_THRESHOLD="$(parse_section_value "$CORE_TOML" alerts comcast_degraded_t3_threshold || true)"
+COMCAST_DEGRADED_T3_THRESHOLD="${COMCAST_DEGRADED_T3_THRESHOLD:-5}"
+
+COMCAST_DEGRADED_LOSS_PCT_THRESHOLD="$(parse_section_value "$CORE_TOML" alerts comcast_degraded_loss_pct_threshold || true)"
+COMCAST_DEGRADED_LOSS_PCT_THRESHOLD="${COMCAST_DEGRADED_LOSS_PCT_THRESHOLD:-25}"
+
+COMCAST_DEGRADED_LOSS_DURATION_SEC="$(parse_section_value "$CORE_TOML" alerts comcast_degraded_loss_duration_sec || true)"
+COMCAST_DEGRADED_LOSS_DURATION_SEC="${COMCAST_DEGRADED_LOSS_DURATION_SEC:-300}"
+
 # -------------------------------------------------------------------------
 # Evaluate + write. Pure computation over already-cached JSON — no SSH, no
 # gate, no cache-TTL skip (cheap local reads; every invocation recomputes).
@@ -88,19 +110,26 @@ ADV_KILLSWITCH_DURATION_SEC="${ADV_KILLSWITCH_DURATION_SEC:-10}"
 
 python3 - \
   "$STATUS_JSON" "$PIHOLE_JSON" "$AP_STATUS_JSON" "$AP_CLIENTS_JSON" "$MTR_JSON" "$VPN_JSON" \
+  "$MODEM_STATUS_JSON" \
   "$STATE_JSON" "$BANNER_JSON" "$ALERT_LOG" \
   "$PROFILE_ID" "$GATEWAY_OFFLINE_DURATION_SEC" "$PIHOLE_INACTIVE_DURATION_SEC" \
-  "$ADV_KILLSWITCH_DURATION_SEC" <<'PY'
+  "$ADV_KILLSWITCH_DURATION_SEC" "$COMCAST_DEGRADED_T3_THRESHOLD" \
+  "$COMCAST_DEGRADED_LOSS_PCT_THRESHOLD" "$COMCAST_DEGRADED_LOSS_DURATION_SEC" <<'PY'
 import json, os, sys, time
 from datetime import datetime, timezone
 
 (status_path, pihole_path, ap_status_path, ap_clients_path, mtr_path, vpn_path,
+ modem_status_path,
  state_path, banner_path, log_path,
- profile_id, gateway_dur_s, pihole_dur_s, adv_ks_dur_s) = sys.argv[1:14]
+ profile_id, gateway_dur_s, pihole_dur_s, adv_ks_dur_s,
+ t3_threshold, loss_pct_threshold, loss_dur_s) = sys.argv[1:18]
 
 gateway_dur_s = int(gateway_dur_s)
 pihole_dur_s  = int(pihole_dur_s)
 adv_ks_dur_s  = int(adv_ks_dur_s)
+t3_threshold        = int(t3_threshold)
+loss_pct_threshold  = float(loss_pct_threshold)
+loss_dur_s          = int(loss_dur_s)
 now_epoch     = int(time.time())
 now_iso       = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -149,6 +178,10 @@ state.setdefault("ap_offline_since", {})   # {label: epoch}
 state.setdefault("ap_offline_alerted", {}) # {label: bool}
 state.setdefault("adv_ks_blocking_since", None)
 state.setdefault("adv_ks_blocking_alerted", False)
+state.setdefault("comcast_loss_since", None)
+state.setdefault("comcast_t3_breached", False)
+state.setdefault("comcast_degraded_since", None)
+state.setdefault("comcast_degraded_alerted", False)
 
 log_lines = []
 
@@ -239,6 +272,115 @@ if state["gateway_offline_since"] is not None:
             "duration_seconds": duration,
             "children": gateway_children,
         })
+
+# -------------------------------------------------------------------------
+# Comcast Degraded (CAUTION) — distinct from gateway-offline (SEVERE) above:
+# this catches partial WAN degradation that may or may not go on to become
+# a full outage. The two conditions are evaluated completely independently
+# and can both be active at once — a degraded episode escalating into
+# gateway-offline doesn't clear this one, and this one clearing doesn't
+# imply gateway-offline has too.
+#
+# OR of two independent sub-conditions — either firing is enough to raise
+# the parent, and whichever one(s) actually fired get their own INFO child
+# so a person can see which symptom(s) triggered it:
+#
+#   - T3 timeouts: modem/status.json's recent_t3_timeouts, already windowed
+#     to event_log_window_minutes by fetch_modem.py itself, >=
+#     comcast_degraded_t3_threshold (default 5 — sized off real observed
+#     bursts during confirmed live Comcast episodes: 9, then 12, growing,
+#     per docs/network-providers-roadmap.md's Aug 31/Sept 6-7 session logs,
+#     vs. 0 on a quiet night). Instantaneous, same shape as MSMTCH/
+#     unidentified-IP above — the upstream provider already did the
+#     windowing, so no separate duration-sustain is needed here.
+#     comcast_t3_breached is persisted (not recomputed as a bare local each
+#     poll) so a transient modem-provider hiccup can't force a false CLEAR
+#     the instant its cache goes degraded — same "don't derive a clear from
+#     stale/absent data" principle as load_json()'s state=="ok" gate, just
+#     applied to a threshold flag instead of a since-timestamp.
+#   - Gateway loss: pfsense/status.json's gateway.loss_pct (dpinger's own
+#     rolling 60s average, not a single ping — see the gateway.online
+#     boolean condition above) >= comcast_degraded_loss_pct_threshold
+#     (default 25%, matching the design notes' original ">=25% loss"
+#     target now that real loss-% data exists — c7c3f37, 2026-08-23),
+#     sustained for >= comcast_degraded_loss_duration_sec (default 300s/
+#     5min — deliberately much shorter than gateway-offline's 900s/15min:
+#     this condition is meant as an earlier warning, not a duplicate of the
+#     full-outage condition on a longer fuse). Same duration-sustain shape
+#     as gateway_offline_since/gateway_dur_s above, tracked separately as
+#     comcast_loss_since since the threshold/duration differ.
+# -------------------------------------------------------------------------
+
+# `ok`/`status` here are the exact pfsense status.json already loaded above
+# for the gateway-offline condition — not re-read.
+loss_pct = status.get("gateway", {}).get("loss_pct") if ok else None
+if ok and isinstance(loss_pct, (int, float)):
+    if loss_pct >= loss_pct_threshold:
+        if state["comcast_loss_since"] is None:
+            state["comcast_loss_since"] = now_epoch
+    else:
+        state["comcast_loss_since"] = None
+
+loss_breached = False
+if state["comcast_loss_since"] is not None:
+    loss_duration = now_epoch - state["comcast_loss_since"]
+    if loss_duration >= loss_dur_s:
+        loss_breached = True
+
+ok_modem, modem = load_json(modem_status_path)
+t3_count = t3_window_min = None
+if ok_modem:
+    t3_count = modem.get("recent_t3_timeouts")
+    t3_window_min = modem.get("event_log_window_minutes")
+    state["comcast_t3_breached"] = (
+        isinstance(t3_count, (int, float)) and t3_count >= t3_threshold
+    )
+t3_breached = state["comcast_t3_breached"]
+
+degraded_active = t3_breached or loss_breached
+
+if degraded_active:
+    if state["comcast_degraded_since"] is None:
+        state["comcast_degraded_since"] = now_epoch
+else:
+    if state["comcast_degraded_alerted"]:
+        log("CLEAR", "CAUTION", "comcast-degraded", "COMCAST DEGRADED")
+    state["comcast_degraded_since"] = None
+    state["comcast_degraded_alerted"] = False
+
+if state["comcast_degraded_since"] is not None:
+    if not state["comcast_degraded_alerted"]:
+        log("BREACH", "CAUTION", "comcast-degraded", "COMCAST DEGRADED")
+        state["comcast_degraded_alerted"] = True
+    comcast_children = []
+    # Fresh-data-only children: if the sub-condition's own source is
+    # degraded/absent this particular poll, its child is simply omitted
+    # this round (matching the fresh-evidence gate used everywhere else)
+    # rather than rendering a number that isn't actually current.
+    if ok_modem and t3_breached:
+        window_label = int(t3_window_min) if isinstance(t3_window_min, (int, float)) else "?"
+        comcast_children.append({
+            "id": "comcast-degraded-t3",
+            "severity": "INFORMATIONAL",
+            "message": f"T3: {int(t3_count)} IN {window_label}M",
+            "since": iso(state["comcast_degraded_since"]),
+        })
+    if ok and loss_breached and isinstance(loss_pct, (int, float)):
+        loss_minutes = (now_epoch - state["comcast_loss_since"]) // 60
+        comcast_children.append({
+            "id": "comcast-degraded-loss",
+            "severity": "INFORMATIONAL",
+            "message": f"GATEWAY: {loss_pct:.0f}% FOR {loss_minutes}MIN",
+            "since": iso(state["comcast_loss_since"]),
+        })
+    queue.append({
+        "id": "comcast-degraded",
+        "severity": "CAUTION",
+        "message": "COMCAST DEGRADED",
+        "since": iso(state["comcast_degraded_since"]),
+        "duration_seconds": now_epoch - state["comcast_degraded_since"],
+        "children": comcast_children,
+    })
 
 # -------------------------------------------------------------------------
 # Advanced Kill Switch blocking all traffic. Same symptom as gateway-offline
@@ -451,10 +593,10 @@ for label, since_epoch in state["ap_offline_since"].items():
 
 # -------------------------------------------------------------------------
 # Sort: severity-ordered (SEVERE, then CAUTION), stable within a tier in
-# the fixed evaluation order above (gateway, advanced-killswitch-blocking,
-# pihole, msmtch, unidentified-ip, ap-offline(s)). Parent/child grouping is
-# inherent — children travel embedded in their parent, never flattened into
-# the top-level sort.
+# the fixed evaluation order above (gateway, comcast-degraded,
+# advanced-killswitch-blocking, pihole, msmtch, unidentified-ip,
+# ap-offline(s)). Parent/child grouping is inherent — children travel
+# embedded in their parent, never flattened into the top-level sort.
 # -------------------------------------------------------------------------
 
 queue.sort(key=lambda item: SEVERITY_RANK[item["severity"]])

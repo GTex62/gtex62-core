@@ -178,15 +178,20 @@ DHCP Collection.
 
 ## Alert Banner Watcher
 
-Implemented Aug 22, 2026. Cross-cutting engine behavior, not one provider domain —
-`providers/alerts/fetch_alerts.sh` reads *other* providers' already-written cache files
-(`status.json`, `pihole.json`, `ap_status.json`, `ap_clients.json` under
-`shared/pfsense/{profile}/`), applies threshold/duration logic, and writes one shared,
-severity-sorted, parent/child-grouped alert queue. Same "engine gathers knowledge, SitRep
-reports status" principle as the rest of this doc — SitRep's own Lua build (reading
-`banner.json` and rendering the widget) has not started; design record and the full
-condition table live in
-[SitRep Design Notes § Alert banner / outage detection](../../gtex62-sitrep/design/sitrep-design-notes.md).
+Implemented Aug 22, 2026, and now fully built end-to-end (last extended Sept 7, 2026, adding
+the `comcast-degraded` condition below). Cross-cutting engine behavior, not one provider
+domain — `providers/alerts/fetch_alerts.sh` reads *other* providers' already-written cache
+files (`status.json`, `pihole.json`, `ap_status.json`, `ap_clients.json` under
+`shared/pfsense/{profile}/`, `status.json` under `shared/modem/{modem_profile}/`, `vpn.json`
+under `shared/vpn/{vpn_profile}/`, `mtr_state.json` under `shared/mtr/{mtr_profile}/`), applies
+threshold/duration logic, and writes one shared, severity-sorted, parent/child-grouped alert
+queue. Same "engine gathers knowledge, SitRep reports status" principle as the rest of this
+doc — SitRep's own Lua build reading `banner.json` and rendering the widget is also built
+(`lua/suite/pf.lua`'s `alert_banner_lines()`/`M.header_alert_lines()`, drawn by
+`lua/ui/frame.lua`'s `draw_header_alert_banner()` in the header's right-hand column; original
+design record predating both builds lives in
+[SitRep Design Notes § Alert banner / outage detection](../../gtex62-sitrep/design/sitrep-design-notes.md),
+now superseded by this section for implementation state).
 
 **Not a fetch-family provider.** No SSH, no gate, no remote target — pure computation over
 cache files other providers already wrote. Safe to re-run on any cadence; every invocation
@@ -198,12 +203,16 @@ recomputes from scratch (no cache-TTL skip).
 
 ```toml
 [providers]
-alerts = false   # schema-only, matches vpn/ap/modem — not wired into
-                 # gtex62-core-launch this session
+alerts = true   # wired into gtex62-core-launch's initial_refresh/refresh_loop,
+                # same as vpn/ap/modem
 
 [alerts]
-gateway_offline_duration_sec = 900   # gateway.online continuously false -> SEVERE
-pihole_inactive_duration_sec = 600   # pihole.json active continuously false -> CAUTION
+gateway_offline_duration_sec = 900         # gateway.online continuously false -> SEVERE
+pihole_inactive_duration_sec = 600         # pihole.json active continuously false -> CAUTION
+advanced_killswitch_duration_sec = 10      # PIA Advanced KS blocking traffic -> SEVERE
+comcast_degraded_t3_threshold = 5          # recent_t3_timeouts >= this -> CAUTION (half of OR)
+comcast_degraded_loss_pct_threshold = 25   # gateway.loss_pct >= this percent...
+comcast_degraded_loss_duration_sec = 300   # ...sustained this long -> CAUTION (other half of OR)
 ```
 
 MSMTCH and unidentified-IP have no threshold key — any count > 0 is an alert, not
@@ -243,9 +252,30 @@ A breached condition is a queue entry:
 `children` is always present (empty array when there are none) so a consumer never has to
 check for key existence. Array order in `queue` **is** display order — severity-sorted
 (SEVERE before CAUTION; top-level entries are never INFORMATIONAL, only children are),
-stable within a tier in the watcher's fixed evaluation order (gateway, then each offline
-AP, then MSMTCH, unidentified-IP, Pi-hole). Parent/child grouping is inherent to the
-structure — children never get flattened into the top-level sort.
+stable within a tier in the watcher's fixed evaluation order (gateway, comcast-degraded,
+advanced-killswitch-blocking, pihole, msmtch, unidentified-IP, ap-offline(s)). Parent/child
+grouping is inherent to the structure — children never get flattened into the top-level sort.
+
+### Condition Table
+
+Full, current set of conditions the watcher evaluates, folded in from SitRep Design Notes'
+original design record now that all seven are core-side implemented and verified:
+
+| Condition | Threshold | Duration | Severity | Message |
+| --- | --- | --- | --- | --- |
+| Gateway offline | n/a — `status.json`'s boolean `gateway.online` | >=15min default (`gateway_offline_duration_sec`) | SEVERE (root) + INFO (detail, + MTR-began child once `fetch_mtr.sh` confirms Pi5's overnight log started) | COMCAST OUTAGE DETECTED / GATEWAY OFFLINE >=15MIN |
+| Comcast degraded | `status.json`'s `gateway.loss_pct` >= 25% (`comcast_degraded_loss_pct_threshold`) OR `modem/status.json`'s `recent_t3_timeouts` >= 5 (`comcast_degraded_t3_threshold`) | loss_pct sustained >=5min default (`comcast_degraded_loss_duration_sec`); T3 count instantaneous (already windowed by `fetch_modem.py`) | CAUTION (root) + INFO child per sub-condition that actually fired | COMCAST DEGRADED / T3: \<n\> IN \<window\>M and/or GATEWAY: \<pct\>% FOR \<duration\> |
+| Advanced Kill Switch blocking | n/a — `vpn.json`'s `killswitch_mode == "on"` AND `connectionstate != "Connected"` | >=10s default (`advanced_killswitch_duration_sec`) | SEVERE | KS BLOCKING TRAFFIC |
+| Pi-hole inactive | n/a | >=10min default (`pihole_inactive_duration_sec`) | CAUTION | PI-HOLE INACTIVE |
+| AP client MAC/IP mismatch | n/a (count > 0) — core-computed, `ap_clients.json`'s `mismatch_total` | instant | CAUTION | MAC/IP MISMATCH (n) + INFO child per mismatch |
+| Unidentified IP | n/a (count > 0) — summed from `ap_clients.json`'s per-AP `unknown[]` | instant | CAUTION | UNIDENTIFIED IP ON NETWORK (n) + INFO child per IP |
+| AP offline | n/a — `ap_status.json`'s per-AP `online` | instant | SEVERE | `AP OFFLINE: {label}`, one entry per offline AP |
+
+Gateway offline and Comcast degraded are independent conditions, deliberately evaluated
+separately rather than as one condition with two severities — a degraded episode escalating
+into a full outage doesn't clear the CAUTION entry, and the CAUTION entry clearing doesn't
+imply the outage has too. See § Gateway Conditions below for why they use different data
+sources despite both watching WAN health.
 
 ### State and Log
 
@@ -275,15 +305,35 @@ says otherwise. Verified (Aug 22, 2026): forced `status.json` to `state: "degrad
 alert in a scratch cache tree; `gateway-offline` correctly stayed in the queue rather than
 vanishing.
 
-### Gateway Condition Is a Boolean-Duration Proxy
+### Gateway Conditions: Boolean-Duration Proxy (SEVERE) vs. Real Loss % (CAUTION)
 
-`status.json`'s `gateway.online` is a single ping (boolean), not a loss-%/latency sample —
-the `network-health` provider that would supply real loss % was sketched in
-[Network Providers Roadmap](network-providers-roadmap.md) but never started. Confirmed with
-user (Aug 22, 2026): this watcher approximates the design notes' original ">=25% loss for
->15min" idea as "`gateway.online` continuously `false` for `gateway_offline_duration_sec`"
-— same duration-threshold shape, no percentage. Upgrade path once a real loss-% provider
-exists: swap this condition's data source, keep the rest of the watcher unchanged.
+`gateway-offline` (SEVERE) is unchanged since Aug 22, 2026: `status.json`'s `gateway.online`
+is a single ping (boolean), and the condition stays a boolean-duration proxy —
+`gateway.online` continuously `false` for `gateway_offline_duration_sec` — a deliberately
+simple, binary signal for "is there a full outage," not a percentage. This was **not**
+upgraded when real loss-% data landed (next paragraph); it stays as-is by design, distinct
+from `comcast-degraded` below.
+
+Real loss-%/latency data does now exist, though — `fetch_pfsense.sh` (`c7c3f37`,
+2026-08-23) added a live dpinger read straight off pfSense's own dpinger polling socket,
+writing `gateway.loss_pct`/`latency_ms`/`latency_stddev_ms` (dpinger's own rolling 60s
+average, not a single ping) into `status.json`, plus a 20-minute rolling window of 1-min
+RRD samples into a new `gateway_history.json`. Both are consumed by SitRep's WAN panel
+GATEWAY meter (`lua/suite/pf.lua`'s `gateway_meter_fields()`), and `gateway.loss_pct` is now
+also consumed by the alert watcher's `comcast-degraded` (CAUTION) condition (Condition Table
+above): `gateway.loss_pct >= comcast_degraded_loss_pct_threshold` (default 25%, matching the
+original design notes' aspirational ">=25% loss" target) sustained for
+`>= comcast_degraded_loss_duration_sec` (default 300s/5min — deliberately much shorter than
+`gateway-offline`'s 900s/15min, since this is meant as an earlier warning, not a duplicate of
+the full-outage condition on a longer fuse), OR'd with a T3-timeout burst from
+`modem/status.json`'s `recent_t3_timeouts`. The `network-health` provider sketched in
+[Network Providers Roadmap](network-providers-roadmap.md) that this data was originally
+expected to come from was never built — the dpinger read landed directly inside
+`fetch_pfsense.sh` instead, superseding that plan (see that doc's own superseded-note).
+
+`gateway-offline` and `comcast-degraded` are independent conditions, evaluated and cleared
+separately — a degraded episode escalating into a full outage doesn't clear the CAUTION
+entry, and the CAUTION entry clearing doesn't imply the outage has too.
 
 ### Verification (Aug 22, 2026)
 
@@ -303,9 +353,29 @@ unidentified IPs, all 3 APs online; gateway ping to the WAN gateway is currently
 live (`gateway.online: false`) but the 15-minute duration threshold hadn't been crossed at
 verification time, so `banner.json` correctly reported `alert_count: 0`, all-clear.
 
+### Verification — `comcast-degraded` (Sept 7, 2026)
+
+Against real cache files, backed up first and restored after (never left forced/fake):
+forced `modem/status.json`'s `recent_t3_timeouts` to 9 (>= threshold 5) with real
+`gateway.loss_pct` untouched — confirmed T3-only breach, single `comcast-degraded-t3` child,
+correct `T3: 9 IN 60M` message. Restored modem, confirmed `CLEAR` logged. Forced
+`gateway.loss_pct` to 40.0 (>= threshold 25) — confirmed no immediate breach on the first
+poll (duration-sustain gate correctly withholding it), then backdated `comcast_loss_since` in
+`state.json` past `comcast_degraded_loss_duration_sec` — confirmed loss-only breach, single
+`comcast-degraded-loss` child, correct `GATEWAY: 40% FOR 6MIN` message. Forced both
+simultaneously — confirmed both children present together under one `comcast-degraded`
+parent, and no duplicate `BREACH` log line for the still-ongoing episode (already-alerted
+state correctly suppressed it). Cleared both — confirmed `CLEAR` logged and queue emptied.
+Loaded `lua/suite/pf.lua` standalone (`lua -e 'dofile(...)'`) and called
+`M.header_alert_lines()` directly against the forced cache — confirmed the exact SitRep
+header rendering path shows `COMCAST DEGRADED` / `T3: 9 IN 60M` / `GATEWAY: 40% FOR 6MIN` on
+three lines (fits the 3-line non-scrolling window). Final state: all forced files restored
+byte-identical to their real originals (`diff` confirmed), `banner.json` back to
+`alert_count: 0`, header back to `NO ACTIVE ALERTS`.
+
 ### Deferred
 
-- Any SitRep-side Lua reading/rendering `banner.json` — the actual widget build, not
-  started.
-- Wiring `providers.alerts` into `gtex62-core-launch`'s `initial_refresh`/`refresh_loop` —
-  schema-only for now, same as `vpn`/`ap`/`modem`/`router`/`pihole`/`pfblockerng`.
+- pfSense update-available indicator: pfSense's own dashboard shows this; unconfirmed
+  whether it's accessible outside the web UI (SSH/CLI via pfSense-utils.inc, XML config,
+  pkg version-style) or is web-UI-only, in which case it gets left off or becomes a
+  manual-check-only item.

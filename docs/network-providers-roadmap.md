@@ -356,6 +356,29 @@ volume sits alongside the rest of the network totals.
 
 ## WAN Health Monitoring (Proposed)
 
+**Partially superseded, not open work — read this before treating anything below as a
+to-do (2026-09-07):** the standalone `providers/network-health/fetch_wanhealth.sh`
+provider proposed just below (own `mtr`/`ping` sampling loop, `shared/network-health/
+wan.json` schema, three-tier `HEALTHY`/`DEGRADED`/`CRITICAL` classification) was never
+built. What shipped instead, in `fetch_pfsense.sh` (`c7c3f37`, 2026-08-23): a live read
+straight off pfSense's own dpinger polling socket, piggybacked onto the existing SSH
+session rather than a new provider with its own sampling loop, writing `gateway.loss_pct`/
+`latency_ms`/`latency_stddev_ms` (dpinger's own rolling 60s average) into the *existing*
+`status.json`, plus a 20-minute rolling window of 1-min RRD samples into a new
+`gateway_history.json` — no new `network-health` domain, no separate cache tree. The
+target-selection lesson below (WAN gateway IP, not a public DNS-over-HTTPS resolver) is
+moot for this approach since dpinger already targets the WAN gateway itself as pfSense's
+own built-in monitoring, not a probe this codebase points anywhere.
+`providers/alerts/fetch_alerts.sh`'s `comcast-degraded` CAUTION condition (see
+`gtex62-sitrep/../gtex62-core/docs/sitrep-architecture.md` § Alert Banner Watcher) consumes
+`gateway.loss_pct` directly from this data — a single 25%-sustained-5min CAUTION threshold,
+not the three-tier `HEALTHY`/`DEGRADED`/`CRITICAL` classification proposed below.
+The **Modem-Level Corroboration Provider** section further down *did* ship, separately, as
+its own real `modem` provider (`providers/modem/fetch_modem.py`) — see its own session logs
+below for that build's history. Kept below for its historical reasoning (the motivating
+incident, failure-mode analysis, and target-selection lesson are all still accurate
+background), not as a live spec.
+
 ### Motivating Incident
 
 Three to four consecutive nights (Aug 15–18, 2026) of intermittent overnight connectivity
@@ -1120,19 +1143,34 @@ maintenance trap entirely.
 
 ### Open Items
 
-- Sampling interval and packet count per cycle not yet tuned — needs to be frequent enough
-  to catch onset quickly without adding meaningful load or SSH/probe overhead.
-- Whether this lives as its own provider (`network-health`) or as an extension of the
-  existing `pfsense` provider's schema is undecided; keeping it separate follows the same
-  reasoning as keeping VPN health separate from pfSense health — different failure domains,
-  different polling cadence.
-- Historical retention (e.g. rolling last-N-hours buffer for a mini sparkline) not yet
-  designed — the overnight incident data above was only reconstructable because a
-  hand-run `mtr` log happened to be capturing at the time; the engine version should not
-  depend on that being manually started.
-- Sustained-critical trigger duration not yet set — see auto-trigger section above.
-- Auto-triggered capture's own lifetime/stop condition needs a cap (e.g. max runtime even
-  if `CRITICAL` never clears) so a truly prolonged outage doesn't grow an unbounded logfile.
+**The first five bullets below are superseded, not open (2026-09-07)** — they're all
+questions about the standalone `network-health` provider proposed above, which was never
+built; see the superseded-note at the top of this section for what shipped instead and how
+each question below was actually resolved. Kept for historical record, not as a live to-do
+list:
+
+- ~~Sampling interval and packet count per cycle not yet tuned~~ — moot: no new sampling
+  loop was built. dpinger already samples continuously as pfSense's own built-in monitoring;
+  `fetch_pfsense.sh` just reads its existing rolling 60s average, piggybacked on the SSH
+  session already open for other status.json fields.
+- ~~Whether this lives as its own provider or as an extension of the existing `pfsense`
+  provider's schema is undecided~~ — resolved as the latter: `gateway.loss_pct`/
+  `latency_ms`/`latency_stddev_ms` are additive keys in `pfsense`'s existing `status.json`,
+  no new `network-health` provider/domain/cache tree.
+- ~~Historical retention ... not yet designed~~ — resolved: `gateway_history.json`, a
+  20-minute rolling window of 1-min-resolution samples, read straight from dpinger's own
+  quality RRD (`WAN_DHCP-quality.rrd`) that pfSense already maintains for its own Status >
+  Monitoring graphs — no new retention mechanism needed, pfSense already had one.
+- ~~Sustained-critical trigger duration not yet set~~ — resolved, differently than the
+  three-tier `HEALTHY`/`DEGRADED`/`CRITICAL` classification proposed above: a single CAUTION
+  threshold (`comcast_degraded_loss_pct_threshold`, 25%) sustained for
+  `comcast_degraded_loss_duration_sec` (300s/5min), in `fetch_alerts.sh`'s `comcast-degraded`
+  condition — see `gtex62-core/docs/sitrep-architecture.md` § Alert Banner Watcher.
+- ~~Auto-triggered capture's own lifetime/stop condition needs a cap~~ — resolved for the
+  MTR-on-Pi5 auto-trigger that did ship (a different mechanism than what this bullet
+  originally proposed, triggered off `gateway-offline` rather than a WAN-loss CRITICAL
+  state): `fetch_mtr.sh`'s `max_runtime_hours` (72h default) — see
+  `sitrep-design-notes.md` § Alert banner / outage detection, "MTR auto-trigger."
 - **Updated (Aug 19, 2026):** Modem provider (`fetch_modem.py` + `fetch_modem.sh`) is built
   and verified, including a live credential cross-check against the real modem — see its
   Session Log above (two real bugs found and fixed there: the `#Current_systemtime`
