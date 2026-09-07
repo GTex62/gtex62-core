@@ -25,7 +25,7 @@ import re
 import sys
 import time
 import tomllib
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import requests
@@ -45,6 +45,7 @@ DEFAULT_BASE_URL = "http://192.168.100.1"
 DEFAULT_USERNAME = "admin"
 DEFAULT_TIMEOUT_SEC = 8
 DEFAULT_WINDOW_MINUTES = 60
+DEFAULT_CLOCK_OFFSET_SEC = 0  # see compute_recent_t3()'s docstring — real correction lives in profile TOML
 DEFAULT_CACHE_TTL_SEC = 300
 
 # -----------------------------------------------------------------------
@@ -456,7 +457,7 @@ def parse_event_time(text, ref_date):
         return None
 
 
-def compute_recent_t3(events, window_minutes, now_dt):
+def compute_recent_t3(events, window_minutes, now_dt, clock_offset_sec=0):
     """Sums docsDevEvCounts across T3-pattern-matching rows whose
     docsDevEvLastTime falls within the trailing window — NOT a row count
     (see roadmap: repeated identical events collapse into one row with a
@@ -466,9 +467,29 @@ def compute_recent_t3(events, window_minutes, now_dt):
     no timezone marker and was confirmed live to read as local wall-clock,
     not UTC; the modem's own #Current_systemtime field is not a usable
     substitute (confirmed dead placeholder JS on this firmware — see
-    parse_docsis_status())."""
+    parse_docsis_status()).
+
+    `clock_offset_sec`: added to every parsed modem timestamp before
+    comparing it to `now_dt`. Default 0 (no correction) — the Aug 31, 2026
+    session confirmed the modem's timestamps read as host-local wall clock
+    with no meaningful skew *at that time*. Investigating a real-world
+    zero-count report on 2026-09-07 found this had stopped being true: a
+    live, actively-flapping burst (new rows landing seconds apart in
+    modem-time, ruling out "it's just been quiet") was consistently
+    dated ~63-67 minutes behind the host across three independent
+    measurements — a stuck-on-Standard-Time modem clock while the host
+    correctly observes CDT is the leading theory (see the roadmap doc's
+    Sept 7 session log), not measurement noise: a genuinely fresh event
+    should show a gap of seconds, not consistently close to an hour. The
+    old 300s tolerance below was sized for ordinary NTP-class skew and was
+    never going to cover an hour-scale offset — it wasn't wrong, just
+    answering a much smaller problem than the one that showed up. This
+    parameter is 0 by default (unaffected callers/tests are unchanged);
+    the real deployment sets `[eventlog].clock_offset_sec` in its profile
+    TOML — see fetch_modem.py's main() and the profile TOML template."""
     total = 0
     unparsed = 0
+    nearest_excluded_age_min = None  # closest-to-window T3 match that missed, for the note below
     for ev in events:
         if not matches_t3(ev):
             continue
@@ -491,15 +512,43 @@ def compute_recent_t3(events, window_minutes, now_dt):
         if last_dt is None:
             unparsed += 1
             continue
+        if clock_offset_sec:
+            last_dt += timedelta(seconds=clock_offset_sec)
         age_sec = (now_dt - last_dt).total_seconds()
         # small negative tolerance for modem/host clock skew at the edge
+        # (ordinary NTP-class jitter, seconds not minutes — clock_offset_sec
+        # above is the correction for the modem's own gross offset)
         if -300 <= age_sec <= window_minutes * 60:
             total += counts
+        else:
+            age_min = age_sec / 60
+            if nearest_excluded_age_min is None or age_min < nearest_excluded_age_min:
+                nearest_excluded_age_min = age_min
 
-    note = None
+    # Added 2026-09-07, investigating a reported real-world case (see
+    # docs/network-providers-roadmap.md's Sept 6/7 session log) of
+    # recent_t3_timeouts reading 0 during a corroborated Comcast episode.
+    # The window math itself checked out against live data — but a 0
+    # caused by "no T3 events at all" and a 0 caused by "T3 events exist,
+    # just all just outside the window" were previously indistinguishable
+    # after the fact, which is exactly what made that report unprovable
+    # once the modem's own finite log buffer rolled the rows off. This
+    # note closes that gap going forward without changing the count
+    # itself — it only ever fires when total is 0 but a real T3 match
+    # existed in the fetched log, so it costs nothing on a genuinely quiet
+    # night.
+    notes = []
+    if total == 0 and nearest_excluded_age_min is not None:
+        notes.append(
+            f"0 T3 timeouts in the {window_minutes}m window, but a matching "
+            f"event row exists {nearest_excluded_age_min:.1f}min old (outside "
+            f"the window) — not a parsing failure, just outside the trailing "
+            f"window at fetch time"
+        )
     if unparsed:
-        note = (f"{unparsed} matching event row(s) had unparseable First/Last "
-                f"timestamps and were excluded from the {window_minutes}m window count")
+        notes.append(f"{unparsed} matching event row(s) had unparseable First/Last "
+                      f"timestamps and were excluded from the {window_minutes}m window count")
+    note = "; ".join(notes) or None
     return total, note
 
 
@@ -530,6 +579,7 @@ def main():
     timeout = float(conn.get("timeout_sec") or DEFAULT_TIMEOUT_SEC)
     password = str(creds.get("password") or "")
     window_minutes = int(evlog_cfg.get("window_minutes") or DEFAULT_WINDOW_MINUTES)
+    clock_offset_sec = int(evlog_cfg.get("clock_offset_sec") or DEFAULT_CLOCK_OFFSET_SEC)
     cache_ttl = int(profile.get("cache_ttl_sec") or DEFAULT_CACHE_TTL_SEC)
 
     modem_ip = base_url.split("//", 1)[-1].split("/", 1)[0].split(":", 1)[0]
@@ -580,7 +630,7 @@ def main():
     now_dt = datetime.now()
 
     events, evlog_note = parse_event_log(eventlog_html)
-    recent_t3, window_note = compute_recent_t3(events, window_minutes, now_dt)
+    recent_t3, window_note = compute_recent_t3(events, window_minutes, now_dt, clock_offset_sec)
 
     notes = list(docsis.get("notes") or [])
     if evlog_note:

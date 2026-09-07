@@ -894,6 +894,168 @@ classification logic repeats the mistake fixed in `fetch_pfsense.sh`'s inline
   both describe `recent_t3_timeouts`/`event_log_window_minutes` at the field-semantics
   level, which is unchanged).
 
+### Session Log — Sept 6/7, 2026 (`recent_t3_timeouts` Reported Zero During a Real Episode — Investigated, Not Reproduced in the Fix Itself)
+
+- **Reported symptom:** overnight Comcast instability (2026-09-06/07) produced a clear,
+  unambiguous T3 burst — event log confirms both known ID variants (`82000200`,
+  `82000500`) at 21:38:50–21:40:21 CDT (09-06) — but the production `status.json` written
+  42 minutes later (03:22:57Z, well inside the default 60-minute
+  `event_log_window_minutes` window) recorded `recent_t3_timeouts: 0`. A second sample
+  8h10m later landed on a clean 5-minute-multiple offset from the first, correctly
+  establishing this was the actual scheduled poller running all night, not a one-off
+  manual invocation.
+- **Deployment identity — confirmed clean, first, per this session's own instructions.**
+  `ps aux` on Titan shows `gtex62-core-launch` running for both the `osa` and `sitrep`
+  suites, each invoking `$CORE_DIR/providers/modem/fetch_modem.sh` where `CORE_DIR` is
+  resolved from the launcher script's own `BASH_SOURCE` — i.e. this exact repo checkout,
+  not a separate deployed copy at a different path. `git show HEAD:providers/modem/
+  fetch_modem.py` diffed byte-identical against the on-disk file; `git log` confirms `HEAD`
+  is `ea0764c`, the Aug 31 undercount fix itself. **No stale-deployment explanation** — ruled
+  out explicitly, not assumed.
+- **Re-ran the current, real `matches_t3()`/`compute_recent_t3()` against live data — the
+  counting logic itself checked out.** The exact rows from the reported 21:38:50–21:40:21
+  CDT burst had already rolled off the modem's own finite Event Log buffer by the time this
+  was investigated the next morning (confirmed: a live pull returned 40 rows, all from
+  04:44–06:06 UTC on 09-07 — nothing from 09-06 at all), so a byte-for-byte recapture of the
+  actual failing input — the same method the Aug 31 investigation used — **was not possible
+  this time**. That's a real gap in this investigation, called out rather than papered over.
+  In its place: (1) reconstructing the reported burst's real IDs/timestamps against the
+  current code (see the new regression case below) counts it correctly, and (2) a *different*,
+  still-live T3 burst was caught mid-investigation (ended ~06:06 UTC 09-07, a fresh episode,
+  not the reported one) and replayed through the unmodified, real `compute_recent_t3()` at a
+  `now_dt` pinned to the actual production poll's own `generated_at` (07:02:58 CDT) — result:
+  `total=25`, correctly counted, 56.8 minutes after the burst, comfortably inside the 60-minute
+  window. **No unhandled exception or early-exit was found** — every live and reconstructed
+  replay this session produced the correct nonzero count. System clock confirmed NTP-synced
+  (`timedatectl`: `System clock synchronized: yes`), ruling out host/modem clock drift as an
+  explanation for the specific reported miss.
+- **Real, separate architecture bug found and fixed instead — not confirmed as the cause of
+  the specific reported miss, but a genuine correctness/efficiency problem in its own right.**
+  `gtex62-core-launch` gates `vpn`/`ap`/`modem`/`alerts`/`mtr` purely off `core.toml`'s global
+  `[providers]` flags, never consulting each suite's own `suite.toml` `[domains]`
+  required/optional list — so *every* suite launched runs *every* globally-enabled provider,
+  whether or not that suite has a real consumer for it. Confirmed live: `osa` and `sitrep`
+  both run `gtex62-core-launch` concurrently on Titan, sharing one `CACHE_ROOT`; `osa.toml`'s
+  own `[domains]` list never mentions `vpn`/`ap`/`modem`/`alerts`/`mtr` (`sitrep` is their
+  only real consumer, per this doc's own WAN/VPN/AP panel sections and
+  `reading-the-widget.md`), yet `osa`'s launcher instance was polling the CM1000/PIA/APs/
+  pfSense-alerts/Pi5 the entire time regardless — doubled, un-coordinated HTTP/SSH load
+  against all of those endpoints, and two independent, un-synchronized ~TTL-interval
+  schedulers silently racing for the same `run_locked()` mkdir-mutex/cache file each cycle,
+  with the loser skipping invisibly (no log, no note). This directly contradicts what this
+  doc's own "Execution Model" section (above) assumed — "Conky's own update loop… is a
+  reliable enough trigger" — by implying *one* loop; there were actually two, unrelated to
+  each other, the whole time. **Fixed:** `gtex62-core-launch` now has a `suite_has_domain()`
+  helper that parses a `suite.toml`'s `[domains]` `required`/`optional` arrays, and
+  `VPN_ENABLED`/`AP_ENABLED`/`MODEM_ENABLED`/`ALERTS_ENABLED`/`MTR_ENABLED` are each additionally
+  gated on the launching suite actually declaring that domain — verified directly against both
+  real `suite.toml` files (`osa.toml` correctly reports missing all five; `sitrep.toml`
+  correctly reports having all five). **Not touched:** the equivalent gap likely also applies
+  to the `pfsense` sub-flags (`router`/`pihole`/`pfblockerng`/`ifaces`) — out of scope for this
+  session, flagged here rather than fixed, since `osa.toml` *does* declare `pfsense` and
+  narrowing that further wasn't part of what this investigation was chasing.
+- **Diagnostics gap found and closed — this is the fix aimed squarely at "next time this
+  happens, it won't be unprovable."** The investigation above hit a real dead end: a 0 count
+  caused by "no T3 events at all" and a 0 count caused by "T3 events exist, just outside the
+  window" were indistinguishable after the fact, once the modem's own log had moved on.
+  `compute_recent_t3()` now tracks the *nearest* T3-matching row that missed the window and,
+  only when the final `total` is `0` and such a row exists, adds a `note` naming how many
+  minutes old it was (e.g. `"0 T3 timeouts in the 60m window, but a matching event row exists
+  62.8min old (outside the window) — not a parsing failure, just outside the trailing window
+  at fetch time"`). Costs nothing on a genuinely quiet night (`nearest_excluded_age_min` stays
+  `None`, no note); on a night like this one, it leaves the forensic trail this session had to
+  work around not having.
+- **New regression cases added**, `providers/modem/test_fetch_modem_regressions.py` (this
+  repo had no test runner before — added as a standalone, directly-runnable script rather than
+  adopting a new framework mid-investigation): the reported Sept 6/7 burst (reconstructed from
+  its real reported IDs/timestamps, since the raw rows themselves couldn't be recaptured —
+  called out as reconstruction, not a live capture, directly in the test's own docstring); the
+  live window-edge case caught mid-session (~57min-old row counted, ~66min-old row from the
+  same family correctly excluded — locks in that the window boundary itself was never the
+  problem); the new out-of-window diagnostic note; plus the three Aug 31 cases carried forward
+  so this file is the durable home for all of them going forward, not just this session's.
+- **Bottom line:** deployment confirmed clean; the counting logic re-verified correct against
+  both live and reconstructed real data; a real, separate double-scheduler bug found and fixed
+  (worth fixing regardless of whether it explains this specific report); a diagnostics gap
+  closed so a recurrence is provable next time. What this session could **not** do is give a
+  single, confirmed mechanical explanation for the exact 03:22:57Z zero — the evidence needed
+  to prove that one specific instance had already rolled off the modem's own log by the next
+  morning. If `recent_t3_timeouts` reads `0` during a corroborated episode again, check the
+  `note` field first — either it now names an out-of-window match (new information, points
+  straight at a window-sizing question), or it doesn't, which would newly indicate something
+  genuinely different is happening (e.g. the modem returning a completely empty event log to
+  one specific poller) — worth escalating harder at that point, not re-litigating this session.
+
+### Session Log — Sept 7, 2026 (Follow-up: Root Cause Actually Found — Modem Clock Skew)
+
+**Corrects the "bottom line" above** — the "escalating harder" advice worked immediately: the
+user pulled a fresh raw Event Log export from the CM1000's own UI minutes after the session
+above, noticed its timestamps read about an hour behind their own computer's clock, and handed
+that over. That one observation was the missing piece.
+
+- **Confirmed, precisely, not from one data point.** Three independent measurements — the
+  live burst caught during the session above (host 07:09:12, freshest matching row 06:06:11 →
+  63.0min gap), the user's fresh raw export (host 09:52, freshest row 08:48:03 → 63.95min gap),
+  and one more live fetch taken immediately after to cross-check (host 09:55:50, freshest row
+  08:48:45 → 67.1min gap) — all landed in a tight 63-67 minute band. Critically, **all three
+  caught the same episode still actively flapping**: new rows kept landing seconds apart in
+  modem-time across the three fetches (e.g. a fresh `82000200` row at modem-time 08:48:40
+  appeared between the user's export and the follow-up fetch, ~7 real minutes apart), which
+  rules out "the connection's just been quiet for an hour" — a live, currently-happening event
+  cannot genuinely be an hour old. This is a fixed clock offset between the modem and the host,
+  not staleness, not noise.
+- **Leading theory for the mechanism (not proven, but well-motivated and cheap to falsify
+  later):** the CM1000's internal clock does not observe DST and stays on Standard Time
+  (CST, UTC-6) year-round, while Titan correctly observes CDT (UTC-5, confirmed via
+  `timedatectl`) for as long as DST is in effect — a clean one-hour gap, matching the
+  measured band once a few minutes of ordinary "time since the last row in an actively but not
+  continuously flapping burst" is allowed for. This is a common embedded-device failure class
+  (DOCSIS Time-of-Day sync succeeding but the device's own TZ/DST handling being wrong or
+  absent), not a novel one.
+- **This directly explains what the Sept 6/7 session above could not:** the reported
+  21:38:50–21:40:21 CDT burst, by the modem's (skewed) clock, actually happened around
+  22:38–22:40 CDT in true time — so the poll 42 real minutes later was, by true elapsed time,
+  actually ~102 minutes past the burst, outside the 60-minute window all along.
+  `compute_recent_t3()`'s window math was never wrong; it was being fed timestamps from a clock
+  that didn't agree with the host's. This also explains why the session above's own "confirm
+  clock sync" check didn't catch it: `timedatectl` only confirms the **host** is NTP-synced —
+  it says nothing about the modem's independent clock, which is exactly the blind spot that
+  was missed.
+- **Fix, `providers/modem/fetch_modem.py`:** `compute_recent_t3()` takes a new
+  `clock_offset_sec` parameter (default `0` — no behavior change for any caller/test that
+  doesn't pass one), added to every parsed modem timestamp before comparing it to `now_dt`.
+  Read from a new `[eventlog].clock_offset_sec` profile TOML key (`main()`), default `0`.
+  Deliberately **not** auto-detected/hardcoded in code (e.g. "always add 1h when the host is in
+  DST") — the mechanism is a well-motivated theory, not a certainty, and a wrong guess baked
+  into code is harder to walk back than a config value. Set to `3600` in this deployment's
+  runtime profile TOML (`~/.config/gtex62-core/profiles/modem/local.toml`) and documented with
+  the same caveat in the committed template
+  (`examples/runtime/profiles/modem/local.toml.example`).
+- **Verified live, against the real, still-ongoing burst, in production:** re-ran
+  `fetch_modem.sh local` for real after the fix — before it, this exact live episode would
+  have (and, per the uncorrected-offset regression case below, does) compute `0`; after it,
+  the same real live fetch produced `"state":"ok"`, `"note":""`, `"recent_t3_timeouts":9`. Not
+  a replay, not a reconstruction — the actual production code path, against the actual live
+  modem, run twice (before/after) against the same real ongoing incident.
+- **Important open flag, not resolved this session:** `clock_offset_sec = 3600` is a
+  DST-shaped guess sized off the current evidence, not a confirmed permanent constant.
+  **Revisit when DST ends (~Nov 2026)** — if the "modem stuck on CST" theory is right, the true
+  offset should collapse to ~0 once the host reverts to CST too, and leaving `3600`
+  configured past that point would silently reintroduce the *opposite* failure (events counted
+  as more recent than they really are, over-counting or counting things too early). Flagged in
+  both TOML files' comments; still worth a calendar reminder outside this doc, since nothing in
+  the code itself will notice the transition.
+- **New regression cases**, `providers/modem/test_fetch_modem_regressions.py`: real rows copied
+  verbatim from the second cross-check live fetch (not reconstructed, unlike the Sept 6/7
+  case above) — one proving `clock_offset_sec=0` (the old default, and any profile that doesn't
+  set the key) reproduces the reported bug exactly against this real actively-happening burst,
+  one proving `clock_offset_sec=3600` fixes it. 9 cases total in the file now.
+- **Bottom line, superseding the one above:** root cause confirmed — modem/host clock skew,
+  not a code defect in the window/counting logic, which is why re-running that logic against
+  live data all session kept coming back correct. The double-scheduler fix and the
+  out-of-window diagnostic note from the session above remain shipped and worthwhile
+  regardless, but neither was the actual mechanism here.
+
 ### Open Items
 
 - Sampling interval and packet count per cycle not yet tuned — needs to be frequent enough

@@ -51,6 +51,40 @@ parse_toml_value() {
   ' "$path"
 }
 
+suite_has_domain() {
+  # Investigated 2026-09-07 (see docs/network-providers-roadmap.md, Sept
+  # 6/7 session log): gtex62-core-launch gates vpn/ap/modem/alerts/mtr
+  # purely off core.toml's global [providers] flags, never consulting the
+  # per-suite [domains] required/optional list this function reads — so
+  # any suite launched runs every globally-enabled provider whether or
+  # not that suite has a consumer for it. Confirmed live on Titan: OSA and
+  # SitRep both run gtex62-core-launch concurrently, sharing one
+  # CACHE_ROOT; OSA's own suite.toml domains list never mentions vpn, ap,
+  # modem, alerts, or mtr (SitRep is their only real consumer), yet OSA's
+  # instance was polling the CM1000/PIA/APs/pfSense-alerts/Pi5 the whole
+  # time anyway — doubled, un-coordinated load on all of those, and two
+  # independent un-synchronized ~TTL-interval schedulers silently racing
+  # for the same run_locked() mutex/cache file, with no signal when one
+  # loses that race and skips a cycle. Not the confirmed cause of the
+  # reported T3-undercount (that data had already rolled off the modem's
+  # own log by investigation time — see the roadmap doc), but a real,
+  # separate correctness/efficiency bug in its own right, fixed here by
+  # actually consulting the list this function exists to check.
+  local path="$1"
+  local domain="$2"
+  [[ -f "$path" ]] || return 1
+  awk -v domain="$domain" '
+    /^[[:space:]]*(required|optional)[[:space:]]*=[[:space:]]*\[/ { in_arr = 1; next }
+    in_arr && /\]/ { in_arr = 0; next }
+    in_arr {
+      line = $0
+      gsub(/[",[:space:]]/, "", line)
+      if (line == domain) { found = 1 }
+    }
+    END { exit !found }
+  ' "$path"
+}
+
 parse_toml_section_value() {
   local path="$1"
   local section="$2"
@@ -105,6 +139,28 @@ ALERTS_ENABLED="$(parse_toml_section_value "$CORE_TOML" providers alerts || true
 ALERTS_ENABLED="${ALERTS_ENABLED:-false}"
 MTR_ENABLED="$(parse_toml_section_value "$CORE_TOML" providers mtr || true)"
 MTR_ENABLED="${MTR_ENABLED:-false}"
+# These five are globally enabled/disabled in core.toml but only have a
+# real consumer in specific suites (today: only gtex62-sitrep's WAN/VPN/AP
+# panels and alert banner). Scope each to suites that actually declare the
+# domain, so e.g. gtex62-osa doesn't spin up a second, redundant poller
+# against the same modem/PIA/APs/pfSense-alerts endpoints SitRep already
+# owns — see suite_has_domain()'s comment above for the investigation this
+# came out of.
+if [[ "$VPN_ENABLED" == "true" ]] && ! suite_has_domain "$SUITE_TOML" "vpn"; then
+  VPN_ENABLED="false"
+fi
+if [[ "$AP_ENABLED" == "true" ]] && ! suite_has_domain "$SUITE_TOML" "ap"; then
+  AP_ENABLED="false"
+fi
+if [[ "$MODEM_ENABLED" == "true" ]] && ! suite_has_domain "$SUITE_TOML" "modem"; then
+  MODEM_ENABLED="false"
+fi
+if [[ "$ALERTS_ENABLED" == "true" ]] && ! suite_has_domain "$SUITE_TOML" "alerts"; then
+  ALERTS_ENABLED="false"
+fi
+if [[ "$MTR_ENABLED" == "true" ]] && ! suite_has_domain "$SUITE_TOML" "mtr"; then
+  MTR_ENABLED="false"
+fi
 # Lyrics library provider (providers/media/fetch_lyrics.sh). See
 # docs/lyrics-library-design.md. local_dir/config is global (site.toml
 # [media.lyrics]), not per-profile — MEDIA_PROFILE below only scopes the
