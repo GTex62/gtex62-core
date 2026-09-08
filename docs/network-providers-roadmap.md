@@ -1141,6 +1141,57 @@ maintenance trap entirely.
   `clock_offset_sec` when DST ends — is closed. The modem's own clock is now measured fresh
   every poll instead of assumed from a dated config value.
 
+### Session Log — Sept 8, 2026 (Investigated, Not a Bug: CM1000's Own GUI Hides Recurring Events)
+
+The user noticed the WAN panel's `T3 X 90 (1H)` reading (and repeated `COMCAST DEGRADED`
+alerts driven by `t3_breached`, alongside real corroborating symptoms — VPN latency spikes,
+OSA pings dropping to zero, an initial loss%-triggered breach) throughout the day, while a
+`Save Log` export from the CM1000's own web GUI showed nothing newer than `2026-09-08,
+05:19:32` — hours earlier. Initial hypothesis (offered, correctly hedged as unconfirmed) was
+a clock-offset regression: if the live-calibrated offset from the Sept 7 fix above drifted
+(e.g. a frozen modem clock right at the point the burst started), it could keep re-classifying
+that one old row as "inside the trailing 60-minute window" for hours. That theory was wrong —
+disproved by direct evidence, not just re-reasoned away.
+
+- **Method: read the modem's raw XML directly, live, instead of trusting the GUI's rendered
+  table.** Wrote a throwaway script (not committed — scratchpad only) that imports
+  `fetch_modem.py` and reuses its own `login()`/`get_authenticated()`/`parse_event_log()`
+  functions to log in, fetch `EventLog.asp`, and print every T3-matching row's raw
+  `docsDevEvFirstTime`/`docsDevEvLastTime`/`docsDevEvCounts` — the same underlying data the
+  collector already parses, just surfaced instead of only summed.
+- **Result, verbatim:**
+
+  ```text
+  FirstTime              LastTime                Counts  Id
+  2026-09-08, 05:19:32   2026-09-08, 14:41:39      90    82000500  Started Unicast Maintenance Ranging — T3 time-out
+  2026-09-07, 15:53:54   2026-09-08, 05:14:35      66    82000500  Started Unicast Maintenance Ranging — T3 time-out
+  ```
+
+  Live-resolved `clock_offset_sec` at fetch time: 60.1 minutes — consistent with every prior
+  measurement above, no drift, no anomaly. The self-calibration mechanism was never the
+  problem.
+- **Root cause: the CM1000's web GUI's exported/rendered `Time` column shows a row's
+  `FirstTime`, not its `LastTime`, and never surfaces `docsDevEvCounts` at all.** The
+  `05:19:32` line the user saw was real — it's just the *first* occurrence of a run that continued,
+  under the hood, for 90 total timeouts through `14:41:39` that afternoon. A second collapsed
+  row shows a prior 66-occurrence run immediately before it, from `2026-09-07 15:53:54` through
+  `2026-09-08 05:14:35` — meaning this condition had been recurring on and off for close to 24
+  hours. None of that recurrence is visible anywhere in the GUI's own table; a person watching
+  it sees two static "Critical" lines that never appear to update, with zero indication they're
+  still live.
+- **Cross-checked against `fetch_alerts.sh`'s own `alert_log.txt` for the day** — `comcast-
+  degraded` BREACH/CLEAR timestamps cycling from ~07:36 through a final CLEAR at 16:44:54
+  local line up with the row's `LastTime` of 14:41:39 plus the 60-minute window rolling past
+  it. The alerts, the widget, and `recent_t3_timeouts` were all correct the entire day; nothing
+  needed fixing in `fetch_modem.py` or `fetch_alerts.sh`.
+- **Bottom line:** no code changed this session. The lesson is entirely about the CM1000's own
+  admin UI, not this codebase: its rendered event log is not a reliable "is this still
+  happening" signal once an event starts repeating, because it silently hides the one field
+  (`LastTime`) and the one counter (`Counts`) that would show that. `recent_t3_timeouts` (and
+  the WAN panel's `T3 X N (1H)` line) is the more trustworthy read of "is a T3 condition
+  currently active" than the modem's own GUI — the opposite of what seemed intuitive going
+  into this investigation.
+
 ### Open Items
 
 **The first five bullets below are superseded, not open (2026-09-07)** — they're all
