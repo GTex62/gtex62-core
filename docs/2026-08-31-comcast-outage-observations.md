@@ -28,62 +28,21 @@ than fitting inside any one provider's own doc.
 
 ## Open Questions
 
-Unresolved as of this doc. No fix proposed here — filed as observations for whoever picks
-each one up.
+Filed as GitHub issues (2026-09-09) rather than tracked as prose here — this section just
+points at them. Full original context for each is above and in the timeline below.
 
-### 1. pfSense VPN totals dropped to 0.00 during the outage — by design?
+| # | Issue | Domain | Repo |
+| --- | --- | --- | --- |
+| 1 | [pfSense VPN totals dropped to 0.00 during outage — expected or bug?](https://github.com/GTex62/gtex62-core/issues/1) | `vpn` / `pfsense` | core |
+| 2 | [NET panel: WAN IP field shows garbled/concatenated digits instead of blanking](https://github.com/GTex62/gtex62-osa/issues/1) | NET panel | osa |
+| 3 | [DOCSIS status flapping between IN PROGRESS / NO DATA / NOMINAL](https://github.com/GTex62/gtex62-core/issues/2) | `modem` | core |
+| 4 | [Alert Banner cleared while VPN status stayed DEAD](https://github.com/GTex62/gtex62-core/issues/3) | `alerts` / `vpn` | core |
+| 5 | [MTR (PI5) RUNNING status line — clarify resolution/clear conditions](https://github.com/GTex62/gtex62-core/issues/4) | `mtr` | core |
+| 6 | [NET panel: MTR (PI5) status line should sit at end of CM1000 column](https://github.com/GTex62/gtex62-osa/issues/2) | NET panel layout | osa |
 
-Observed in the SitRep pfSense panel. Not investigated — no `vpn` domain field
-documenting expected behavior on WAN loss was found in
-[pfSense Provider Status](pfsense-provider-status.md) while writing this doc. Core
-(`vpn`/`pfsense` domains).
-
-### 2. OSA NET panel: WAN IP field shows garbled/concatenated digits instead of blanking
-
-First occurrence: `108.67.222.222  53:` then cut off by the table column edge, while the
-connection was down (should show nothing, or a placeholder, for no connection). Second
-occurrence later in the same outage (`@14:30Z`): "a scramble of numbers again — possibly a
-concatenation of IP addresses." Between these, `@13:59Z`, it briefly rendered correctly as
-a single `-`. Source of the garbled value (which cache field, and why it isn't clamped to
-a valid-IP shape or blanked) not identified. OSA display bug
-(`lua/suite/net.lua`/NET panel), core `net`/`connectivity` cache as the likely data
-source.
-
-### 3. DOCSIS status flapping between `IN PROGRESS` / `NO DATA` / `NOMINAL`
-
-Cycled repeatedly across the outage window, sometimes contradicting the actual connection
-state (e.g. `@13:59Z` internet was back up but DOCSIS still showed `NO DATA`). Looked like
-it might just be landing on different points of a refresh cycle each observation, but not
-confirmed against the `modem` provider's actual polling/state logic. Core `modem` domain.
-
-### 4. Alert Banner cleared while VPN status stayed DEAD/fluctuating
-
-The "KS Blocking Traffic" banner cleared even though VPN status remained `DEAD` (observed
-fluctuating — possibly intermittently connecting and resolving, which may explain the
-discrepancy, but not confirmed). Relationship between the `alerts` domain's banner logic
-and the `vpn` domain's own state not traced. Core `alerts`/`vpn` domains.
-
-### 5. MTR (PI5) "RUNNING" status line — how does it resolve?
-
-`MTR (PI5) // RUNNING - <elapsed>` stayed active correctly through the outage (elapsed
-time counted up properly: `0H 28M` → `2H 08M` across observations). Open question: does
-it resolve only via the script's own kill-time, does a manual stop on the Pi5 also clear
-it, and does the display side re-poll to confirm the script is actually still running (vs.
-trusting a stale "started" marker)? Not traced against `mtr`'s actual trigger/kill logic —
-`mtr` has no dedicated provider-status doc yet (see
-[Architecture](architecture.md)'s provider listing). Core `mtr` domain.
-
-### 6. Layout nit: MTR line position under the CM1000 column (low priority)
-
-`MTR (PI5) // RUNNING - 00:28` is short enough to fit under the CM1000 column but appears
-elsewhere in the list; should sit at the end of that column's rows instead. OSA display
-positioning, not a data issue.
-
-### Related, already-noted-as-redundant
-
-`DOC STATE` alert (the DOCSIS state line itself) was independently flagged as feeling
-redundant next to whatever surfaces DOCSIS status elsewhere on the panel — noted here in
-case it's relevant context for whoever looks at #3, not filed as its own open question.
+Issue #3 (DOCSIS flapping) also carries the note that the `DOC STATE` alert line was
+separately flagged as feeling redundant next to wherever DOCSIS status is otherwise
+surfaced on the panel — see that issue for the full observation.
 
 ---
 

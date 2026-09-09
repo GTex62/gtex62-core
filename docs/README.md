@@ -54,7 +54,7 @@ Dated observation logs spanning multiple domains/repos, too broad for any one pr
 own doc — same shape as the dated incident sections inside the `-provider-status.md` docs
 above, split out standalone when a single incident touches several of them at once.
 
-- [Comcast Outage Observations — Aug 31, 2026](2026-08-31-comcast-outage-observations.md) — live cross-panel/cross-repo notes from an intermittent outage; one item (WXR TAF stuck-data) resolved same-day and cross-referenced, five items still open
+- [Comcast Outage Observations — Aug 31, 2026](2026-08-31-comcast-outage-observations.md) — live cross-panel/cross-repo notes from an intermittent outage; one item (WXR TAF stuck-data) resolved same-day and cross-referenced, six items filed as GitHub issues across both repos
 
 ## Changelog
 
