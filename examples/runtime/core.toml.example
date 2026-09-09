@@ -100,3 +100,14 @@ comcast_degraded_loss_pct_threshold = 25
 # 15min) — COMCAST DEGRADED is meant as an earlier warning, not a
 # duplicate of the SEVERE full-outage condition on a longer fuse.
 comcast_degraded_loss_duration_sec = 300
+# How stale modem/status.json can get (file mtime vs. now) before the T3
+# half of the OR-condition above is force-expired instead of re-asserting
+# a frozen recent_t3_timeouts forever. Guards against fetch_modem.py
+# stopping entirely (crash, dead loop, expired credential) rather than
+# writing a fresh error state — that leaves the file saying "ok" with
+# whatever it last saw, which nothing else would catch. 900s (15min) is
+# 3x the modem provider's own 300s cache_ttl_sec — enough slack for a
+# couple of missed polls, tight enough to not pin the banner for hours on
+# a genuinely dead provider. See docs/network-providers-roadmap.md's
+# Sept 8/9 session log.
+comcast_degraded_t3_stale_sec = 900

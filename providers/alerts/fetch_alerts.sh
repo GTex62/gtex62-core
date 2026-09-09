@@ -103,6 +103,19 @@ COMCAST_DEGRADED_LOSS_PCT_THRESHOLD="${COMCAST_DEGRADED_LOSS_PCT_THRESHOLD:-25}"
 COMCAST_DEGRADED_LOSS_DURATION_SEC="$(parse_section_value "$CORE_TOML" alerts comcast_degraded_loss_duration_sec || true)"
 COMCAST_DEGRADED_LOSS_DURATION_SEC="${COMCAST_DEGRADED_LOSS_DURATION_SEC:-300}"
 
+# How stale modem/status.json can get before the T3 sub-condition is forced
+# to expire rather than keep re-asserting a frozen recent_t3_timeouts value
+# forever. Added 2026-09-09 (see roadmap's Sept 8/9 session log): load_json()
+# only checks the file's own `state` field, never its age — if fetch_modem.py
+# stopped running entirely (crash, dead loop, expired credential) rather than
+# writing a fresh "degraded"/"error" state, the file just sits there saying
+# "ok" with whatever it last saw. 900s (15min, 3x the modem provider's own
+# 300s cache_ttl_sec) is generous enough to ride out a couple of missed
+# polls without false-expiring on ordinary jitter, tight enough to catch a
+# genuinely dead provider well before it can pin the banner for hours.
+COMCAST_DEGRADED_T3_STALE_SEC="$(parse_section_value "$CORE_TOML" alerts comcast_degraded_t3_stale_sec || true)"
+COMCAST_DEGRADED_T3_STALE_SEC="${COMCAST_DEGRADED_T3_STALE_SEC:-900}"
+
 # -------------------------------------------------------------------------
 # Evaluate + write. Pure computation over already-cached JSON — no SSH, no
 # gate, no cache-TTL skip (cheap local reads; every invocation recomputes).
@@ -114,7 +127,8 @@ python3 - \
   "$STATE_JSON" "$BANNER_JSON" "$ALERT_LOG" \
   "$PROFILE_ID" "$GATEWAY_OFFLINE_DURATION_SEC" "$PIHOLE_INACTIVE_DURATION_SEC" \
   "$ADV_KILLSWITCH_DURATION_SEC" "$COMCAST_DEGRADED_T3_THRESHOLD" \
-  "$COMCAST_DEGRADED_LOSS_PCT_THRESHOLD" "$COMCAST_DEGRADED_LOSS_DURATION_SEC" <<'PY'
+  "$COMCAST_DEGRADED_LOSS_PCT_THRESHOLD" "$COMCAST_DEGRADED_LOSS_DURATION_SEC" \
+  "$COMCAST_DEGRADED_T3_STALE_SEC" <<'PY'
 import json, os, sys, time
 from datetime import datetime, timezone
 
@@ -122,7 +136,7 @@ from datetime import datetime, timezone
  modem_status_path,
  state_path, banner_path, log_path,
  profile_id, gateway_dur_s, pihole_dur_s, adv_ks_dur_s,
- t3_threshold, loss_pct_threshold, loss_dur_s) = sys.argv[1:18]
+ t3_threshold, loss_pct_threshold, loss_dur_s, t3_stale_s) = sys.argv[1:19]
 
 gateway_dur_s = int(gateway_dur_s)
 pihole_dur_s  = int(pihole_dur_s)
@@ -130,6 +144,7 @@ adv_ks_dur_s  = int(adv_ks_dur_s)
 t3_threshold        = int(t3_threshold)
 loss_pct_threshold  = float(loss_pct_threshold)
 loss_dur_s          = int(loss_dur_s)
+t3_stale_s          = int(t3_stale_s)
 now_epoch     = int(time.time())
 now_iso       = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -297,7 +312,16 @@ if state["gateway_offline_since"] is not None:
 #     poll) so a transient modem-provider hiccup can't force a false CLEAR
 #     the instant its cache goes degraded — same "don't derive a clear from
 #     stale/absent data" principle as load_json()'s state=="ok" gate, just
-#     applied to a threshold flag instead of a since-timestamp.
+#     applied to a threshold flag instead of a since-timestamp. That
+#     protection only covers a same-poll ok_modem=False, though — it says
+#     nothing about a status.json that's simply gone stale while still
+#     saying "ok" (fetch_modem.py stopped running rather than reporting a
+#     clean error). Added 2026-09-09 (see roadmap's Sept 8/9 session log,
+#     prompted by a user asking what actually clears this alert): if the
+#     file's mtime is older than comcast_degraded_t3_stale_sec (default
+#     900s/15min, 3x the modem provider's own poll cadence), the T3
+#     sub-condition is force-expired instead of re-asserting whatever
+#     frozen number it last saw, poll after poll, forever.
 #     The child message anchors the total with modem/status.json's
 #     recent_t3_since (added 2026-09-08, see roadmap's Sept 8 session
 #     log) — "T3: 91 TOTAL SINCE 05:19" instead of the old "T3: 91 IN
@@ -338,13 +362,27 @@ if state["comcast_loss_since"] is not None:
         loss_breached = True
 
 ok_modem, modem = load_json(modem_status_path)
+modem_stale = True
+try:
+    modem_stale = (now_epoch - os.path.getmtime(modem_status_path)) > t3_stale_s
+except OSError:
+    pass  # missing file -> treat as stale, same as ok_modem's own "no fresh evidence" default
+
 t3_count = t3_since = None
-if ok_modem:
+if ok_modem and not modem_stale:
     t3_count = modem.get("recent_t3_timeouts")
     t3_since = modem.get("recent_t3_since")
     state["comcast_t3_breached"] = (
         isinstance(t3_count, (int, float)) and t3_count >= t3_threshold
     )
+elif ok_modem and modem_stale:
+    # File says "ok" but hasn't been refreshed in t3_stale_s -- the provider
+    # itself has likely stopped running, not just had one bad poll. Unlike
+    # a same-poll ok_modem=False (intentionally persisted, see above), a
+    # frozen "ok" file gives no signal of its own that anything's wrong, so
+    # nothing else would ever catch this. Force-expire rather than let a
+    # stale number re-assert BREACH indefinitely.
+    state["comcast_t3_breached"] = False
 t3_breached = state["comcast_t3_breached"]
 
 degraded_active = t3_breached or loss_breached

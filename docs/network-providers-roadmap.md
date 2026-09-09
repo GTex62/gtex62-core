@@ -1213,6 +1213,36 @@ anchoring the total to when the still-counted condition actually started:
   its two Aug-dated session-log mentions of the old `T3: 9 IN 60M` message are historical
   records of what that verification actually showed and are left as they were.
 
+**Second follow-up (Sept 9):** the user asked what actually clears `COMCAST DEGRADED`, and
+proposed a catch-all reset if no new T3 event happens for a while. Investigated what already
+existed vs. what didn't:
+
+- **The "quiet for a while -> clears" case already worked, with no new code needed.**
+  `comcast_t3_breached` is recomputed fresh from live `recent_t3_timeouts` on every poll where
+  `ok_modem` is true; `recent_t3_timeouts` itself is a trailing-window sum
+  (`compute_recent_t3()`), so once 60 minutes pass with no new occurrence added to a row, the
+  count naturally drops out and the very next poll fires `CLEAR`. Confirmed live this session
+  (the 21:44:54Z CLEAR from the first Sept 8 entry above, followed by a fresh BREACH once the
+  condition actually recurred).
+- **The real gap: a `status.json` that goes stale while still saying `"ok"`.**
+  `load_json()` only checks the file's own `state` field, never its age. If `fetch_modem.py`
+  stopped running entirely (crash, dead loop, expired credential) rather than writing a fresh
+  error state, the file just sits there forever reporting whatever `recent_t3_timeouts` it
+  last saw, and `comcast_t3_breached` would stay stuck on that frozen number indefinitely —
+  the one case with no existing catch-all. Distinct from (and not fixed by) the deliberate
+  "persist across a same-poll `ok_modem=False` hiccup" behavior from the original design,
+  which only covers a transient bad poll, not a dead provider that stops writing altogether.
+- **Fix, `providers/alerts/fetch_alerts.sh`:** new `comcast_degraded_t3_stale_sec` config
+  (default 900s/15min — 3x the modem provider's own 300s `cache_ttl_sec`). Compares
+  `modem/status.json`'s mtime against now; if older than the threshold, force-expires
+  `comcast_t3_breached` to `False` for that poll instead of trusting the frozen value. A
+  missing file is treated as stale by the same default. Verified live both directions this
+  session: backdating the real cache file's mtime 20 minutes cleared the alert entirely
+  (nothing else was breached), and restoring a fresh mtime re-breached cleanly on the next run
+  — a genuine new `BREACH` line in `alert_log.txt`, not stuck state.
+- New key documented in `examples/runtime/core.toml.example`; no runtime `core.toml` change
+  needed since the shipped default already matches what was chosen.
+
 ### Open Items
 
 **The first five bullets below are superseded, not open (2026-09-07)** — they're all
