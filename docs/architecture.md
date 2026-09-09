@@ -187,8 +187,8 @@ making fast-track meters (VLAN, ping) appear frozen.
 | alerts       | 60s         | Cross-cutting; recomputes from other domains' caches, no cache_ttl_sec of its own |
 | ap           | 120s        | Zyxel AP fleet status + named clients   |
 | weather      | 300s        | Current conditions + forecast           |
-| air          | 300s        | AQI + pollution                         |
-| solar        | 300s        | UV + radiation                          |
+| air          | 900s        | AQI + pollution — see env-panel-provider-status.md |
+| solar        | 300s        | UV + radiation (weather-derived) — see env-panel-provider-status.md |
 | modem        | 300s        | Cable modem status                      |
 | aviation     | 600s        | METAR/TAF, independent metar_ttl_sec/taf_ttl_sec |
 | astro        | varies      | Moon phase, solar events                |
