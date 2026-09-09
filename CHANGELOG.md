@@ -40,7 +40,7 @@ this file and has not been backfilled — see each domain's own
     only went non-`"ok"` when *both* fields were empty, so a stuck TAF alone
     never surfaced. `status.json` now carries per-field `metar`/`taf`
     sub-objects (`state`/`last_ok`/`age_seconds`, matching
-    `docs/astro-schema.md`'s recommended staleness block), derived from each
+    `docs/astro-provider-status.md`'s recommended staleness block), derived from each
     raw cache file's own mtime rather than a separately tracked timestamp.
     The envelope `state` goes `"degraded"` (matching the existing modem/vpn
     convention for a partial failure) when exactly one field is failing,

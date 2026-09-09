@@ -305,8 +305,8 @@ gtex62-core/
 - [Core-Driven Suite Notes](docs/core-driven-suite-notes.md)
 - [gtex62 Core Rename Roadmap](docs/gtex62-core-rename-roadmap.md)
 - [V1 Audit and OSA Contract](docs/v1-audit-and-osa-contract.md)
-- [System Schema](docs/system-schema.md)
-- [Astro Schema](docs/astro-schema.md)
+- [System Provider Status](docs/system-provider-status.md)
+- [Astro Provider Status](docs/astro-provider-status.md)
 
 OSA-specific render/cache notes live in the OSA repo:
 

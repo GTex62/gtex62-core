@@ -81,7 +81,7 @@ REST API per field, same transport shape as the weather provider. Implements:
 ```
 
 **Per-field sub-objects (`metar`/`taf`)** — `state`/`last_ok`/`age_seconds`, matching
-[astro-schema.md](astro-schema.md)'s recommended staleness-block shape. Each is derived
+[astro-provider-status.md](astro-provider-status.md)'s recommended staleness-block shape. Each is derived
 from that field's own raw cache file's mtime (`metar_raw.txt`/`taf_raw.txt`), not from a
 separately tracked timestamp that could drift out of sync with what's actually on disk.
 Two important subtleties:

@@ -165,7 +165,7 @@ executed as of this snapshot — prompt drafted, session pending.**
   `cpu.model` with **no** `usage_percent`/`temperature_c`, no `memory` object, GPU
   model+driver only, and `processes.json` had an empty `top_cpu`. The collector
   even defined CPU%/RAM%/temp helpers but never called them — live telemetry was
-  deliberately left to OSA's suite-local fast lane per `docs/system-schema.md`,
+  deliberately left to OSA's suite-local fast lane per `docs/system-provider-status.md`,
   which the "all suites pull from core" standing goal now overrides.
 - Extended the collector to emit the full schema: `cpu.usage_percent` +
   `temperature_c`, `memory` (used/total/percent), `gpu` util/temp/power/vram
@@ -177,7 +177,7 @@ executed as of this snapshot — prompt drafted, session pending.**
   reports since-boot averages). First run takes a 0.3 s two-point sample.
 - Additive fields for the clean-monitor header: `hostname`, `user`, and
   `kernel.release_full` (raw `uname -r`; `kernel.release` keeps OSA's `-G`
-  abbreviation untouched). Documented in `docs/system-schema.md`.
+  abbreviation untouched). Documented in `docs/system-provider-status.md`.
 - Verified with `jq .` on all four files after two manual runs: values present and
   plausible, `status.json` state `ok`, steady-state runtime ~0.45 s. Note the
   refresh loop only runs while the core launcher is up — the widgets currently

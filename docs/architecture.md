@@ -181,7 +181,7 @@ making fast-track meters (VLAN, ping) appear frozen.
 |--------------|----------------|------------------------------------------------------------------------------------------------------------------|
 | net          | 1s             | Fast-track — VLAN, ping, WAN IP display                                                                          |
 | time         | 1s             | Fast-track — clock rows                                                                                          |
-| system       | 1s             | Fast-track — CPU, RAM, GPU, storage                                                                              |
+| system       | 1s             | Fast-track — CPU, RAM, GPU, storage — see system-provider-status.md                                              |
 | vpn          | 10s            | PIA WireGuard tunnel status                                                                                      |
 | orb          | 60s            | Ephemeris positions                                                                                              |
 | alerts       | 60s            | Cross-cutting; recomputes from other domains' caches, no cache_ttl_sec of its own                                |
@@ -191,7 +191,7 @@ making fast-track meters (VLAN, ping) appear frozen.
 | solar        | 300s           | UV + radiation (weather-derived) — see env-panel-provider-status.md                                              |
 | modem        | 300s           | Cable modem status                                                                                               |
 | aviation     | 600s           | METAR/TAF, independent metar_ttl_sec/taf_ttl_sec                                                                 |
-| astro        | varies         | Moon phase, solar events                                                                                         |
+| astro        | 60s            | Moon phase, solar events — see astro-provider-status.md                                                          |
 | connectivity | on-demand      | Manual speedtest snapshots                                                                                       |
 | network      | varies         | NIC state                                                                                                        |
 | pfsense      | varies         | Firewall/SSH gate                                                                                                |
