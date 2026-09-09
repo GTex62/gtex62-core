@@ -909,7 +909,7 @@ convention at the time. Investigated whether that makes it a legitimate,
 separate exception rather than more of the same bug, per instruction not
 to assume:
 
-- `docs/net-provider.md`'s own **Suite Consumption** section is
+- `docs/net-provider-reference.md`'s own **Suite Consumption** section is
   unambiguous: "Suites read from `shared/net/<profile>/` and resolve the
   profile from their suite TOML `[profiles] net` key (default
   `"local"`)." That is the documented, authoritative resolution
@@ -925,7 +925,7 @@ to assume:
 - **Conclusion: not a legitimate exception — folded in.** `NET_PROFILE`
   now resolves from suite config exactly like `SYS_PROFILE` and the new
   `NETWORK_PROFILE`, with the env var removed. This matches
-  `docs/net-provider.md` and restores single-mechanism consistency
+  `docs/net-provider-reference.md` and restores single-mechanism consistency
   across the whole file.
 
 *Fix.* Ported the `parse_simple_toml`-into-`RUNTIME_ROOT ..

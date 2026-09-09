@@ -608,7 +608,7 @@ initial_refresh "network-${NETWORK_PROFILE}" "$NETWORK_STAMP" "$CORE_DIR/provide
 #   - `net` (providers/net/fetch_net.sh) independently re-implements ping
 #     against the same two hosts (1.1.1.1, 8.8.8.8) via its own
 #     parse_ping_ms(), and is the correct, evidenced, working display path —
-#     see docs/net-provider.md and architecture.md's TTL table (net: 1s,
+#     see docs/net-provider-reference.md and architecture.md's TTL table (net: 1s,
 #     "Fast-track — VLAN, ping, WAN IP display"). net's independent-ping
 #     design (32eb926, 2026-05-12) predates architecture.md's current wording
 #     by 5 days, and architecture.md consistently treats net, never

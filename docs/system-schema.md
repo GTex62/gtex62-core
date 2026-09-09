@@ -1,4 +1,4 @@
-# Core V1 System Schema For OSA
+# Core V1 System Schema
 
 ## Purpose
 

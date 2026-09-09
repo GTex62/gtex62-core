@@ -1,4 +1,4 @@
-# Core V1 Astro Schema For OSA
+# Core V1 Astro Schema
 
 ## Purpose
 

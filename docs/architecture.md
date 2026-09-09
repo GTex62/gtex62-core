@@ -206,7 +206,7 @@ connectivity's own `ping` probes (`.ping.primary`/`.ping.secondary` in its
 `current.json`) have no consumer anywhere in this codebase — `net` computes
 ping independently (see its row above) and owns display duty for it. This is
 already the authoritative, pre-existing statement of net-vs-connectivity
-ownership in `docs/net-provider.md`'s Purpose section: "[net] is distinct
+ownership in `docs/net-provider-reference.md`'s Purpose section: "[net] is distinct
 from... the connectivity domain (speedtest snapshots). The net provider acts
 as a display-ready projection layer... refreshed at a faster cadence than
 either." Start there for the full picture.

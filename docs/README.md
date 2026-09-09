@@ -22,9 +22,9 @@ the full domain set including ones with no dedicated doc yet.
 - [Weather Provider Status](weather-provider-status.md) — OpenWeather current conditions + forecast: schemas, known staleness-detection gap
 - [Aviation Provider Status](aviation-provider-status.md) — METAR/TAF split-endpoint fetch, per-field degraded envelope, Aug 2026 TAF stuck-data incident
 - [ENV Panel Provider Status](env-panel-provider-status.md) — `air` (OpenWeather + AirNow AQI/pollution) and `solar` (weather-derived UV/radiation) domains behind OSA's ENV/ATMOS panel: schemas, TTL-key mismatch between the two, `solar` status.json provider-field quirk
-- [Net Provider](net-provider.md) — state.vars and vlan.tsv formats, key reference, refresh model
-- [Orb Provider](orb-provider.md) — ephemeris.vars format, per-body key reference, location resolution
-- [AirGradient Engine Integration](airgradient-engine-integration.md) — indoor AQI (`air` domain) design: collector/engine/display separation
+- [Net Provider Reference](net-provider-reference.md) — state.vars and vlan.tsv formats, key reference, refresh model
+- [Orb Provider Reference](orb-provider-reference.md) — ephemeris.vars format, per-body key reference, location resolution
+- [AirGradient Provider Design](airgradient-provider-design.md) — indoor AQI (`air` domain) design: collector/engine/display separation
 - [Lyrics Library Design](lyrics-library-design.md) — `media` domain design: library-vs-cache distinction, write-through safety
 
 ## Schemas
