@@ -323,12 +323,16 @@ if state["gateway_offline_since"] is not None:
 #     sub-condition is force-expired instead of re-asserting whatever
 #     frozen number it last saw, poll after poll, forever.
 #     The child message anchors the total with modem/status.json's
-#     recent_t3_since (added 2026-09-08, see roadmap's Sept 8 session
-#     log) — "T3: 91 TOTAL SINCE 05:19" instead of the old "T3: 91 IN
-#     60M", which read as "91 fresh timeouts in the last hour" when the
-#     number is actually a whole collapsed row's lifetime count that just
-#     happens to still be inside the window (see fetch_modem.py's
-#     compute_recent_t3() docstring). This is the WAN panel's SitRep
+#     recent_t3_elapsed (added 2026-09-08, changed from a wall-clock
+#     "SINCE HH:MM" to elapsed "H:MM" on 2026-09-09 at the user's
+#     suggestion — see roadmap's Sept 8/9 session log) — "T3: 91 TOTAL
+#     FOR 36:12" instead of the old "T3: 91 IN 60M", which read as "91
+#     fresh timeouts in the last hour" when the number is actually a
+#     whole collapsed row's lifetime count that just happens to still be
+#     inside the window (see fetch_modem.py's compute_recent_t3()
+#     docstring). Elapsed rather than a wall-clock anchor specifically so
+#     it stays meaningful past 24h without also needing a date printed —
+#     hours just keep counting up. This is the WAN panel's SitRep
 #     counterpart moved here instead — see gtex62-sitrep's pf.lua
 #     cm1000_fields() comment for why: this banner line has room for the
 #     anchor alongside the total, the WAN panel's CM1000 column doesn't.
@@ -368,10 +372,10 @@ try:
 except OSError:
     pass  # missing file -> treat as stale, same as ok_modem's own "no fresh evidence" default
 
-t3_count = t3_since = None
+t3_count = t3_elapsed = None
 if ok_modem and not modem_stale:
     t3_count = modem.get("recent_t3_timeouts")
-    t3_since = modem.get("recent_t3_since")
+    t3_elapsed = modem.get("recent_t3_elapsed")
     state["comcast_t3_breached"] = (
         isinstance(t3_count, (int, float)) and t3_count >= t3_threshold
     )
@@ -407,8 +411,8 @@ if state["comcast_degraded_since"] is not None:
     # rather than rendering a number that isn't actually current.
     if ok_modem and t3_breached:
         t3_message = f"T3: {int(t3_count)} TOTAL"
-        if t3_since:
-            t3_message += f" SINCE {t3_since}"
+        if t3_elapsed:
+            t3_message += f" FOR {t3_elapsed}"
         comcast_children.append({
             "id": "comcast-degraded-t3",
             "severity": "INFORMATIONAL",

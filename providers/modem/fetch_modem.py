@@ -554,22 +554,35 @@ def compute_recent_t3(events, window_minutes, now_dt, clock_offset_sec=0):
     the real deployment sets `[eventlog].clock_offset_sec` in its profile
     TOML — see fetch_modem.py's main() and the profile TOML template.
 
-    Also returns `since_label`: a human string anchored to the earliest
-    `docsDevEvFirstTime` among rows actually counted, or None when
-    `total` is 0. Added 2026-09-08 (see roadmap's Sept 8 session log):
-    `total` is a row's *entire* collapsed `docsDevEvCounts`, not just
-    however many of those occurrences landed inside `window_minutes` —
-    the modem gives no per-occurrence timestamps within a collapsed row,
-    so there's no way to compute the latter. A count of 91 can mean "91
-    fresh timeouts this hour" or "one more on top of a condition that's
-    been recurring since early this morning" — those look identical as a
-    bare number but call for very different reactions. `since_label`
-    exists so a caller can render "91 TOTAL SINCE 05:19" instead of
-    implying all 91 just happened."""
+    Also returns `elapsed_label`: how long the still-counted condition has
+    been running, as "H:MM" (hours uncapped — 36:12 means 36h12m, not a
+    wraparound), anchored to the earliest `docsDevEvFirstTime` among rows
+    actually counted; None when `total` is 0. Added 2026-09-08 (see
+    roadmap's Sept 8 session log), changed from a wall-clock "SINCE HH:MM"
+    to elapsed on 2026-09-09 at the user's suggestion: a wall-clock anchor
+    stops being useful once a condition has been running more than a day
+    (was it "since 05:19" this morning or yesterday? the format itself
+    couldn't say without also printing a date), where elapsed hours just
+    keep counting up regardless of how long it's been. `total` is a row's
+    *entire* collapsed `docsDevEvCounts`, not just however many of those
+    occurrences landed inside `window_minutes` — the modem gives no
+    per-occurrence timestamps within a collapsed row, so there's no way to
+    compute the latter. A count of 91 can mean "91 fresh timeouts this
+    hour" or "one more on top of a condition that's been recurring for a
+    day and a half" — those look identical as a bare number but call for
+    very different reactions; `elapsed_label` exists so a caller can
+    render "91 TOTAL FOR 36:12" instead of implying all 91 just happened.
+
+    Unlike the wall-clock label this replaces, `elapsed_label` needs
+    `docsDevEvFirstTime` corrected by `clock_offset_sec` before comparing
+    it to `now_dt` — a bare wall-clock display benefited from matching the
+    modem's own uncorrected timestamp (what you'd see on its GUI), but a
+    real elapsed *duration* would run long by however much the modem's
+    clock is behind (currently ~60min) if left uncorrected."""
     total = 0
     unparsed = 0
     nearest_excluded_age_min = None  # closest-to-window T3 match that missed, for the note below
-    since_first_dt = None  # earliest FirstTime among rows actually counted
+    since_first_dt = None  # earliest (clock_offset_sec-corrected) FirstTime among rows counted
     for ev in events:
         if not matches_t3(ev):
             continue
@@ -601,8 +614,11 @@ def compute_recent_t3(events, window_minutes, now_dt, clock_offset_sec=0):
         if -300 <= age_sec <= window_minutes * 60:
             total += counts
             first_dt = parse_event_time(ev.get("docsDevEvFirstTime"), now_dt.date())
-            if first_dt is not None and (since_first_dt is None or first_dt < since_first_dt):
-                since_first_dt = first_dt
+            if first_dt is not None:
+                if clock_offset_sec:
+                    first_dt += timedelta(seconds=clock_offset_sec)
+                if since_first_dt is None or first_dt < since_first_dt:
+                    since_first_dt = first_dt
         else:
             age_min = age_sec / 60
             if nearest_excluded_age_min is None or age_min < nearest_excluded_age_min:
@@ -633,19 +649,17 @@ def compute_recent_t3(events, window_minutes, now_dt, clock_offset_sec=0):
                       f"timestamps and were excluded from the {window_minutes}m window count")
     note = "; ".join(notes) or None
 
-    since_label = None
+    elapsed_label = None
     if since_first_dt is not None:
-        # Same calendar day as the fetch: bare "HH:MM" (matches the
-        # modem's own local wall-clock convention). Spans into a prior
-        # day (the Sept 7->8 66-occurrence row from the roadmap's Sept 8
-        # session log is exactly this case): include the date so it
-        # doesn't read as "today" when it isn't.
-        if since_first_dt.date() == now_dt.date():
-            since_label = since_first_dt.strftime("%H:%M")
-        else:
-            since_label = since_first_dt.strftime("%m/%d %H:%M")
+        # "H:MM", hours uncapped rather than wrapping at 24 — a condition
+        # still running a day and a half later reads as "36:12", not a
+        # date the reader has to do their own arithmetic against. Floored
+        # to the minute (not rounded), same convention as fetch_alerts.sh's
+        # existing "FOR <N>MIN" duration formatting elsewhere.
+        elapsed_sec = max(0, int((now_dt - since_first_dt).total_seconds()))
+        elapsed_label = f"{elapsed_sec // 3600}:{(elapsed_sec % 3600) // 60:02d}"
 
-    return total, note, since_label
+    return total, note, elapsed_label
 
 
 # -----------------------------------------------------------------------
@@ -731,7 +745,7 @@ def main():
     )
 
     events, evlog_note = parse_event_log(eventlog_html)
-    recent_t3, window_note, recent_t3_since = compute_recent_t3(events, window_minutes, now_dt, clock_offset_sec)
+    recent_t3, window_note, recent_t3_elapsed = compute_recent_t3(events, window_minutes, now_dt, clock_offset_sec)
 
     notes = list(docsis.get("notes") or [])
     if evlog_note:
@@ -755,7 +769,7 @@ def main():
         "connectivity_state": docsis["connectivity_state"],
         "boot_state": docsis["boot_state"],
         "recent_t3_timeouts": recent_t3,
-        "recent_t3_since": recent_t3_since,
+        "recent_t3_elapsed": recent_t3_elapsed,
         "event_log_window_minutes": window_minutes,
     }
     atomic_write(STATUS_JSON, json.dumps(payload, separators=(",", ":")) + "\n")

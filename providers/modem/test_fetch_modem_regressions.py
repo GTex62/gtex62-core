@@ -346,7 +346,7 @@ def test_end_to_end_real_capture_self_calibrates_and_counts_correctly():
 
 
 # ---------------------------------------------------------------------
-# Sept 8, 2026 — `since_label`, added after a user asked whether a
+# Sept 8, 2026 — `elapsed_label`, added after a user asked whether a
 # recent_t3_timeouts jump (90 -> 91) meant "91 fresh timeouts this hour"
 # vs. "one more on an old, still-recurring condition." Direct live
 # evidence that day (see roadmap session log): the CM1000's own GUI
@@ -355,8 +355,21 @@ def test_end_to_end_real_capture_self_calibrates_and_counts_correctly():
 # looked quiet while it was actually still active — 91 total, last hit
 # 17:35:14 that afternoon. Rows below are the real ones captured live
 # that day (see roadmap doc), used verbatim rather than reconstructed.
+#
+# Changed from a wall-clock "SINCE HH:MM" to elapsed "H:MM" on 2026-09-09
+# at the user's suggestion: a wall-clock anchor stops being useful once a
+# condition has run more than a day (is "05:19" today or yesterday?),
+# where elapsed hours just keep counting up. This also fixed a real bug
+# caught while making the change: the wall-clock version compared
+# `now_dt` against the row's *raw, uncorrected* FirstTime (deliberately,
+# to match what the modem's own GUI would show) — elapsed duration math
+# needs the clock_offset_sec correction applied instead, or it overstates
+# the duration by however far the modem's clock is behind. Test 1 below
+# locks that fix in: the expected "12:26" is a full hour less than the
+# "13:26" an uncorrected FirstTime would produce with this same
+# 3604s (~60.1min) offset.
 # ---------------------------------------------------------------------
-def test_since_label_same_day_uses_bare_hhmm():
+def test_elapsed_label_uses_offset_corrected_firsttime():
     now_dt = datetime(2026, 9, 8, 18, 45, 36)
     events = [{
         "docsDevEvId": "82000500",
@@ -365,15 +378,15 @@ def test_since_label_same_day_uses_bare_hhmm():
         "docsDevEvLastTime": "2026-09-08, 17:35:14",  # ~10min old after the 60.1min live offset -> in
         "docsDevEvCounts": "91",
     }]
-    total, note, since = fm.compute_recent_t3(events, 60, now_dt, clock_offset_sec=3604)
+    total, note, elapsed = fm.compute_recent_t3(events, 60, now_dt, clock_offset_sec=3604)
     check(
-        "Sept 8 (live): since_label is the row's FirstTime, same-day -> bare HH:MM",
-        total == 91 and since == "05:19",
-        f"total={total} note={note!r} since={since!r}",
+        "Sept 8 (live): elapsed_label is offset-corrected, not the raw FirstTime (12:26, not 13:26)",
+        total == 91 and elapsed == "12:26",
+        f"total={total} note={note!r} elapsed={elapsed!r}",
     )
 
 
-def test_since_label_spans_into_prior_day_includes_date():
+def test_elapsed_label_uncapped_past_24_hours():
     now_dt = datetime(2026, 9, 8, 5, 30, 0)
     events = [{
         "docsDevEvId": "82000500",
@@ -382,15 +395,15 @@ def test_since_label_spans_into_prior_day_includes_date():
         "docsDevEvLastTime": "2026-09-08, 05:14:35",  # ~15min old -> in
         "docsDevEvCounts": "66",
     }]
-    total, note, since = fm.compute_recent_t3(events, 60, now_dt)
+    total, note, elapsed = fm.compute_recent_t3(events, 60, now_dt)
     check(
-        "Sept 8 (live): since_label spanning into the prior day includes the date",
-        total == 66 and since == "09/07 15:53",
-        f"total={total} note={note!r} since={since!r}",
+        "Sept 8 (live): elapsed_label spans a day boundary as plain hours (13:36), not a date",
+        total == 66 and elapsed == "13:36",
+        f"total={total} note={note!r} elapsed={elapsed!r}",
     )
 
 
-def test_since_label_none_when_total_is_zero():
+def test_elapsed_label_none_when_total_is_zero():
     now_dt = datetime(2026, 9, 8, 18, 45, 36)
     events = [{
         "docsDevEvId": "82000500",
@@ -399,11 +412,11 @@ def test_since_label_none_when_total_is_zero():
         "docsDevEvLastTime": "2026-09-08, 14:41:39",  # well outside a 60min window from 18:45
         "docsDevEvCounts": "90",
     }]
-    total, note, since = fm.compute_recent_t3(events, 60, now_dt, clock_offset_sec=3604)
+    total, note, elapsed = fm.compute_recent_t3(events, 60, now_dt, clock_offset_sec=3604)
     check(
-        "Sept 8: quiet (0 total) -> since_label is None, nothing to anchor",
-        total == 0 and since is None,
-        f"total={total} note={note!r} since={since!r}",
+        "Sept 8: quiet (0 total) -> elapsed_label is None, nothing to anchor",
+        total == 0 and elapsed is None,
+        f"total={total} note={note!r} elapsed={elapsed!r}",
     )
 
 
@@ -422,9 +435,9 @@ if __name__ == "__main__":
     test_resolve_clock_offset_sec_falls_back_when_field_missing()
     test_resolve_clock_offset_sec_rejects_insane_live_reading()
     test_end_to_end_real_capture_self_calibrates_and_counts_correctly()
-    test_since_label_same_day_uses_bare_hhmm()
-    test_since_label_spans_into_prior_day_includes_date()
-    test_since_label_none_when_total_is_zero()
+    test_elapsed_label_uses_offset_corrected_firsttime()
+    test_elapsed_label_uncapped_past_24_hours()
+    test_elapsed_label_none_when_total_is_zero()
 
     if FAILURES:
         print(f"\n{len(FAILURES)} failure(s): {FAILURES}")

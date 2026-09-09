@@ -1243,6 +1243,37 @@ existed vs. what didn't:
 - New key documented in `examples/runtime/core.toml.example`; no runtime `core.toml` change
   needed since the shipped default already matches what was chosen.
 
+**Third follow-up (Sept 9):** the user watched the real `T3: 91 TOTAL SINCE 05:19` message and
+raised a real usability problem before it even happened: a wall-clock `SINCE` anchor stops
+being a useful number once the condition has been running more than a day — is "05:19" this
+morning or yesterday? The format alone can't say without also printing a date, and the whole
+point of the anchor (making the total interpretable at a glance) breaks down exactly when a
+long-running condition needs it most. Their proposed fix: show elapsed time instead —
+`36:12` for 36 hours 12 minutes, hours uncapped rather than wrapping at 24, so it just keeps
+counting up regardless of how long it's been.
+
+- **Implemented in `compute_recent_t3()`:** `since_label` renamed `elapsed_label`,
+  changed from a formatted wall-clock string to `"H:MM"` elapsed duration
+  (`now_dt - since_first_dt`, floored to the minute, hours uncapped). `status.json`'s field
+  renamed `recent_t3_since` -> `recent_t3_elapsed` to match.
+- **Real bug caught while making the change, not a hypothetical:** the wall-clock version
+  compared `now_dt` against the row's *raw, uncorrected* `docsDevEvFirstTime` — deliberately,
+  at the time, to match what the modem's own GUI would display. Elapsed *duration* math needs
+  the same `clock_offset_sec` correction already applied to `LastTime` applied to `FirstTime`
+  too, or the reported duration runs long by however far the modem's clock is behind (currently
+  ~60min) — a 12h26m condition would have read as "13:26" uncorrected. Fixed in the same change;
+  the new `test_elapsed_label_uses_offset_corrected_firsttime` regression case locks in the
+  corrected value (`12:26`) against what the old bug would have produced (`13:26`) with the same
+  real captured row and a real 3604s offset, so this can't quietly regress.
+- 3 regression cases rewritten for the new semantics (offset-correction, uncapped-past-24h,
+  none-when-zero); all 17 cases in `test_fetch_modem_regressions.py` still pass.
+- `fetch_alerts.sh`'s `comcast-degraded-t3` child changed from `T3: <n> TOTAL SINCE <HH:MM>` to
+  `T3: <n> TOTAL FOR <H:MM>` — `FOR` matches the duration idiom the loss sub-condition already
+  uses (`GATEWAY: <pct>% FOR <N>MIN`), so both children now read the same way. Verified live:
+  `T3: 93 TOTAL FOR 14:05` against the real, still-ongoing condition from earlier sessions.
+- `sitrep-architecture.md`, `gtex62-sitrep`'s `reading-the-widget.md`, and the gitignored
+  `design/sitrep-design-notes.md` mirror table updated to match.
+
 ### Open Items
 
 **The first five bullets below are superseded, not open (2026-09-07)** — they're all
