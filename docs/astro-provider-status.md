@@ -100,7 +100,7 @@ The installed profile omits the `[cache]` block entirely (launcher default 60s a
 `source = "ephem"` is recorded but never branched on — the script always uses pyephem
 regardless of this value, the same recorded-but-unused-config pattern as `air`'s
 `baseline_provider`/`overlay_provider` (see
-[ENV Panel Provider Status](env-panel-provider-status.md)) and `solar`'s `source`. The
+[ENV Provider Status](env-provider-status.md)) and `solar`'s `source`. The
 `[fallback] weather_profile` key is more than unused-but-recorded — `fetch_astro.sh` never
 reads the `[fallback]` section at all, in code or in a fallback chain; it's dead
 configuration, likely a placeholder for `astro-schema.md`'s original "core may populate

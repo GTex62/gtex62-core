@@ -21,7 +21,7 @@ the full domain set including ones with no dedicated doc yet.
 - [AP Provider Status](ap-provider-status.md) — Zyxel access-point domain: auth/transport, MAC↔IP client join, MSMTCH mismatch detection
 - [Weather Provider Status](weather-provider-status.md) — OpenWeather current conditions + forecast: schemas, known staleness-detection gap
 - [Aviation Provider Status](aviation-provider-status.md) — METAR/TAF split-endpoint fetch, per-field degraded envelope, Aug 2026 TAF stuck-data incident
-- [ENV Panel Provider Status](env-panel-provider-status.md) — `air` (OpenWeather + AirNow AQI/pollution) and `solar` (weather-derived UV/radiation) domains behind OSA's ENV/ATMOS panel: schemas, TTL-key mismatch between the two, `solar` status.json provider-field quirk
+- [ENV Provider Status](env-provider-status.md) — `air` (OpenWeather + AirNow AQI/pollution) and `solar` (weather-derived UV/radiation) domains behind OSA's ENV/ATMOS panel: schemas, TTL-key mismatch between the two, `solar` status.json provider-field quirk
 - [System Provider Status](system-provider-status.md) — machine/OS truth (`current.json`/`processes.json`/`storage.json`/`status.json`), fast-lane/slow-lane split with OSA `SYS`, promoted out of the former `system-schema.md`
 - [Astro Provider Status](astro-provider-status.md) — sun/moon/planet positions (a *different* domain from `orb` — see its own Scope section), promoted out of the former `astro-schema.md`
 - [Net Provider Reference](net-provider-reference.md) — state.vars and vlan.tsv formats, key reference, refresh model

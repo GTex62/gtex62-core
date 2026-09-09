@@ -1,4 +1,4 @@
-# ENV Panel Provider Status
+# ENV Provider Status
 
 Current implementation state of the two core provider domains behind the ENV panel —
 `air` (AQI + pollution) and `solar` (UV + radiation): script locations, output schemas,
