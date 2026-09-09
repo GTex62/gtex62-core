@@ -18,6 +18,41 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
+## 0.6.2 — 2026-09-09
+
+- **New `comcast-degraded` CAUTION alert condition (Sept 7, 2026,
+  `providers/alerts/fetch_alerts.sh`).** Closes the last open item from the
+  `network-health` investigation in
+  [Network Providers Roadmap](docs/network-providers-roadmap.md) — sustained WAN
+  packet loss (read from pfSense's existing dpinger quality data, no new
+  sampling loop) now surfaces as its own alert: `comcast_degraded_loss_pct_threshold`
+  (default 25%) sustained for `comcast_degraded_loss_duration_sec` (default
+  300s/5min). New `[alerts]` keys in `examples/runtime/core.toml.example`. See
+  [SitRep Architecture](docs/sitrep-architecture.md) § Alert Banner Watcher for
+  the full condition definition.
+- **T3-timeout alert anchor reworked from wall-clock `SINCE <HH:MM>` to elapsed
+  `FOR <H:MM>` (Sept 8, 2026, `providers/modem/fetch_modem.py` +
+  `providers/alerts/fetch_alerts.sh`).** Matches the loss sub-condition's existing
+  duration idiom (`GATEWAY: <pct>% FOR <N>MIN`) so both `comcast-degraded`
+  children read the same way — was `T3: <n> TOTAL SINCE <HH:MM>`, now
+  `T3: <n> TOTAL FOR <H:MM>`. `elapsed_label` is offset-corrected (uses the
+  same self-calibrated `clock_offset_sec` the Sept 6/7 T3-undercount fix
+  introduced) and spans a day boundary as plain hours, not a date. `None` when
+  the T3 total is `0` — nothing to anchor.
+- **Force-expire the `comcast-degraded-t3` sub-condition on a stale modem
+  `status.json` (Sept 8, 2026, `providers/alerts/fetch_alerts.sh`).** Prevents
+  the T3 child from displaying a frozen count/anchor against a modem cache
+  that's stopped updating (e.g. modem unreachable) — same
+  stuck-but-present-cache failure shape as the aviation TAF and weather
+  no-partial-failure-state fixes in 0.6.1, this time on the alerts side rather
+  than a provider's own `status.json`.
+- 3 new regression cases (offset-correction, uncapped-past-24h, none-when-zero)
+  added to `providers/modem/test_fetch_modem_regressions.py`; all 17 cases
+  pass. Live-verified: `T3: 93 TOTAL FOR 14:05` against a real, still-ongoing
+  condition.
+- Full session logs: [Network Providers Roadmap](docs/network-providers-roadmap.md)'s
+  "Modem-Level Corroboration Provider" section, Sept 7 and Sept 8, 2026 entries.
+
 ## 0.6.1 — 2026-08-31
 
 - **Aviation provider (`providers/aviation/fetch_aviation.sh`) — TAF stuck-data
