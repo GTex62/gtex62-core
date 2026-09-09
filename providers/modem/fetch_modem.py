@@ -552,10 +552,24 @@ def compute_recent_t3(events, window_minutes, now_dt, clock_offset_sec=0):
     answering a much smaller problem than the one that showed up. This
     parameter is 0 by default (unaffected callers/tests are unchanged);
     the real deployment sets `[eventlog].clock_offset_sec` in its profile
-    TOML — see fetch_modem.py's main() and the profile TOML template."""
+    TOML — see fetch_modem.py's main() and the profile TOML template.
+
+    Also returns `since_label`: a human string anchored to the earliest
+    `docsDevEvFirstTime` among rows actually counted, or None when
+    `total` is 0. Added 2026-09-08 (see roadmap's Sept 8 session log):
+    `total` is a row's *entire* collapsed `docsDevEvCounts`, not just
+    however many of those occurrences landed inside `window_minutes` —
+    the modem gives no per-occurrence timestamps within a collapsed row,
+    so there's no way to compute the latter. A count of 91 can mean "91
+    fresh timeouts this hour" or "one more on top of a condition that's
+    been recurring since early this morning" — those look identical as a
+    bare number but call for very different reactions. `since_label`
+    exists so a caller can render "91 TOTAL SINCE 05:19" instead of
+    implying all 91 just happened."""
     total = 0
     unparsed = 0
     nearest_excluded_age_min = None  # closest-to-window T3 match that missed, for the note below
+    since_first_dt = None  # earliest FirstTime among rows actually counted
     for ev in events:
         if not matches_t3(ev):
             continue
@@ -586,6 +600,9 @@ def compute_recent_t3(events, window_minutes, now_dt, clock_offset_sec=0):
         # above is the correction for the modem's own gross offset)
         if -300 <= age_sec <= window_minutes * 60:
             total += counts
+            first_dt = parse_event_time(ev.get("docsDevEvFirstTime"), now_dt.date())
+            if first_dt is not None and (since_first_dt is None or first_dt < since_first_dt):
+                since_first_dt = first_dt
         else:
             age_min = age_sec / 60
             if nearest_excluded_age_min is None or age_min < nearest_excluded_age_min:
@@ -615,7 +632,20 @@ def compute_recent_t3(events, window_minutes, now_dt, clock_offset_sec=0):
         notes.append(f"{unparsed} matching event row(s) had unparseable First/Last "
                       f"timestamps and were excluded from the {window_minutes}m window count")
     note = "; ".join(notes) or None
-    return total, note
+
+    since_label = None
+    if since_first_dt is not None:
+        # Same calendar day as the fetch: bare "HH:MM" (matches the
+        # modem's own local wall-clock convention). Spans into a prior
+        # day (the Sept 7->8 66-occurrence row from the roadmap's Sept 8
+        # session log is exactly this case): include the date so it
+        # doesn't read as "today" when it isn't.
+        if since_first_dt.date() == now_dt.date():
+            since_label = since_first_dt.strftime("%H:%M")
+        else:
+            since_label = since_first_dt.strftime("%m/%d %H:%M")
+
+    return total, note, since_label
 
 
 # -----------------------------------------------------------------------
@@ -701,7 +731,7 @@ def main():
     )
 
     events, evlog_note = parse_event_log(eventlog_html)
-    recent_t3, window_note = compute_recent_t3(events, window_minutes, now_dt, clock_offset_sec)
+    recent_t3, window_note, recent_t3_since = compute_recent_t3(events, window_minutes, now_dt, clock_offset_sec)
 
     notes = list(docsis.get("notes") or [])
     if evlog_note:
@@ -725,6 +755,7 @@ def main():
         "connectivity_state": docsis["connectivity_state"],
         "boot_state": docsis["boot_state"],
         "recent_t3_timeouts": recent_t3,
+        "recent_t3_since": recent_t3_since,
         "event_log_window_minutes": window_minutes,
     }
     atomic_write(STATUS_JSON, json.dumps(payload, separators=(",", ":")) + "\n")

@@ -8,8 +8,9 @@ Not wired into any CI — this repo has no test runner today. Run directly:
 
 Each case here traces back to a real, live-captured incident, not an
 invented shape — see docs/network-providers-roadmap.md's "Modem-Level
-Corroboration Provider" session logs (Aug 31, 2026 and Sept 6/7, 2026) for
-the full investigation each one closed out. Kept as a standalone script
+Corroboration Provider" session logs (Aug 31, 2026, Sept 6/7, 2026, and
+Sept 8, 2026) for the full investigation each one closed out. Kept as a
+standalone script
 (not synthetic-only fixtures) specifically so a future incident can be
 dropped in here the same way, per the Sept 6/7 session's "lock it in
 rather than relying on synthetic coverage alone" conclusion.
@@ -50,7 +51,7 @@ def test_unparseable_lasttime_falls_back_to_firsttime():
         "docsDevEvLastTime": "Time Not Established",
         "docsDevEvCounts": "2416",
     }]
-    total, note = fm.compute_recent_t3(events, 60, now_dt)
+    total, note, _since = fm.compute_recent_t3(events, 60, now_dt)
     check(
         "Aug 31: unparseable LastTime, valid FirstTime -> counted via fallback",
         total == 2416 and note is None,
@@ -67,7 +68,7 @@ def test_both_timestamps_unparseable_excluded_with_note():
         "docsDevEvLastTime": "Time Not Established",
         "docsDevEvCounts": "99",
     }]
-    total, note = fm.compute_recent_t3(events, 60, now_dt)
+    total, note, _since = fm.compute_recent_t3(events, 60, now_dt)
     check(
         "Aug 31: both timestamps unparseable -> excluded, surfaced via note",
         total == 0 and note is not None and "1 matching event row" in note,
@@ -133,7 +134,7 @@ def test_sept6_reported_burst_is_counted_within_window():
             "docsDevEvCounts": "8",
         },
     ]
-    total, note = fm.compute_recent_t3(events, 60, now_dt)
+    total, note, _since = fm.compute_recent_t3(events, 60, now_dt)
     check(
         "Sept 6/7: reported real burst (both ID variants) counted 42min later",
         total == 20 and note is None,
@@ -167,7 +168,7 @@ def test_sept7_live_window_edge_57min_in_65min_out():
             "docsDevEvCounts": "1",
         },
     ]
-    total, note = fm.compute_recent_t3(events, 60, now_dt)
+    total, note, _since = fm.compute_recent_t3(events, 60, now_dt)
     check(
         "Sept 7 (live): ~57min-old row counted, ~66min-old row correctly excluded",
         total == 25,
@@ -193,7 +194,7 @@ def test_out_of_window_match_surfaces_diagnostic_note():
         "docsDevEvLastTime": "2026-09-07, 06:06:11",  # ~62.8min old -> out
         "docsDevEvCounts": "25",
     }]
-    total, note = fm.compute_recent_t3(events, 60, now_dt)
+    total, note, _since = fm.compute_recent_t3(events, 60, now_dt)
     check(
         "Sept 7: 0-count with an out-of-window T3 match surfaces a diagnostic note",
         total == 0 and note is not None and "outside the window" in note,
@@ -238,7 +239,7 @@ def test_sept7_uncorrected_clock_skew_reproduces_the_reported_bug():
     # actually happening at fetch time reads as ~67min old and is
     # wrongly excluded from the 60-minute window. This IS the reported
     # bug, reproduced live.
-    total, note = fm.compute_recent_t3(_SEPT7_LIVE_EVENTS, 60, _SEPT7_LIVE_HOST_TIME)
+    total, note, _since = fm.compute_recent_t3(_SEPT7_LIVE_EVENTS, 60, _SEPT7_LIVE_HOST_TIME)
     check(
         "Sept 7 (live, uncorrected): actively-happening-right-now burst reads as 0",
         total == 0,
@@ -251,7 +252,7 @@ def test_sept7_corrected_clock_skew_fixes_it():
     # deployment's configured clock_offset_sec=3600 (see profiles/modem/
     # local.toml[.example]). This is what actually shipped to production
     # and was verified against this exact live burst.
-    total, note = fm.compute_recent_t3(
+    total, note, _since = fm.compute_recent_t3(
         _SEPT7_LIVE_EVENTS, 60, _SEPT7_LIVE_HOST_TIME, clock_offset_sec=3600
     )
     check(
@@ -336,11 +337,73 @@ def test_end_to_end_real_capture_self_calibrates_and_counts_correctly():
     modem_reported_now = fm.parse_modem_current_time(soup)
     now_dt = datetime(2026, 9, 7, 10, 12, 19)  # real host time of this capture
     offset_sec, offset_note = fm.resolve_clock_offset_sec(modem_reported_now, now_dt, configured_offset_sec=0)
-    total, note = fm.compute_recent_t3(_SEPT7_LIVE_EVENTS, 60, now_dt, offset_sec)
+    total, note, _since = fm.compute_recent_t3(_SEPT7_LIVE_EVENTS, 60, now_dt, offset_sec)
     check(
         "End-to-end: self-calibrated offset (no static config) correctly counts the real burst",
         offset_note is None and total == 2 and note is None,
         f"offset_sec={offset_sec} offset_note={offset_note!r} total={total} note={note!r}",
+    )
+
+
+# ---------------------------------------------------------------------
+# Sept 8, 2026 — `since_label`, added after a user asked whether a
+# recent_t3_timeouts jump (90 -> 91) meant "91 fresh timeouts this hour"
+# vs. "one more on an old, still-recurring condition." Direct live
+# evidence that day (see roadmap session log): the CM1000's own GUI
+# renders a collapsed row's FirstTime as its "Time" column and never
+# shows LastTime/Counts at all, so a row sitting at "05:19:32" all day
+# looked quiet while it was actually still active — 91 total, last hit
+# 17:35:14 that afternoon. Rows below are the real ones captured live
+# that day (see roadmap doc), used verbatim rather than reconstructed.
+# ---------------------------------------------------------------------
+def test_since_label_same_day_uses_bare_hhmm():
+    now_dt = datetime(2026, 9, 8, 18, 45, 36)
+    events = [{
+        "docsDevEvId": "82000500",
+        "docsDevEvText": "Started Unicast Maintenance Ranging - No Response received - T3 time-out;",
+        "docsDevEvFirstTime": "2026-09-08, 05:19:32",
+        "docsDevEvLastTime": "2026-09-08, 17:35:14",  # ~10min old after the 60.1min live offset -> in
+        "docsDevEvCounts": "91",
+    }]
+    total, note, since = fm.compute_recent_t3(events, 60, now_dt, clock_offset_sec=3604)
+    check(
+        "Sept 8 (live): since_label is the row's FirstTime, same-day -> bare HH:MM",
+        total == 91 and since == "05:19",
+        f"total={total} note={note!r} since={since!r}",
+    )
+
+
+def test_since_label_spans_into_prior_day_includes_date():
+    now_dt = datetime(2026, 9, 8, 5, 30, 0)
+    events = [{
+        "docsDevEvId": "82000500",
+        "docsDevEvText": "Started Unicast Maintenance Ranging - No Response received - T3 time-out;",
+        "docsDevEvFirstTime": "2026-09-07, 15:53:54",
+        "docsDevEvLastTime": "2026-09-08, 05:14:35",  # ~15min old -> in
+        "docsDevEvCounts": "66",
+    }]
+    total, note, since = fm.compute_recent_t3(events, 60, now_dt)
+    check(
+        "Sept 8 (live): since_label spanning into the prior day includes the date",
+        total == 66 and since == "09/07 15:53",
+        f"total={total} note={note!r} since={since!r}",
+    )
+
+
+def test_since_label_none_when_total_is_zero():
+    now_dt = datetime(2026, 9, 8, 18, 45, 36)
+    events = [{
+        "docsDevEvId": "82000500",
+        "docsDevEvText": "Started Unicast Maintenance Ranging - No Response received - T3 time-out;",
+        "docsDevEvFirstTime": "2026-09-08, 05:19:32",
+        "docsDevEvLastTime": "2026-09-08, 14:41:39",  # well outside a 60min window from 18:45
+        "docsDevEvCounts": "90",
+    }]
+    total, note, since = fm.compute_recent_t3(events, 60, now_dt, clock_offset_sec=3604)
+    check(
+        "Sept 8: quiet (0 total) -> since_label is None, nothing to anchor",
+        total == 0 and since is None,
+        f"total={total} note={note!r} since={since!r}",
     )
 
 
@@ -359,6 +422,9 @@ if __name__ == "__main__":
     test_resolve_clock_offset_sec_falls_back_when_field_missing()
     test_resolve_clock_offset_sec_rejects_insane_live_reading()
     test_end_to_end_real_capture_self_calibrates_and_counts_correctly()
+    test_since_label_same_day_uses_bare_hhmm()
+    test_since_label_spans_into_prior_day_includes_date()
+    test_since_label_none_when_total_is_zero()
 
     if FAILURES:
         print(f"\n{len(FAILURES)} failure(s): {FAILURES}")

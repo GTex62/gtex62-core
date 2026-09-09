@@ -1192,6 +1192,27 @@ disproved by direct evidence, not just re-reasoned away.
   currently active" than the modem's own GUI — the opposite of what seemed intuitive going
   into this investigation.
 
+**Follow-up, same day:** a live count going 90 -> 91 prompted the obvious next question — is
+that "91 fresh timeouts this hour" or "one more on top of an old total"? It's the latter (see
+the investigation above: `total` is a whole collapsed row's `docsDevEvCounts`, riding along
+whenever that row's `LastTime` is in-window), and the display didn't say so. Fixed by
+anchoring the total to when the still-counted condition actually started:
+
+- `fetch_modem.py`'s `compute_recent_t3()` now also returns `since_label` — the earliest
+  `docsDevEvFirstTime` among rows actually counted, as `"HH:MM"` (same day) or
+  `"MM/DD HH:MM"` (spans a prior day) — surfaced in `status.json` as `recent_t3_since` (`null`
+  when the count is 0, nothing to anchor). 3 new regression cases added, built from the real
+  91-count/66-count rows captured live this session; all 17 cases in
+  `test_fetch_modem_regressions.py` pass.
+- Where the anchor is shown split by available room, not duplicated in both places: the WAN
+  panel's CM1000 column (`gtex62-sitrep`'s `pf.lua`) only has room for the total, so it now
+  reads `T3 X N TOTAL` (dropping the old `(1H)` suffix, which was the part that implied
+  "fresh this hour"). The Alert Banner's `comcast-degraded-t3` child (`fetch_alerts.sh`) has
+  room for both on one line and carries the anchor: `T3: 91 TOTAL SINCE 05:19`, replacing the
+  old `T3: <n> IN <window>M`. `sitrep-architecture.md`'s condition table updated to match;
+  its two Aug-dated session-log mentions of the old `T3: 9 IN 60M` message are historical
+  records of what that verification actually showed and are left as they were.
+
 ### Open Items
 
 **The first five bullets below are superseded, not open (2026-09-07)** — they're all

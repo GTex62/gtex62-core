@@ -298,6 +298,16 @@ if state["gateway_offline_since"] is not None:
 #     the instant its cache goes degraded — same "don't derive a clear from
 #     stale/absent data" principle as load_json()'s state=="ok" gate, just
 #     applied to a threshold flag instead of a since-timestamp.
+#     The child message anchors the total with modem/status.json's
+#     recent_t3_since (added 2026-09-08, see roadmap's Sept 8 session
+#     log) — "T3: 91 TOTAL SINCE 05:19" instead of the old "T3: 91 IN
+#     60M", which read as "91 fresh timeouts in the last hour" when the
+#     number is actually a whole collapsed row's lifetime count that just
+#     happens to still be inside the window (see fetch_modem.py's
+#     compute_recent_t3() docstring). This is the WAN panel's SitRep
+#     counterpart moved here instead — see gtex62-sitrep's pf.lua
+#     cm1000_fields() comment for why: this banner line has room for the
+#     anchor alongside the total, the WAN panel's CM1000 column doesn't.
 #   - Gateway loss: pfsense/status.json's gateway.loss_pct (dpinger's own
 #     rolling 60s average, not a single ping — see the gateway.online
 #     boolean condition above) >= comcast_degraded_loss_pct_threshold
@@ -328,10 +338,10 @@ if state["comcast_loss_since"] is not None:
         loss_breached = True
 
 ok_modem, modem = load_json(modem_status_path)
-t3_count = t3_window_min = None
+t3_count = t3_since = None
 if ok_modem:
     t3_count = modem.get("recent_t3_timeouts")
-    t3_window_min = modem.get("event_log_window_minutes")
+    t3_since = modem.get("recent_t3_since")
     state["comcast_t3_breached"] = (
         isinstance(t3_count, (int, float)) and t3_count >= t3_threshold
     )
@@ -358,11 +368,13 @@ if state["comcast_degraded_since"] is not None:
     # this round (matching the fresh-evidence gate used everywhere else)
     # rather than rendering a number that isn't actually current.
     if ok_modem and t3_breached:
-        window_label = int(t3_window_min) if isinstance(t3_window_min, (int, float)) else "?"
+        t3_message = f"T3: {int(t3_count)} TOTAL"
+        if t3_since:
+            t3_message += f" SINCE {t3_since}"
         comcast_children.append({
             "id": "comcast-degraded-t3",
             "severity": "INFORMATIONAL",
-            "message": f"T3: {int(t3_count)} IN {window_label}M",
+            "message": t3_message,
             "since": iso(state["comcast_degraded_since"]),
         })
     if ok and loss_breached and isinstance(loss_pct, (int, float)):
