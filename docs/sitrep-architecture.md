@@ -211,6 +211,8 @@ gateway_offline_duration_sec = 900         # gateway.online continuously false -
 pihole_inactive_duration_sec = 600         # pihole.json active continuously false -> CAUTION
 advanced_killswitch_duration_sec = 10      # PIA Advanced KS blocking traffic -> SEVERE
 comcast_degraded_t3_threshold = 5          # recent_t3_timeouts >= this -> CAUTION (half of OR)
+comcast_degraded_t3_stale_sec = 900        # ...unless modem/status.json's mtime is older than
+                                            # this (15min) -> force-expired instead, see below
 comcast_degraded_loss_pct_threshold = 25   # gateway.loss_pct >= this percent...
 comcast_degraded_loss_duration_sec = 300   # ...sustained this long -> CAUTION (other half of OR)
 ```
@@ -334,6 +336,30 @@ expected to come from was never built — the dpinger read landed directly insid
 `gateway-offline` and `comcast-degraded` are independent conditions, evaluated and cleared
 separately — a degraded episode escalating into a full outage doesn't clear the CAUTION
 entry, and the CAUTION entry clearing doesn't imply the outage has too.
+
+**What clears `comcast-degraded`:** both sub-conditions are recomputed fresh on every poll
+where their source data is current — `t3_breached` and `loss_breached` are each just booleans
+re-derived from live numbers, not sticky flags that need an explicit reset. The parent clears
+the instant *neither* is true in the same poll. In practice:
+
+- **T3 side:** `recent_t3_timeouts` is itself a trailing 60-minute window sum
+  (`event_log_window_minutes`, see `fetch_modem.py`'s `compute_recent_t3()`) — once that long
+  passes with no new occurrence, the count naturally drops below threshold on its own, no
+  separate timer needed.
+- **Loss side:** clears as soon as a single fresh `gateway.loss_pct` sample reads below
+  `comcast_degraded_loss_pct_threshold` — not sustained-to-clear the way it's sustained-to-
+  breach; `comcast_loss_since` resets to `None` immediately.
+- **Stale-data safety net (T3 side only, added 2026-09-09):** the above assumes
+  `modem/status.json` keeps getting refreshed. If `fetch_modem.py` stops running entirely
+  (crash, dead loop, expired credential) rather than writing a fresh error state, the file
+  just sits there saying `"ok"` with whatever `recent_t3_timeouts` it last saw —
+  indistinguishable from "still genuinely breached" by `state` alone. `fetch_alerts.sh`
+  checks the file's mtime and force-expires the T3 sub-condition if it's older than
+  `comcast_degraded_t3_stale_sec` (default 900s/15min), so a dead provider can't pin the
+  banner open indefinitely. This is distinct from the *same-poll* `ok_modem=False` case
+  (provider itself reports "degraded"/"error" fresh this poll), which is deliberately
+  persisted rather than treated as a clear — see `docs/network-providers-roadmap.md`'s
+  Sept 8/9 session log for the full investigation behind both of these.
 
 ### Verification (Aug 22, 2026)
 
