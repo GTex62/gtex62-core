@@ -18,6 +18,38 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
+## 0.6.4 — 2026-09-10
+
+- **Fixed a real false-positive burst alert from 0.6.3, same day it shipped
+  (`providers/modem/fetch_modem.py`, `providers/alerts/fetch_alerts.sh`).** The
+  new delta-tracking burst baseline was overwritten to whatever
+  `recent_t3_timeouts` read on every poll, including `0` — so when the same
+  chronic, intermittently-recurring row genuinely went quiet and then
+  recurred once more, `compute_recent_t3()` correctly reported its *entire*
+  lifetime count again (108, in the real case that triggered this), and
+  diffing that against a baseline that had just been reset to `0` produced a
+  false `T3: +108 IN 1MIN` — the same "collapsed row lifetime count, not a
+  fresh tally" confusion resurfacing one layer deeper, at the delta level
+  instead of the raw total level. Fix: `compute_recent_t3()` now also
+  returns `since_epoch` (a raw comparable anchor, alongside the existing
+  human `elapsed_label`), surfaced as `recent_t3_since_epoch` in
+  `status.json`. `fetch_alerts.sh` tracks `t3_last_seen_since_epoch`
+  alongside the count/timestamp baseline and only trusts a delta as a real
+  burst signal when the current anchor matches the baseline's (i.e.
+  provably the same row reappearing) — a `0` reading no longer touches the
+  baseline at all, so a quiet gap of any length can't wipe out what's known
+  about a lineage that might reappear. Verified live by replaying the exact
+  real sequence that produced the false alert (backed up, restored after):
+  same lineage resurfacing now correctly computes the honest small delta
+  instead of the full historical total; a genuine burst on the same
+  resurfacing lineage still fires correctly with the honest delta shown; a
+  brand-new/different lineage's first sighting stays conservative (no
+  burst) while a continued burst on it is still caught the next poll. 2 new
+  regression cases lock in `since_epoch`'s identity semantics — 19 cases
+  total in `test_fetch_modem_regressions.py`, all pass.
+- Full session log: [Network Providers Roadmap](docs/network-providers-roadmap.md)'s
+  Sept 10, 2026 Follow-up #2 entry.
+
 ## 0.6.3 — 2026-09-10
 
 - **`comcast-degraded`'s T3 side replaced entirely: flat lifetime-total threshold
