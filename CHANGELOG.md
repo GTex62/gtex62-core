@@ -18,6 +18,36 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
+## 0.6.3 — 2026-09-10
+
+- **`comcast-degraded`'s T3 side replaced entirely: flat lifetime-total threshold
+  -> delta-rate burst detection (`providers/alerts/fetch_alerts.sh`).**
+  `recent_t3_timeouts >= comcast_degraded_t3_threshold` (flat, was 5) couldn't
+  distinguish a genuine active burst from a long-running mild trickle — both
+  looked identical (big number, CAUTION), because the total only ever grows
+  for as long as something lands at least once an hour. Observed live: a
+  trickle averaging ~2.5/hr stayed continuously breached for 40+ hours.
+  Replaced with a tracked delta (`t3_last_seen_count`/`t3_last_seen_at` in
+  `state.json`) normalized to a rate (`delta ÷ hours_since_last_poll`, not a
+  raw per-poll delta, so an irregular real polling gap doesn't distort it) —
+  burst fires when that rate crosses `comcast_degraded_t3_burst_count` within
+  `comcast_degraded_t3_burst_window_min` (default 5 within 5min = 60/hr,
+  replacing `comcast_degraded_t3_threshold` entirely). Caught before shipping
+  a wrong default: at the normal ~5min poll cadence, one single isolated
+  trickle hit computes to ~12/hr from measurement granularity alone, so the
+  threshold has to sit clearly above that floor. Two INFORMATIONAL children
+  now when active — `comcast-degraded-t3-burst` (`T3: +8 IN 10MIN`) and
+  `comcast-degraded-t3-total` (`T3: 93 TOTAL FOR 14:05`, unchanged) — where a
+  pure trickle no longer raises this alert at all; that context lives solely
+  on SitRep's WAN panel `T3 X N TOTAL` line instead. Verified live against
+  real cache files (backed up, restored byte-identical after): cold-start,
+  a real trickle shape correctly produces no alert (the exact case the old
+  threshold wrongly fired on), a real burst shape correctly produces both
+  children, clean clear, reset-to-zero, and the stale-data force-expire
+  (0.6.2) still works under the renamed field.
+- Full session log: [Network Providers Roadmap](docs/network-providers-roadmap.md)'s
+  Sept 10, 2026 entry.
+
 ## 0.6.2 — 2026-09-09
 
 - **New `comcast-degraded` CAUTION alert condition (Sept 7, 2026,
