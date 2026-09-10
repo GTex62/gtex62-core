@@ -5,7 +5,7 @@
 The gtex62 Conky system is split into two layers:
 
 - **`gtex62-core`** — shared engine, providers, launcher, and data cache
-- **Suites** — independent repos (e.g. `gtex62-osa`) for visual identity and layout
+- **Suites** — independent repos (e.g. `gtex62-osa`, `gtex62-sitrep`) for visual identity and layout
 
 Core defines how things work. Suites define how things look.
 
@@ -18,6 +18,7 @@ Each suite is a separate git repository. Core is its own repo.
 ```text
 ~/.config/conky/gtex62-core/     — engine repo
 ~/.config/conky/gtex62-osa/      — OSA suite repo
+~/.config/conky/gtex62-sitrep/   — SitRep suite repo
 ~/.config/conky/gtex62-lcars/    — LCARS suite repo (example)
 ```
 
@@ -64,7 +65,10 @@ gtex62-core/
 
 ## Suite Directory Structure
 
-Each suite repo is self-contained:
+Each suite repo is self-contained. Shape is consistent on the essentials
+(`lua/suite/` data modules, `lua/ui/frame.lua` drawing code, `theme/`,
+`scripts/`) but not identical — e.g. OSA's Conky config files live under
+`conky/`, SitRep's under `widgets/`:
 
 ```text
 gtex62-osa/
