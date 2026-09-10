@@ -223,12 +223,15 @@ state.setdefault("adv_ks_blocking_since", None)
 state.setdefault("adv_ks_blocking_alerted", False)
 state.setdefault("comcast_loss_since", None)
 state.setdefault("comcast_t3_burst_active", False)
-# Baseline for delta/rate burst detection — the reading (count, epoch)
-# from the last poll that had genuinely fresh modem data. None until the
-# first such poll ever happens (or after a stale/absent-data gap that
-# deliberately doesn't advance it — see the evaluation block).
+# Baseline for delta/rate burst detection — the reading (count, epoch,
+# lineage anchor) from the last poll that had a genuinely nonzero T3
+# total. None until the first such poll ever happens. Deliberately NOT
+# reset to (0, now, None) on a poll that reads 0 — see the evaluation
+# block for why a real false-positive burst alert (2026-09-10) came from
+# doing exactly that.
 state.setdefault("t3_last_seen_count", None)
 state.setdefault("t3_last_seen_at", None)
+state.setdefault("t3_last_seen_since_epoch", None)
 state.setdefault("comcast_degraded_since", None)
 state.setdefault("comcast_degraded_alerted", False)
 
@@ -348,40 +351,62 @@ if state["gateway_offline_since"] is not None:
 #     was checking never meant "how much just happened."
 #
 #     Burst instead tracks a genuine recent delta: `t3_last_seen_count`/
-#     `t3_last_seen_at` (state.json) remember the reading from the last
-#     poll that had fresh modem data; each poll, `delta = max(0,
-#     current - last_seen)` and `rate = delta / hours_since(last_seen_at)`
-#     — a rate, not a raw per-poll delta, because polling isn't perfectly
-#     metronomic (a missed poll, a slow provider, a manual re-run all
-#     stretch or compress the real gap) and a flat delta would misread a
-#     long gap as a burst or a short one as calm. Burst fires when `rate
-#     >= t3_burst_rate_per_hour` (from comcast_degraded_t3_burst_count /
-#     ..._window_min above). Important floor to know when tuning those:
-#     at a normal ~5min poll cadence, even one single isolated trickle
-#     hit computes to `1 / (5/60) = 12/hr` purely from measurement
-#     granularity — the threshold has to sit clearly above that "one lone
-#     event" floor or every trickle occurrence reads as a burst. The
-#     default (5 in 5min = 60/hr) does; anything picked well under ~15/hr
-#     likely won't.
+#     `t3_last_seen_at`/`t3_last_seen_since_epoch` (state.json) remember
+#     the reading from the last poll that had a genuinely *nonzero* T3
+#     total; each poll, `delta = max(0, current - last_seen)` and `rate =
+#     delta / hours_since(last_seen_at)` — a rate, not a raw per-poll
+#     delta, because polling isn't perfectly metronomic (a missed poll, a
+#     slow provider, a manual re-run all stretch or compress the real
+#     gap) and a flat delta would misread a long gap as a burst or a
+#     short one as calm. Burst fires when `rate >= t3_burst_rate_per_hour`
+#     (from comcast_degraded_t3_burst_count / ..._window_min above).
+#     Important floor to know when tuning those: at a normal ~5min poll
+#     cadence, even one single isolated trickle hit computes to `1 /
+#     (5/60) = 12/hr` purely from measurement granularity — the threshold
+#     has to sit clearly above that "one lone event" floor or every
+#     trickle occurrence reads as a burst. The default (5 in 5min =
+#     60/hr) does; anything picked well under ~15/hr likely won't.
 #
-#     Two deliberately conservative edge cases: no prior baseline (state
-#     freshly initialized, or right after a restart with a cleared cache)
-#     -> treated as *no burst*, never "everything's new," same "don't
-#     derive a breach from incomplete history" principle as everywhere
-#     else in this file; and a count that's *lower* than the last
-#     baseline (the live row aged out and whatever's current is a smaller,
-#     different one) -> delta floors at 0 rather than treating the whole
-#     new count as fresh, since we have no way to tell "brand new row" from
-#     "measurement noise" at this level. Both bias toward under-, never
-#     over-, calling a burst.
+#     `t3_last_seen_since_epoch` (added 2026-09-10, fetch_modem.py's
+#     recent_t3_since_epoch — see its compute_recent_t3() docstring) is
+#     the delta math's guard against a real false-positive burst alert
+#     that fired live that day: `recent_t3_timeouts` is a whole collapsed
+#     row's lifetime count, and when the SAME still-recurring row goes
+#     fully quiet (LastTime ages past the window, total genuinely reads
+#     0) and then recurs even once, it reports its *entire* history again
+#     — not "+1". A naive delta against a baseline that had been reset to
+#     0 during that quiet gap misread the whole reappearing total (108,
+#     in the real case) as "108 fresh events in one poll interval," an
+#     alarming but false burst. The fix: a poll that reads 0 does NOT
+#     touch the baseline at all (see below) — it's left exactly as it was
+#     the last time the total was genuinely nonzero — and a poll that
+#     reads nonzero only trusts the delta as a real rate signal when the
+#     lineage anchor (`since_epoch`) matches what's on file, i.e. it's
+#     provably the same row reappearing, not a coincidence of timing. If
+#     the anchor doesn't match (or there's no prior baseline at all), this
+#     poll just (re)establishes the baseline for next time — never treated
+#     as "everything's new," same conservative default as the cold-start
+#     case below.
 #
-#     The baseline only advances on a poll with genuinely fresh modem
-#     data (`ok_modem and not modem_stale`) — same fresh-evidence gate as
-#     everything else here — so a stale/absent-data gap doesn't silently
-#     poison the next real delta; the next fresh poll's rate is computed
-#     against whatever the last *real* reading was, however long ago that
-#     was, which the rate math already handles correctly regardless of
-#     gap length.
+#     Two more deliberately conservative edge cases, on top of the
+#     same-lineage check above: no prior baseline at all (state freshly
+#     initialized, or right after a restart with a cleared cache) -> *no
+#     burst*, never "everything's new," same "don't derive a breach from
+#     incomplete history" principle as everywhere else in this file; and
+#     a same-lineage count that's *lower* than the last baseline (should
+#     not happen in practice — a row's Counts only grows — but guarded
+#     anyway) -> delta floors at 0 rather than going negative. All three
+#     bias toward under-, never over-, calling a burst.
+#
+#     The baseline only advances on a poll with genuinely fresh, nonzero
+#     modem data (`ok_modem and not modem_stale and t3_count > 0`) — same
+#     fresh-evidence gate as everything else here, extended to also skip
+#     zero readings for the reason above — so neither a stale/absent-data
+#     gap nor an ordinary quiet reading silently poisons the next real
+#     delta; the next nonzero poll's rate is computed against whatever the
+#     last genuinely nonzero reading for this same lineage was, however
+#     long ago that was, which the rate math already handles correctly
+#     regardless of gap length.
 #
 #     comcast_t3_burst_active is persisted (not recomputed as a bare local
 #     each poll) so a transient modem-provider hiccup can't force a false
@@ -444,42 +469,56 @@ try:
 except OSError:
     pass  # missing file -> treat as stale, same as ok_modem's own "no fresh evidence" default
 
+SAME_LINEAGE_TOLERANCE_SEC = 5  # since_epoch equality check slack -- see comment above
+
 t3_count = t3_elapsed = None
 t3_burst_delta = t3_burst_interval_min = None  # only set when a burst is actually firing
 if ok_modem and not modem_stale:
     t3_count = modem.get("recent_t3_timeouts")
     t3_elapsed = modem.get("recent_t3_elapsed")
-
-    last_seen_count = state.get("t3_last_seen_count")
-    last_seen_at = state.get("t3_last_seen_at")
+    t3_since_epoch = modem.get("recent_t3_since_epoch")
 
     burst_now = False
-    if (
-        isinstance(t3_count, (int, float))
-        and isinstance(last_seen_count, (int, float))
-        and isinstance(last_seen_at, (int, float))
-    ):
-        delta = max(0, t3_count - last_seen_count)
-        interval_sec = max(1, now_epoch - last_seen_at)  # guard div-by-zero on a same-second re-run
-        rate_per_hour = delta / (interval_sec / 3600.0)
-        if delta > 0 and rate_per_hour >= t3_burst_rate_per_hour:
-            burst_now = True
-            t3_burst_delta = delta
-            t3_burst_interval_min = max(1, interval_sec // 60)
-    # else: no prior baseline yet (cold start) -> stays False, never "everything's new"
+    if isinstance(t3_count, (int, float)) and t3_count > 0:
+        last_seen_count = state.get("t3_last_seen_count")
+        last_seen_at = state.get("t3_last_seen_at")
+        last_seen_since_epoch = state.get("t3_last_seen_since_epoch")
 
-    state["comcast_t3_burst_active"] = burst_now
+        same_lineage = (
+            isinstance(last_seen_count, (int, float))
+            and isinstance(last_seen_at, (int, float))
+            and isinstance(last_seen_since_epoch, (int, float))
+            and isinstance(t3_since_epoch, (int, float))
+            and abs(t3_since_epoch - last_seen_since_epoch) <= SAME_LINEAGE_TOLERANCE_SEC
+        )
+        if same_lineage:
+            delta = max(0, t3_count - last_seen_count)
+            interval_sec = max(1, now_epoch - last_seen_at)  # guard div-by-zero on a same-second re-run
+            rate_per_hour = delta / (interval_sec / 3600.0)
+            if delta > 0 and rate_per_hour >= t3_burst_rate_per_hour:
+                burst_now = True
+                t3_burst_delta = delta
+                t3_burst_interval_min = max(1, interval_sec // 60)
+        # else: no prior baseline yet, or the anchor changed (a genuinely
+        # new/different lineage) -> this poll just (re)establishes the
+        # baseline below, never treated as "everything's new."
 
-    if isinstance(t3_count, (int, float)):
         state["t3_last_seen_count"] = t3_count
         state["t3_last_seen_at"] = now_epoch
+        state["t3_last_seen_since_epoch"] = t3_since_epoch
+    # else: t3_count is 0 (or missing) -- deliberately leave t3_last_seen_*
+    # untouched. See the comment block above: a quiet reading doesn't mean
+    # the lineage is gone, and overwriting the baseline with 0 here is
+    # exactly what caused the 2026-09-10 false-positive burst.
+
+    state["comcast_t3_burst_active"] = burst_now
 elif ok_modem and modem_stale:
     # File says "ok" but hasn't been refreshed in t3_stale_s -- the provider
     # itself has likely stopped running, not just had one bad poll. Force-
     # expire rather than let a stale burst flag re-assert BREACH
-    # indefinitely; deliberately do NOT touch t3_last_seen_count/_at here,
-    # so the next genuinely fresh poll computes its delta/rate against the
-    # last real reading, however long ago that was.
+    # indefinitely; deliberately do NOT touch t3_last_seen_* here, so the
+    # next genuinely fresh poll computes its delta/rate against the last
+    # real reading, however long ago that was.
     state["comcast_t3_burst_active"] = False
 t3_burst = state["comcast_t3_burst_active"]
 

@@ -344,17 +344,24 @@ where their source data is current — `t3_burst` and `loss_breached` are each j
 re-derived from live numbers, not sticky flags that need an explicit reset. The parent clears
 the instant *neither* is true in the same poll. In practice:
 
-- **T3 side (rewritten 2026-09-10 — see `docs/network-providers-roadmap.md`'s Sept 8-10 session
-  logs for the full investigation):** `recent_t3_timeouts` on its own does *not* naturally
-  clear the way it looks like it should — it's a whole collapsed row's lifetime count, and
-  stays elevated for as long as the same condition recurs at all, however mildly (a trickle
-  averaging ~2.5/hr was observed staying continuously above the old flat threshold for 40+
-  hours). What actually clears the T3 side now is the *burst* signal: `fetch_alerts.sh` tracks
-  `t3_last_seen_count`/`t3_last_seen_at` (state.json) across polls and computes
-  `rate = delta ÷ hours_since_last_poll` each time; the T3 side breaches only when that rate
-  crosses `comcast_degraded_t3_burst_count`/`..._window_min`'s equivalent (default 60/hr), and
-  clears the very next poll where it doesn't — typically within one poll cycle of the burst
-  actually subsiding, not an hour later. A pure trickle (nonzero total, rate below the burst
+- **T3 side (rewritten 2026-09-10, delta baseline fixed same day after a real false-positive —
+  see `docs/network-providers-roadmap.md`'s Sept 8-10 session logs for the full
+  investigation):** `recent_t3_timeouts` on its own does *not* naturally clear the way it looks
+  like it should — it's a whole collapsed row's lifetime count, and stays elevated for as long
+  as the same condition recurs at all, however mildly (a trickle averaging ~2.5/hr was observed
+  staying continuously above the old flat threshold for 40+ hours). What actually clears the T3
+  side now is the *burst* signal: `fetch_alerts.sh` tracks `t3_last_seen_count`/`t3_last_seen_at`/
+  `t3_last_seen_since_epoch` (state.json) across polls and computes `rate = delta ÷
+  hours_since_last_poll` each time — but only trusts that delta when the current reading's
+  lineage anchor (`recent_t3_since_epoch`) matches the baseline's, i.e. it's provably the same
+  row reappearing rather than a different/new one. A poll that reads `0` never touches the
+  baseline (a quiet gap of any length doesn't erase what's known about a lineage that might
+  reappear) — added after a real live false positive where the baseline's own reset-to-0
+  behavior made a resurfacing chronic row's entire history look like a fresh burst. The T3 side
+  breaches only when the (correctly-attributed) rate crosses `comcast_degraded_t3_burst_count`/
+  `..._window_min`'s equivalent (default 60/hr), and clears the very next poll where it doesn't
+  — typically within one poll cycle of the burst actually subsiding, not an hour later. A pure
+  trickle (nonzero total, rate below the burst
   floor) never breaches this condition at all anymore; that context lives only on the WAN
   panel's always-visible `T3 X N TOTAL` line, not the banner.
 - **Loss side:** clears as soon as a single fresh `gateway.loss_pct` sample reads below

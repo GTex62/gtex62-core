@@ -1395,6 +1395,63 @@ replacing the flat threshold entirely.
   revisiting the burst_count/window_min defaults — they're an explicit tuning knob, not a
   final answer.
 
+### Session Log — Sept 10, 2026 (Follow-up #2: Real False-Positive Burst Alert, Same Day It Shipped)
+
+The burst-detection work above shipped and immediately caught a real bug in itself, live, the
+same evening: the WAN header showed `COMCAST DEGRADED` / `T3: +108 IN 1MIN` / `T3: 108 TOTAL
+FOR 56:32`, clearing a minute later. The user correctly flagged this as looking like an error
+rather than a real 108-event-per-minute burst, and was right — the tell is right there in the
+two lines together: a burst that severe can't come from a condition whose own `FirstTime`
+anchor (`FOR 56:32`) is 56.5 hours old.
+
+- **Root cause:** the delta-tracking baseline (`t3_last_seen_count`) was being overwritten to
+  whatever `recent_t3_timeouts` read on *every* poll, including `0`. This same chronic,
+  intermittently-recurring row (the one tracked since the Sept 8 session) genuinely went quiet
+  at some point that evening — `recent_t3_timeouts` read `0`, and the baseline followed it down
+  to `0`. The row then recurred once more, and because it's a collapsed row,
+  `compute_recent_t3()` correctly reported its *entire* current lifetime count (108) the moment
+  its `LastTime` fell back inside the window — not "+1". Diffed against the baseline that had
+  just been reset to `0`, that produced `delta = 108`, over one poll interval, misread as an
+  astronomical rate. Same "collapsed row lifetime count, not a fresh tally" confusion the whole
+  investigation has been chasing, resurfacing one layer deeper — at the delta level instead of
+  the raw total level.
+- **Why the obvious simpler fix (never reset baseline to 0) was rejected:** traced through
+  the failure mode explicitly before implementing — if the baseline is never touched while
+  quiet, a *genuinely new*, smaller, unrelated problem starting later would compare its own
+  (legitimately fresh) count against a stale old baseline that could be much larger, floor to
+  a `delta` of 0, and get silently suppressed as "no burst" for as long as it stayed below that
+  stale number — not a one-poll blip, potentially a lasting false negative. Neither "always
+  reset to 0" nor "never reset" is correct in isolation; the fix needs to know whether a
+  resurfacing total belongs to the *same* condition as before or a genuinely different one.
+- **Fix:** `fetch_modem.py`'s `compute_recent_t3()` now also returns `since_epoch` — the same
+  anchor as `elapsed_label`, as a raw comparable epoch instead of a formatted string — surfaced
+  in `status.json` as `recent_t3_since_epoch`. `fetch_alerts.sh` tracks
+  `t3_last_seen_since_epoch` alongside the count/timestamp baseline, and:
+  - A poll that reads `0` no longer touches `t3_last_seen_*` at all — the baseline is left
+    exactly as it was the last time the total was genuinely nonzero, so a quiet gap of any
+    length doesn't erase what's known about a lineage that might reappear.
+  - A poll that reads nonzero only trusts the delta as a real burst signal when the current
+    `since_epoch` matches what's on file (within a 5s tolerance for safety) — i.e. it's
+    provably the same row reappearing. If the anchor doesn't match, or there's no prior
+    baseline at all, the poll just (re)establishes the baseline — never treated as
+    "everything's new," same conservative default the cold-start case already used.
+- **Verified live, replaying the exact real sequence** (backed up, restored after): a 3-poll
+  simulation — nonzero baseline (107) -> quiet (0, confirmed baseline stays 107/same anchor,
+  not reset) -> the same lineage resurfacing at 108 (confirmed a realistic 5-minute gap now
+  correctly computes `delta=1`, `rate=12/hr`, no burst — the exact scenario that previously
+  produced the false `+108` alert). Also verified a genuine burst on the *same* resurfacing
+  lineage still fires correctly (`+10` over 5min = 120/hr -> burst, with the honest `+10` delta
+  shown, not a re-inflated total), that a brand-new/different lineage's first sighting still
+  stays conservative (count=15 on first sight -> no burst, matching the existing cold-start
+  policy) while a continued burst on *that* new lineage is still caught on the next poll, and
+  that the stale-data force-expire and true from-scratch cold start both still behave correctly
+  under the new logic.
+- 2 new regression cases in `test_fetch_modem_regressions.py` locking in `since_epoch`'s
+  identity semantics (stable across polls for the same row; differs for a genuinely different
+  one) — 19 cases total, all pass.
+- No new config knob added — the anchor-matching tolerance (5s) is a small internal constant,
+  not something meant to need tuning.
+
 ### Open Items
 
 **The first five bullets below are superseded, not open (2026-09-07)** — they're all

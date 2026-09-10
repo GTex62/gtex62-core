@@ -578,7 +578,27 @@ def compute_recent_t3(events, window_minutes, now_dt, clock_offset_sec=0):
     it to `now_dt` — a bare wall-clock display benefited from matching the
     modem's own uncorrected timestamp (what you'd see on its GUI), but a
     real elapsed *duration* would run long by however much the modem's
-    clock is behind (currently ~60min) if left uncorrected."""
+    clock is behind (currently ~60min) if left uncorrected.
+
+    Also returns `since_epoch`: the same anchor as `elapsed_label`, as a
+    raw comparable epoch (`since_first_dt.timestamp()`) instead of a
+    formatted string; None when `total` is 0. Added 2026-09-10 after a
+    real false-positive burst alert (see roadmap's Sept 10 follow-up #2
+    session log): `fetch_alerts.sh`'s delta-tracking burst detector needs
+    a way to tell "the same still-recurring row reappearing after a brief
+    dip below the window" apart from "a genuinely new, different
+    condition just started" — a human-formatted "H:MM" string can't be
+    compared for identity the way a raw epoch can (elapsed_label
+    advancing from one poll to the next doesn't tell you whether the
+    anchor moved). Without this, a chronic row that goes quiet long
+    enough for the window to empty and then recurs even once reports its
+    *entire* lifetime docsDevEvCounts as the new total — exactly like a
+    fresh reading with no prior baseline — and a naive delta against a
+    reset-to-zero baseline misreads that whole historical count as
+    "brand new in the last poll interval," producing an alarming but
+    false burst. since_epoch lets the caller recognize "this is the same
+    lineage I already have a real baseline for" and diff against the
+    correct number instead."""
     total = 0
     unparsed = 0
     nearest_excluded_age_min = None  # closest-to-window T3 match that missed, for the note below
@@ -659,7 +679,9 @@ def compute_recent_t3(events, window_minutes, now_dt, clock_offset_sec=0):
         elapsed_sec = max(0, int((now_dt - since_first_dt).total_seconds()))
         elapsed_label = f"{elapsed_sec // 3600}:{(elapsed_sec % 3600) // 60:02d}"
 
-    return total, note, elapsed_label
+    since_epoch = int(since_first_dt.timestamp()) if since_first_dt is not None else None
+
+    return total, note, elapsed_label, since_epoch
 
 
 # -----------------------------------------------------------------------
@@ -745,7 +767,9 @@ def main():
     )
 
     events, evlog_note = parse_event_log(eventlog_html)
-    recent_t3, window_note, recent_t3_elapsed = compute_recent_t3(events, window_minutes, now_dt, clock_offset_sec)
+    recent_t3, window_note, recent_t3_elapsed, recent_t3_since_epoch = compute_recent_t3(
+        events, window_minutes, now_dt, clock_offset_sec
+    )
 
     notes = list(docsis.get("notes") or [])
     if evlog_note:
@@ -770,6 +794,7 @@ def main():
         "boot_state": docsis["boot_state"],
         "recent_t3_timeouts": recent_t3,
         "recent_t3_elapsed": recent_t3_elapsed,
+        "recent_t3_since_epoch": recent_t3_since_epoch,
         "event_log_window_minutes": window_minutes,
     }
     atomic_write(STATUS_JSON, json.dumps(payload, separators=(",", ":")) + "\n")

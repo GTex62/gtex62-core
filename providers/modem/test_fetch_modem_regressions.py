@@ -51,7 +51,7 @@ def test_unparseable_lasttime_falls_back_to_firsttime():
         "docsDevEvLastTime": "Time Not Established",
         "docsDevEvCounts": "2416",
     }]
-    total, note, _since = fm.compute_recent_t3(events, 60, now_dt)
+    total, note, _since, _since_epoch = fm.compute_recent_t3(events, 60, now_dt)
     check(
         "Aug 31: unparseable LastTime, valid FirstTime -> counted via fallback",
         total == 2416 and note is None,
@@ -68,7 +68,7 @@ def test_both_timestamps_unparseable_excluded_with_note():
         "docsDevEvLastTime": "Time Not Established",
         "docsDevEvCounts": "99",
     }]
-    total, note, _since = fm.compute_recent_t3(events, 60, now_dt)
+    total, note, _since, _since_epoch = fm.compute_recent_t3(events, 60, now_dt)
     check(
         "Aug 31: both timestamps unparseable -> excluded, surfaced via note",
         total == 0 and note is not None and "1 matching event row" in note,
@@ -134,7 +134,7 @@ def test_sept6_reported_burst_is_counted_within_window():
             "docsDevEvCounts": "8",
         },
     ]
-    total, note, _since = fm.compute_recent_t3(events, 60, now_dt)
+    total, note, _since, _since_epoch = fm.compute_recent_t3(events, 60, now_dt)
     check(
         "Sept 6/7: reported real burst (both ID variants) counted 42min later",
         total == 20 and note is None,
@@ -168,7 +168,7 @@ def test_sept7_live_window_edge_57min_in_65min_out():
             "docsDevEvCounts": "1",
         },
     ]
-    total, note, _since = fm.compute_recent_t3(events, 60, now_dt)
+    total, note, _since, _since_epoch = fm.compute_recent_t3(events, 60, now_dt)
     check(
         "Sept 7 (live): ~57min-old row counted, ~66min-old row correctly excluded",
         total == 25,
@@ -194,7 +194,7 @@ def test_out_of_window_match_surfaces_diagnostic_note():
         "docsDevEvLastTime": "2026-09-07, 06:06:11",  # ~62.8min old -> out
         "docsDevEvCounts": "25",
     }]
-    total, note, _since = fm.compute_recent_t3(events, 60, now_dt)
+    total, note, _since, _since_epoch = fm.compute_recent_t3(events, 60, now_dt)
     check(
         "Sept 7: 0-count with an out-of-window T3 match surfaces a diagnostic note",
         total == 0 and note is not None and "outside the window" in note,
@@ -239,7 +239,7 @@ def test_sept7_uncorrected_clock_skew_reproduces_the_reported_bug():
     # actually happening at fetch time reads as ~67min old and is
     # wrongly excluded from the 60-minute window. This IS the reported
     # bug, reproduced live.
-    total, note, _since = fm.compute_recent_t3(_SEPT7_LIVE_EVENTS, 60, _SEPT7_LIVE_HOST_TIME)
+    total, note, _since, _since_epoch = fm.compute_recent_t3(_SEPT7_LIVE_EVENTS, 60, _SEPT7_LIVE_HOST_TIME)
     check(
         "Sept 7 (live, uncorrected): actively-happening-right-now burst reads as 0",
         total == 0,
@@ -252,7 +252,7 @@ def test_sept7_corrected_clock_skew_fixes_it():
     # deployment's configured clock_offset_sec=3600 (see profiles/modem/
     # local.toml[.example]). This is what actually shipped to production
     # and was verified against this exact live burst.
-    total, note, _since = fm.compute_recent_t3(
+    total, note, _since, _since_epoch = fm.compute_recent_t3(
         _SEPT7_LIVE_EVENTS, 60, _SEPT7_LIVE_HOST_TIME, clock_offset_sec=3600
     )
     check(
@@ -337,7 +337,7 @@ def test_end_to_end_real_capture_self_calibrates_and_counts_correctly():
     modem_reported_now = fm.parse_modem_current_time(soup)
     now_dt = datetime(2026, 9, 7, 10, 12, 19)  # real host time of this capture
     offset_sec, offset_note = fm.resolve_clock_offset_sec(modem_reported_now, now_dt, configured_offset_sec=0)
-    total, note, _since = fm.compute_recent_t3(_SEPT7_LIVE_EVENTS, 60, now_dt, offset_sec)
+    total, note, _since, _since_epoch = fm.compute_recent_t3(_SEPT7_LIVE_EVENTS, 60, now_dt, offset_sec)
     check(
         "End-to-end: self-calibrated offset (no static config) correctly counts the real burst",
         offset_note is None and total == 2 and note is None,
@@ -378,7 +378,7 @@ def test_elapsed_label_uses_offset_corrected_firsttime():
         "docsDevEvLastTime": "2026-09-08, 17:35:14",  # ~10min old after the 60.1min live offset -> in
         "docsDevEvCounts": "91",
     }]
-    total, note, elapsed = fm.compute_recent_t3(events, 60, now_dt, clock_offset_sec=3604)
+    total, note, elapsed, since_epoch = fm.compute_recent_t3(events, 60, now_dt, clock_offset_sec=3604)
     check(
         "Sept 8 (live): elapsed_label is offset-corrected, not the raw FirstTime (12:26, not 13:26)",
         total == 91 and elapsed == "12:26",
@@ -395,7 +395,7 @@ def test_elapsed_label_uncapped_past_24_hours():
         "docsDevEvLastTime": "2026-09-08, 05:14:35",  # ~15min old -> in
         "docsDevEvCounts": "66",
     }]
-    total, note, elapsed = fm.compute_recent_t3(events, 60, now_dt)
+    total, note, elapsed, since_epoch = fm.compute_recent_t3(events, 60, now_dt)
     check(
         "Sept 8 (live): elapsed_label spans a day boundary as plain hours (13:36), not a date",
         total == 66 and elapsed == "13:36",
@@ -412,11 +412,76 @@ def test_elapsed_label_none_when_total_is_zero():
         "docsDevEvLastTime": "2026-09-08, 14:41:39",  # well outside a 60min window from 18:45
         "docsDevEvCounts": "90",
     }]
-    total, note, elapsed = fm.compute_recent_t3(events, 60, now_dt, clock_offset_sec=3604)
+    total, note, elapsed, since_epoch = fm.compute_recent_t3(events, 60, now_dt, clock_offset_sec=3604)
     check(
         "Sept 8: quiet (0 total) -> elapsed_label is None, nothing to anchor",
-        total == 0 and elapsed is None,
-        f"total={total} note={note!r} elapsed={elapsed!r}",
+        total == 0 and elapsed is None and since_epoch is None,
+        f"total={total} note={note!r} elapsed={elapsed!r} since_epoch={since_epoch!r}",
+    )
+
+
+# ---------------------------------------------------------------------
+# Sept 10, 2026 — `since_epoch`, added after a real false-positive burst
+# alert (see roadmap's Sept 10 follow-up #2 session log): the same
+# chronic row (FirstTime 2026-09-08 05:19:32) went quiet long enough for
+# fetch_alerts.sh's delta-tracking baseline to reset to 0, then recurred
+# once more — reporting its *entire* 108-count lifetime total as the
+# "current" reading, which a naive delta against the reset baseline
+# misread as a 108-event burst in one poll interval. since_epoch exists
+# so the caller can recognize "same lineage as last time" (via a stable,
+# comparable anchor) instead of just diffing raw counts.
+# ---------------------------------------------------------------------
+def test_since_epoch_stable_across_polls_for_the_same_row():
+    # Same row, two different poll times -- the anchor (since_epoch)
+    # must come back identical both times even though total/elapsed
+    # differ, since it's the same underlying FirstTime.
+    events_poll1 = [{
+        "docsDevEvId": "82000500",
+        "docsDevEvText": "Started Unicast Maintenance Ranging - No Response received - T3 time-out;",
+        "docsDevEvFirstTime": "2026-09-08, 05:19:32",
+        "docsDevEvLastTime": "2026-09-10, 19:51:00",
+        "docsDevEvCounts": "107",
+    }]
+    events_poll2 = [{
+        "docsDevEvId": "82000500",
+        "docsDevEvText": "Started Unicast Maintenance Ranging - No Response received - T3 time-out;",
+        "docsDevEvFirstTime": "2026-09-08, 05:19:32",  # unchanged -- same row
+        "docsDevEvLastTime": "2026-09-10, 19:52:23",
+        "docsDevEvCounts": "108",
+    }]
+    now1 = datetime(2026, 9, 10, 19, 51, 30)
+    now2 = datetime(2026, 9, 10, 19, 52, 30)
+    _, _, _, since_epoch_1 = fm.compute_recent_t3(events_poll1, 60, now1)
+    _, _, _, since_epoch_2 = fm.compute_recent_t3(events_poll2, 60, now2)
+    check(
+        "Sept 10: since_epoch identical across polls for the same underlying row",
+        since_epoch_1 is not None and since_epoch_1 == since_epoch_2,
+        f"since_epoch_1={since_epoch_1!r} since_epoch_2={since_epoch_2!r}",
+    )
+
+
+def test_since_epoch_differs_for_a_genuinely_different_row():
+    events_old_row = [{
+        "docsDevEvId": "82000500",
+        "docsDevEvText": "Started Unicast Maintenance Ranging - No Response received - T3 time-out;",
+        "docsDevEvFirstTime": "2026-09-08, 05:19:32",
+        "docsDevEvLastTime": "2026-09-10, 19:51:00",
+        "docsDevEvCounts": "107",
+    }]
+    events_new_row = [{
+        "docsDevEvId": "82000200",
+        "docsDevEvText": "No Ranging Response received - T3 time-out;",
+        "docsDevEvFirstTime": "2026-09-10, 19:55:00",  # a genuinely fresh, unrelated condition
+        "docsDevEvLastTime": "2026-09-10, 19:55:12",
+        "docsDevEvCounts": "3",
+    }]
+    now_dt = datetime(2026, 9, 10, 19, 56, 0)
+    _, _, _, since_epoch_old = fm.compute_recent_t3(events_old_row, 60, datetime(2026, 9, 10, 19, 51, 30))
+    _, _, _, since_epoch_new = fm.compute_recent_t3(events_new_row, 60, now_dt)
+    check(
+        "Sept 10: since_epoch differs for a genuinely different (unrelated) row",
+        since_epoch_old is not None and since_epoch_new is not None and since_epoch_old != since_epoch_new,
+        f"since_epoch_old={since_epoch_old!r} since_epoch_new={since_epoch_new!r}",
     )
 
 
@@ -438,6 +503,8 @@ if __name__ == "__main__":
     test_elapsed_label_uses_offset_corrected_firsttime()
     test_elapsed_label_uncapped_past_24_hours()
     test_elapsed_label_none_when_total_is_zero()
+    test_since_epoch_stable_across_polls_for_the_same_row()
+    test_since_epoch_differs_for_a_genuinely_different_row()
 
     if FAILURES:
         print(f"\n{len(FAILURES)} failure(s): {FAILURES}")
