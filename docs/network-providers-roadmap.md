@@ -1274,6 +1274,41 @@ counting up regardless of how long it's been.
 - `sitrep-architecture.md`, `gtex62-sitrep`'s `reading-the-widget.md`, and the gitignored
   `design/sitrep-design-notes.md` mirror table updated to match.
 
+### Session Log — Sept 10, 2026 (Two-Day Observation: T3 X 0 TOTAL Mislabeled; Rate/Severity Discussed, Deferred)
+
+After two days watching the elapsed-time change land, the user reported the real row now
+reading `103 TOTAL FOR <elapsed>` — confirming the design works exactly as built (see Sept 8/9
+above): a single new hit reports the whole lifetime count, not "+1," and the same row (anchored
+to `2026-09-08 05:19:32`) had been intermittently recurring for 40+ hours straight, never
+getting a clean 60-minute gap to reset. Two things came out of discussing that:
+
+- **Raised, discussed, deferred (no code):** `recent_t3_timeouts >= comcast_degraded_t3_threshold`
+  (5) doesn't distinguish an active burst from a long-running mild trickle — both read as
+  "CAUTION, big number" identically, because the total only ever grows for as long as
+  *something* lands once an hour, regardless of rate. Concretely: 103 total over ~40h is only
+  ~2.5-3/hr average, vs. the original burst's 90+ in under an hour — a genuinely different
+  situation the flat threshold can't see. Matches the user's own real-world experience: no
+  perceptible impact except during the actual dense-cluster burst. Options discussed — average
+  rate (`total ÷ elapsed_hours`, cheap, reuses existing fields, no new state), poll-to-poll
+  delta ("+N since last check," more directly actionable but needs new persisted state and
+  reset-transition handling), and splitting alert severity by rate/burst-vs-chronic rather than
+  one flat count threshold. **Not implemented — explicitly deferred**, pending more observation;
+  tracked in memory (`t3-alert-rate-context-followup.md`) so it isn't lost between sessions.
+- **Fixed same session — a real, independent bug, not part of the deferred item:** `T3 X 0
+  TOTAL` (the WAN panel's quiet-state line, from the Sept 8 "always TOTAL" change) is its own
+  mislabeling: "TOTAL" implies "there have never been any T3s," when it actually means "nothing
+  landed in the trailing window" — the modem usually *does* have a real prior-episode history
+  just outside `event_log_window_minutes`, as this very row demonstrates. A windowed "nothing
+  recently" claim needs the window stated to be honest, the same way it did before Sept 8's
+  change removed it — a nonzero count doesn't have this problem, since `TOTAL` there is
+  genuinely an unbounded cumulative count (cross-referenced via the banner's elapsed anchor),
+  not a windowed one. **Fix, `gtex62-sitrep`'s `lua/suite/pf.lua`:** conditional format —
+  `T3 X N TOTAL` when `N > 0` (unchanged), `T3 X 0 (HH)` when `N == 0` (brings back the
+  pre-Sept-8 window-hours suffix, but *only* for the zero case). `event_log_window_minutes`
+  pulled back into the jq query for that branch. Verified: both branches render correctly
+  against live data and against a non-default window (120min -> `(2H)`).
+  `reading-the-widget.md` updated to match.
+
 ### Open Items
 
 **The first five bullets below are superseded, not open (2026-09-07)** — they're all
