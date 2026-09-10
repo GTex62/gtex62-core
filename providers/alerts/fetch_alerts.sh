@@ -642,11 +642,25 @@ if state["msmtch_since"] is not None:
         label = ap.get("label", "")
         for m in ap.get("mismatches", []):
             total += 1
+            # Two children, not one (same split as COMCAST DEGRADED's T3
+            # burst/total pair) -- name+label+both IPs on one line ran to
+            # ~63 chars, more than double the alert column's ~32-34 char
+            # budget, and overflowed past the banner's right edge.
+            # .upper() matches the font's own requirement (GTex62 OSA has
+            # no lowercase glyphs -- see ap.lua's client-name :upper()) --
+            # name/label are display_name/label text pulled from
+            # devices.toml, not guaranteed pre-uppercased like every other
+            # message in this file, which is hardcoded caps.
             children.append({
-                "id": f"msmtch-{m.get('mac', '')}",
+                "id": f"msmtch-{m.get('mac', '')}-loc",
                 "severity": "INFORMATIONAL",
-                "message": (f"{m.get('name', m.get('mac', ''))} at {label}: "
-                            f"IP {m.get('ip', '')} (expected {m.get('documented_ip', '')})"),
+                "message": f"{m.get('name', m.get('mac', ''))} at {label}".upper(),
+                "since": iso(state["msmtch_since"]),
+            })
+            children.append({
+                "id": f"msmtch-{m.get('mac', '')}-ip",
+                "severity": "INFORMATIONAL",
+                "message": f"{m.get('ip', '')} <- {m.get('documented_ip', '')}".upper(),
                 "since": iso(state["msmtch_since"]),
             })
     if total > 0:
@@ -689,7 +703,10 @@ if state["unknown_since"] is not None:
             children.append({
                 "id": f"unidentified-ip-{total}",
                 "severity": "INFORMATIONAL",
-                "message": f"{ip} at {label}",
+                # .upper() for the same reason as msmtch's children above --
+                # label is devices.toml/ap-source text, not guaranteed
+                # pre-uppercased, and the font has no lowercase glyphs.
+                "message": f"{ip} at {label}".upper(),
                 "since": iso(state["unknown_since"]),
             })
     if total > 0:
