@@ -210,7 +210,9 @@ alerts = true   # wired into gtex62-core-launch's initial_refresh/refresh_loop,
 gateway_offline_duration_sec = 900         # gateway.online continuously false -> SEVERE
 pihole_inactive_duration_sec = 600         # pihole.json active continuously false -> CAUTION
 advanced_killswitch_duration_sec = 10      # PIA Advanced KS blocking traffic -> SEVERE
-comcast_degraded_t3_threshold = 5          # recent_t3_timeouts >= this -> CAUTION (half of OR)
+comcast_degraded_t3_burst_count = 5        # this many NEW T3s within...
+comcast_degraded_t3_burst_window_min = 5   # ...this many minutes -> CAUTION (half of OR); a rate
+                                            # (events/hour), not recent_t3_timeouts's raw total
 comcast_degraded_t3_stale_sec = 900        # ...unless modem/status.json's mtime is older than
                                             # this (15min) -> force-expired instead, see below
 comcast_degraded_loss_pct_threshold = 25   # gateway.loss_pct >= this percent...
@@ -266,7 +268,7 @@ original design record now that all seven are core-side implemented and verified
 | Condition | Threshold | Duration | Severity | Message |
 | --- | --- | --- | --- | --- |
 | Gateway offline | n/a — `status.json`'s boolean `gateway.online` | >=15min default (`gateway_offline_duration_sec`) | SEVERE (root) + INFO (detail, + MTR-began child once `fetch_mtr.sh` confirms Pi5's overnight log started) | COMCAST OUTAGE DETECTED / GATEWAY OFFLINE >=15MIN |
-| Comcast degraded | `status.json`'s `gateway.loss_pct` >= 25% (`comcast_degraded_loss_pct_threshold`) OR `modem/status.json`'s `recent_t3_timeouts` >= 5 (`comcast_degraded_t3_threshold`) | loss_pct sustained >=5min default (`comcast_degraded_loss_duration_sec`); T3 count instantaneous (already windowed by `fetch_modem.py`) | CAUTION (root) + INFO child per sub-condition that actually fired | COMCAST DEGRADED / T3: \<n\> TOTAL FOR \<H:MM\> and/or GATEWAY: \<pct\>% FOR \<duration\> |
+| Comcast degraded | `status.json`'s `gateway.loss_pct` >= 25% (`comcast_degraded_loss_pct_threshold`) OR a T3 burst — `modem/status.json`'s `recent_t3_timeouts` delta since the last poll, normalized to a rate, >= `comcast_degraded_t3_burst_count`/`..._window_min`'s equivalent rate (default 5 within 5min = 60/hr) | loss_pct sustained >=5min default (`comcast_degraded_loss_duration_sec`); T3 burst is itself instantaneous (a rate crossing, not a sustained condition) | CAUTION (root) + INFO child(ren) per sub-condition that actually fired — T3 side gives 2 (burst + running total) | COMCAST DEGRADED / T3: +\<n\> IN \<M\>MIN, T3: \<n\> TOTAL FOR \<H:MM\>, and/or GATEWAY: \<pct\>% FOR \<duration\> |
 | Advanced Kill Switch blocking | n/a — `vpn.json`'s `killswitch_mode == "on"` AND `connectionstate != "Connected"` | >=10s default (`advanced_killswitch_duration_sec`) | SEVERE | KS BLOCKING TRAFFIC |
 | Pi-hole inactive | n/a | >=10min default (`pihole_inactive_duration_sec`) | CAUTION | PI-HOLE INACTIVE |
 | AP client MAC/IP mismatch | n/a (count > 0) — core-computed, `ap_clients.json`'s `mismatch_total` | instant | CAUTION | MAC/IP MISMATCH (n) + INFO child per mismatch |
@@ -338,14 +340,23 @@ separately — a degraded episode escalating into a full outage doesn't clear th
 entry, and the CAUTION entry clearing doesn't imply the outage has too.
 
 **What clears `comcast-degraded`:** both sub-conditions are recomputed fresh on every poll
-where their source data is current — `t3_breached` and `loss_breached` are each just booleans
+where their source data is current — `t3_burst` and `loss_breached` are each just booleans
 re-derived from live numbers, not sticky flags that need an explicit reset. The parent clears
 the instant *neither* is true in the same poll. In practice:
 
-- **T3 side:** `recent_t3_timeouts` is itself a trailing 60-minute window sum
-  (`event_log_window_minutes`, see `fetch_modem.py`'s `compute_recent_t3()`) — once that long
-  passes with no new occurrence, the count naturally drops below threshold on its own, no
-  separate timer needed.
+- **T3 side (rewritten 2026-09-10 — see `docs/network-providers-roadmap.md`'s Sept 8-10 session
+  logs for the full investigation):** `recent_t3_timeouts` on its own does *not* naturally
+  clear the way it looks like it should — it's a whole collapsed row's lifetime count, and
+  stays elevated for as long as the same condition recurs at all, however mildly (a trickle
+  averaging ~2.5/hr was observed staying continuously above the old flat threshold for 40+
+  hours). What actually clears the T3 side now is the *burst* signal: `fetch_alerts.sh` tracks
+  `t3_last_seen_count`/`t3_last_seen_at` (state.json) across polls and computes
+  `rate = delta ÷ hours_since_last_poll` each time; the T3 side breaches only when that rate
+  crosses `comcast_degraded_t3_burst_count`/`..._window_min`'s equivalent (default 60/hr), and
+  clears the very next poll where it doesn't — typically within one poll cycle of the burst
+  actually subsiding, not an hour later. A pure trickle (nonzero total, rate below the burst
+  floor) never breaches this condition at all anymore; that context lives only on the WAN
+  panel's always-visible `T3 X N TOTAL` line, not the banner.
 - **Loss side:** clears as soon as a single fresh `gateway.loss_pct` sample reads below
   `comcast_degraded_loss_pct_threshold` — not sustained-to-clear the way it's sustained-to-
   breach; `comcast_loss_since` resets to `None` immediately.
@@ -356,10 +367,11 @@ the instant *neither* is true in the same poll. In practice:
   indistinguishable from "still genuinely breached" by `state` alone. `fetch_alerts.sh`
   checks the file's mtime and force-expires the T3 sub-condition if it's older than
   `comcast_degraded_t3_stale_sec` (default 900s/15min), so a dead provider can't pin the
-  banner open indefinitely. This is distinct from the *same-poll* `ok_modem=False` case
-  (provider itself reports "degraded"/"error" fresh this poll), which is deliberately
-  persisted rather than treated as a clear — see `docs/network-providers-roadmap.md`'s
-  Sept 8/9 session log for the full investigation behind both of these.
+  banner open indefinitely — and deliberately does *not* advance the burst baseline off stale
+  data, so the next genuinely fresh poll computes its delta/rate against the last real
+  reading, however long ago that was. This is distinct from the *same-poll* `ok_modem=False`
+  case (provider itself reports "degraded"/"error" fresh this poll), which is deliberately
+  persisted rather than treated as a clear.
 
 ### Verification (Aug 22, 2026)
 

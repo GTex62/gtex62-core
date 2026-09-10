@@ -90,12 +90,33 @@ PIHOLE_INACTIVE_DURATION_SEC="${PIHOLE_INACTIVE_DURATION_SEC:-600}"
 ADV_KILLSWITCH_DURATION_SEC="$(parse_section_value "$CORE_TOML" alerts advanced_killswitch_duration_sec || true)"
 ADV_KILLSWITCH_DURATION_SEC="${ADV_KILLSWITCH_DURATION_SEC:-10}"
 
-# comcast-degraded (CAUTION) — OR of a T3-timeout count and a sustained
-# gateway loss-% reading. See the evaluation block below for the full
-# reasoning; these three are its config knobs, same naming shape as the
-# duration keys above.
-COMCAST_DEGRADED_T3_THRESHOLD="$(parse_section_value "$CORE_TOML" alerts comcast_degraded_t3_threshold || true)"
-COMCAST_DEGRADED_T3_THRESHOLD="${COMCAST_DEGRADED_T3_THRESHOLD:-5}"
+# comcast-degraded (CAUTION) — OR of a T3 burst and a sustained gateway
+# loss-% reading. See the evaluation block below for the full reasoning;
+# these are its config knobs, same naming shape as the duration keys above.
+#
+# Replaced 2026-09-10 (see roadmap's Sept 8-10 session logs): the T3 side
+# used to be a flat `recent_t3_timeouts >= comcast_degraded_t3_threshold`
+# (default 5) — but that field is a whole collapsed row's *lifetime*
+# count, not "how many just happened," so once it first crossed 5 it
+# tended to stay crossed for as long as the same condition kept
+# recurring at all, however mildly (observed live: a trickle averaging
+# ~2.5/hr stayed continuously breached for 40+ hours). It couldn't tell
+# a real burst from a long-running mild trickle — both looked like flat
+# "CAUTION, big number." `comcast_degraded_t3_burst_count`/
+# `..._window_min` instead gate on a genuine recent delta: how many NEW
+# occurrences landed within roughly the last `..._window_min` minutes,
+# normalized to a rate so an irregular polling gap doesn't distort it
+# (see the evaluation block for exactly why it's a rate, not a raw
+# per-poll delta). Defaults (5 within 5min = 60/hr) picked from the same
+# real-episode reference the old flat threshold used ("9, then 12,
+# climbing" during confirmed live bursts, docs/network-providers-
+# roadmap.md's Aug 31/Sept 6-7 session logs) — a genuinely tunable pair,
+# expected to need adjusting after a week of watching real data.
+COMCAST_DEGRADED_T3_BURST_COUNT="$(parse_section_value "$CORE_TOML" alerts comcast_degraded_t3_burst_count || true)"
+COMCAST_DEGRADED_T3_BURST_COUNT="${COMCAST_DEGRADED_T3_BURST_COUNT:-5}"
+
+COMCAST_DEGRADED_T3_BURST_WINDOW_MIN="$(parse_section_value "$CORE_TOML" alerts comcast_degraded_t3_burst_window_min || true)"
+COMCAST_DEGRADED_T3_BURST_WINDOW_MIN="${COMCAST_DEGRADED_T3_BURST_WINDOW_MIN:-5}"
 
 COMCAST_DEGRADED_LOSS_PCT_THRESHOLD="$(parse_section_value "$CORE_TOML" alerts comcast_degraded_loss_pct_threshold || true)"
 COMCAST_DEGRADED_LOSS_PCT_THRESHOLD="${COMCAST_DEGRADED_LOSS_PCT_THRESHOLD:-25}"
@@ -126,7 +147,8 @@ python3 - \
   "$MODEM_STATUS_JSON" \
   "$STATE_JSON" "$BANNER_JSON" "$ALERT_LOG" \
   "$PROFILE_ID" "$GATEWAY_OFFLINE_DURATION_SEC" "$PIHOLE_INACTIVE_DURATION_SEC" \
-  "$ADV_KILLSWITCH_DURATION_SEC" "$COMCAST_DEGRADED_T3_THRESHOLD" \
+  "$ADV_KILLSWITCH_DURATION_SEC" "$COMCAST_DEGRADED_T3_BURST_COUNT" \
+  "$COMCAST_DEGRADED_T3_BURST_WINDOW_MIN" \
   "$COMCAST_DEGRADED_LOSS_PCT_THRESHOLD" "$COMCAST_DEGRADED_LOSS_DURATION_SEC" \
   "$COMCAST_DEGRADED_T3_STALE_SEC" <<'PY'
 import json, os, sys, time
@@ -136,12 +158,18 @@ from datetime import datetime, timezone
  modem_status_path,
  state_path, banner_path, log_path,
  profile_id, gateway_dur_s, pihole_dur_s, adv_ks_dur_s,
- t3_threshold, loss_pct_threshold, loss_dur_s, t3_stale_s) = sys.argv[1:19]
+ t3_burst_count, t3_burst_window_min, loss_pct_threshold, loss_dur_s, t3_stale_s) = sys.argv[1:20]
 
 gateway_dur_s = int(gateway_dur_s)
 pihole_dur_s  = int(pihole_dur_s)
 adv_ks_dur_s  = int(adv_ks_dur_s)
-t3_threshold        = int(t3_threshold)
+t3_burst_count      = int(t3_burst_count)
+t3_burst_window_min = float(t3_burst_window_min)
+# The count/window pair above is what a human tunes; the actual comparison
+# is a rate (events/hour) so an irregular real polling gap doesn't distort
+# it — see the evaluation block below for why a raw per-poll delta can't
+# work at this cadence.
+t3_burst_rate_per_hour = t3_burst_count / (t3_burst_window_min / 60.0)
 loss_pct_threshold  = float(loss_pct_threshold)
 loss_dur_s          = int(loss_dur_s)
 t3_stale_s          = int(t3_stale_s)
@@ -194,7 +222,13 @@ state.setdefault("ap_offline_alerted", {}) # {label: bool}
 state.setdefault("adv_ks_blocking_since", None)
 state.setdefault("adv_ks_blocking_alerted", False)
 state.setdefault("comcast_loss_since", None)
-state.setdefault("comcast_t3_breached", False)
+state.setdefault("comcast_t3_burst_active", False)
+# Baseline for delta/rate burst detection — the reading (count, epoch)
+# from the last poll that had genuinely fresh modem data. None until the
+# first such poll ever happens (or after a stale/absent-data gap that
+# deliberately doesn't advance it — see the evaluation block).
+state.setdefault("t3_last_seen_count", None)
+state.setdefault("t3_last_seen_at", None)
 state.setdefault("comcast_degraded_since", None)
 state.setdefault("comcast_degraded_alerted", False)
 
@@ -300,42 +334,80 @@ if state["gateway_offline_since"] is not None:
 # the parent, and whichever one(s) actually fired get their own INFO child
 # so a person can see which symptom(s) triggered it:
 #
-#   - T3 timeouts: modem/status.json's recent_t3_timeouts, already windowed
-#     to event_log_window_minutes by fetch_modem.py itself, >=
-#     comcast_degraded_t3_threshold (default 5 — sized off real observed
-#     bursts during confirmed live Comcast episodes: 9, then 12, growing,
-#     per docs/network-providers-roadmap.md's Aug 31/Sept 6-7 session logs,
-#     vs. 0 on a quiet night). Instantaneous, same shape as MSMTCH/
-#     unidentified-IP above — the upstream provider already did the
-#     windowing, so no separate duration-sustain is needed here.
-#     comcast_t3_breached is persisted (not recomputed as a bare local each
-#     poll) so a transient modem-provider hiccup can't force a false CLEAR
-#     the instant its cache goes degraded — same "don't derive a clear from
-#     stale/absent data" principle as load_json()'s state=="ok" gate, just
-#     applied to a threshold flag instead of a since-timestamp. That
-#     protection only covers a same-poll ok_modem=False, though — it says
-#     nothing about a status.json that's simply gone stale while still
-#     saying "ok" (fetch_modem.py stopped running rather than reporting a
-#     clean error). Added 2026-09-09 (see roadmap's Sept 8/9 session log,
-#     prompted by a user asking what actually clears this alert): if the
-#     file's mtime is older than comcast_degraded_t3_stale_sec (default
-#     900s/15min, 3x the modem provider's own poll cadence), the T3
-#     sub-condition is force-expired instead of re-asserting whatever
-#     frozen number it last saw, poll after poll, forever.
-#     The child message anchors the total with modem/status.json's
-#     recent_t3_elapsed (added 2026-09-08, changed from a wall-clock
-#     "SINCE HH:MM" to elapsed "H:MM" on 2026-09-09 at the user's
-#     suggestion — see roadmap's Sept 8/9 session log) — "T3: 91 TOTAL
-#     FOR 36:12" instead of the old "T3: 91 IN 60M", which read as "91
-#     fresh timeouts in the last hour" when the number is actually a
-#     whole collapsed row's lifetime count that just happens to still be
-#     inside the window (see fetch_modem.py's compute_recent_t3()
-#     docstring). Elapsed rather than a wall-clock anchor specifically so
-#     it stays meaningful past 24h without also needing a date printed —
-#     hours just keep counting up. This is the WAN panel's SitRep
-#     counterpart moved here instead — see gtex62-sitrep's pf.lua
-#     cm1000_fields() comment for why: this banner line has room for the
-#     anchor alongside the total, the WAN panel's CM1000 column doesn't.
+#   - T3 burst: NOT modem/status.json's recent_t3_timeouts crossing a flat
+#     threshold anymore (that was the design through 2026-09-09; see
+#     docs/network-providers-roadmap.md's Sept 8-10 session logs for the
+#     full investigation this replaces). recent_t3_timeouts is a whole
+#     collapsed row's *lifetime* docsDevEvCounts, riding along for as
+#     long as that row's LastTime stays inside fetch_modem.py's own
+#     window — so a flat `>= 5` check couldn't distinguish a genuine
+#     active burst from a long-running mild trickle that just never goes
+#     a full clean hour. Observed live: a trickle averaging ~2.5/hr kept
+#     this flat-breached continuously for 40+ hours, even though it
+#     wasn't perceptibly affecting anything — the number the threshold
+#     was checking never meant "how much just happened."
+#
+#     Burst instead tracks a genuine recent delta: `t3_last_seen_count`/
+#     `t3_last_seen_at` (state.json) remember the reading from the last
+#     poll that had fresh modem data; each poll, `delta = max(0,
+#     current - last_seen)` and `rate = delta / hours_since(last_seen_at)`
+#     — a rate, not a raw per-poll delta, because polling isn't perfectly
+#     metronomic (a missed poll, a slow provider, a manual re-run all
+#     stretch or compress the real gap) and a flat delta would misread a
+#     long gap as a burst or a short one as calm. Burst fires when `rate
+#     >= t3_burst_rate_per_hour` (from comcast_degraded_t3_burst_count /
+#     ..._window_min above). Important floor to know when tuning those:
+#     at a normal ~5min poll cadence, even one single isolated trickle
+#     hit computes to `1 / (5/60) = 12/hr` purely from measurement
+#     granularity — the threshold has to sit clearly above that "one lone
+#     event" floor or every trickle occurrence reads as a burst. The
+#     default (5 in 5min = 60/hr) does; anything picked well under ~15/hr
+#     likely won't.
+#
+#     Two deliberately conservative edge cases: no prior baseline (state
+#     freshly initialized, or right after a restart with a cleared cache)
+#     -> treated as *no burst*, never "everything's new," same "don't
+#     derive a breach from incomplete history" principle as everywhere
+#     else in this file; and a count that's *lower* than the last
+#     baseline (the live row aged out and whatever's current is a smaller,
+#     different one) -> delta floors at 0 rather than treating the whole
+#     new count as fresh, since we have no way to tell "brand new row" from
+#     "measurement noise" at this level. Both bias toward under-, never
+#     over-, calling a burst.
+#
+#     The baseline only advances on a poll with genuinely fresh modem
+#     data (`ok_modem and not modem_stale`) — same fresh-evidence gate as
+#     everything else here — so a stale/absent-data gap doesn't silently
+#     poison the next real delta; the next fresh poll's rate is computed
+#     against whatever the last *real* reading was, however long ago that
+#     was, which the rate math already handles correctly regardless of
+#     gap length.
+#
+#     comcast_t3_burst_active is persisted (not recomputed as a bare local
+#     each poll) so a transient modem-provider hiccup can't force a false
+#     CLEAR the instant its cache goes degraded — same principle as
+#     load_json()'s state=="ok" gate. That protection only covers a
+#     same-poll ok_modem=False, though — it says nothing about a
+#     status.json that's simply gone stale while still saying "ok"
+#     (fetch_modem.py stopped running rather than reporting a clean
+#     error). Added 2026-09-09: if the file's mtime is older than
+#     comcast_degraded_t3_stale_sec (default 900s/15min, 3x the modem
+#     provider's own poll cadence), the T3 sub-condition is force-expired
+#     instead of re-asserting whatever it last saw, poll after poll,
+#     forever.
+#
+#     Two INFORMATIONAL children when active, not one — the burst itself
+#     (what just happened, fast: "T3: +8 IN 10MIN", reviving the exact
+#     pre-2026-09-08 "T3: <n> IN <window>M" phrasing, just finally
+#     attached to a genuine short-window delta instead of the lifetime
+#     total it used to be misapplied to) and the running total for
+#     context (modem/status.json's recent_t3_elapsed, "T3: 91 TOTAL FOR
+#     36:12" — elapsed rather than a wall-clock anchor so it stays
+#     meaningful past 24h without needing a date printed). Both children
+#     only appear while a burst is active — a pure trickle (nonzero total,
+#     not currently bursting) doesn't raise this alert at all anymore;
+#     that context lives solely on the WAN panel's always-visible
+#     `T3 X N TOTAL` line (gtex62-sitrep's pf.lua) instead.
 #   - Gateway loss: pfsense/status.json's gateway.loss_pct (dpinger's own
 #     rolling 60s average, not a single ping — see the gateway.online
 #     boolean condition above) >= comcast_degraded_loss_pct_threshold
@@ -373,23 +445,45 @@ except OSError:
     pass  # missing file -> treat as stale, same as ok_modem's own "no fresh evidence" default
 
 t3_count = t3_elapsed = None
+t3_burst_delta = t3_burst_interval_min = None  # only set when a burst is actually firing
 if ok_modem and not modem_stale:
     t3_count = modem.get("recent_t3_timeouts")
     t3_elapsed = modem.get("recent_t3_elapsed")
-    state["comcast_t3_breached"] = (
-        isinstance(t3_count, (int, float)) and t3_count >= t3_threshold
-    )
+
+    last_seen_count = state.get("t3_last_seen_count")
+    last_seen_at = state.get("t3_last_seen_at")
+
+    burst_now = False
+    if (
+        isinstance(t3_count, (int, float))
+        and isinstance(last_seen_count, (int, float))
+        and isinstance(last_seen_at, (int, float))
+    ):
+        delta = max(0, t3_count - last_seen_count)
+        interval_sec = max(1, now_epoch - last_seen_at)  # guard div-by-zero on a same-second re-run
+        rate_per_hour = delta / (interval_sec / 3600.0)
+        if delta > 0 and rate_per_hour >= t3_burst_rate_per_hour:
+            burst_now = True
+            t3_burst_delta = delta
+            t3_burst_interval_min = max(1, interval_sec // 60)
+    # else: no prior baseline yet (cold start) -> stays False, never "everything's new"
+
+    state["comcast_t3_burst_active"] = burst_now
+
+    if isinstance(t3_count, (int, float)):
+        state["t3_last_seen_count"] = t3_count
+        state["t3_last_seen_at"] = now_epoch
 elif ok_modem and modem_stale:
     # File says "ok" but hasn't been refreshed in t3_stale_s -- the provider
-    # itself has likely stopped running, not just had one bad poll. Unlike
-    # a same-poll ok_modem=False (intentionally persisted, see above), a
-    # frozen "ok" file gives no signal of its own that anything's wrong, so
-    # nothing else would ever catch this. Force-expire rather than let a
-    # stale number re-assert BREACH indefinitely.
-    state["comcast_t3_breached"] = False
-t3_breached = state["comcast_t3_breached"]
+    # itself has likely stopped running, not just had one bad poll. Force-
+    # expire rather than let a stale burst flag re-assert BREACH
+    # indefinitely; deliberately do NOT touch t3_last_seen_count/_at here,
+    # so the next genuinely fresh poll computes its delta/rate against the
+    # last real reading, however long ago that was.
+    state["comcast_t3_burst_active"] = False
+t3_burst = state["comcast_t3_burst_active"]
 
-degraded_active = t3_breached or loss_breached
+degraded_active = t3_burst or loss_breached
 
 if degraded_active:
     if state["comcast_degraded_since"] is None:
@@ -409,16 +503,23 @@ if state["comcast_degraded_since"] is not None:
     # degraded/absent this particular poll, its child is simply omitted
     # this round (matching the fresh-evidence gate used everywhere else)
     # rather than rendering a number that isn't actually current.
-    if ok_modem and t3_breached:
-        t3_message = f"T3: {int(t3_count)} TOTAL"
-        if t3_elapsed:
-            t3_message += f" FOR {t3_elapsed}"
+    if ok_modem and t3_burst:
         comcast_children.append({
-            "id": "comcast-degraded-t3",
+            "id": "comcast-degraded-t3-burst",
             "severity": "INFORMATIONAL",
-            "message": t3_message,
+            "message": f"T3: +{t3_burst_delta} IN {t3_burst_interval_min}MIN",
             "since": iso(state["comcast_degraded_since"]),
         })
+        if isinstance(t3_count, (int, float)):
+            t3_total_message = f"T3: {int(t3_count)} TOTAL"
+            if t3_elapsed:
+                t3_total_message += f" FOR {t3_elapsed}"
+            comcast_children.append({
+                "id": "comcast-degraded-t3-total",
+                "severity": "INFORMATIONAL",
+                "message": t3_total_message,
+                "since": iso(state["comcast_degraded_since"]),
+            })
     if ok and loss_breached and isinstance(loss_pct, (int, float)):
         loss_minutes = (now_epoch - state["comcast_loss_since"]) // 60
         comcast_children.append({

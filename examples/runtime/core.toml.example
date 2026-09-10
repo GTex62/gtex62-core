@@ -79,15 +79,28 @@ pihole_inactive_duration_sec = 600
 # gateway-offline's 15min — this surfaces promptly rather than waiting out
 # a blip, since the person may not remember Advanced mode is even on.
 advanced_killswitch_duration_sec = 10
-# modem/status.json's recent_t3_timeouts (already windowed to
-# event_log_window_minutes by fetch_modem.py) >= this count -> half of the
-# CAUTION "COMCAST DEGRADED" OR-condition (see the two loss_pct keys below
-# for the other half). Instantaneous, like MSMTCH/unidentified-IP — the
-# modem's own window already smooths this. 5 chosen from real observed
-# bursts (docs/network-providers-roadmap.md's Aug 31/Sept 6-7 sessions:
-# confirmed live T3 counts of 9, then 12 and climbing, during genuine
-# Comcast episodes, vs. 0 on a quiet night).
-comcast_degraded_t3_threshold = 5
+# T3 burst detection -- half of the CAUTION "COMCAST DEGRADED" OR-condition
+# (see the two loss_pct keys below for the other half). Replaced 2026-09-10
+# a flat `recent_t3_timeouts >= comcast_degraded_t3_threshold` (was 5): that
+# field is a whole collapsed row's *lifetime* count, not "how many just
+# happened," so once it crossed 5 it tended to stay crossed for as long as
+# the same condition kept recurring at all, however mildly -- observed live,
+# a trickle averaging ~2.5/hr stayed continuously breached for 40+ hours.
+# These two instead gate on a genuine recent delta -- how many NEW
+# occurrences landed within roughly this many minutes -- converted
+# internally to a rate (events/hour) so an irregular real polling gap
+# doesn't distort it. Defaults (5 within 5min = 60/hr) keep the same real-
+# episode reference the old flat threshold used (docs/network-providers-
+# roadmap.md's Aug 31/Sept 6-7 sessions: confirmed live T3 counts of 9,
+# then 12 and climbing, during genuine Comcast episodes, vs. 0 on a quiet
+# night) -- but IMPORTANT if retuning: at a normal ~5min poll cadence, one
+# single isolated trickle hit computes to ~12/hr from measurement
+# granularity alone, so the effective rate (count / (window_min/60)) needs
+# to sit clearly above that floor or every trickle occurrence reads as a
+# burst. See docs/network-providers-roadmap.md's Sept 8-10 session logs
+# for the full investigation.
+comcast_degraded_t3_burst_count = 5
+comcast_degraded_t3_burst_window_min = 5
 # pfsense/status.json's gateway.loss_pct (dpinger's own rolling 60s
 # average, not a single ping) >= this percent, sustained for >=
 # comcast_degraded_loss_duration_sec below -> the other half of the
@@ -101,13 +114,12 @@ comcast_degraded_loss_pct_threshold = 25
 # duplicate of the SEVERE full-outage condition on a longer fuse.
 comcast_degraded_loss_duration_sec = 300
 # How stale modem/status.json can get (file mtime vs. now) before the T3
-# half of the OR-condition above is force-expired instead of re-asserting
-# a frozen recent_t3_timeouts forever. Guards against fetch_modem.py
-# stopping entirely (crash, dead loop, expired credential) rather than
-# writing a fresh error state — that leaves the file saying "ok" with
-# whatever it last saw, which nothing else would catch. 900s (15min) is
-# 3x the modem provider's own 300s cache_ttl_sec — enough slack for a
-# couple of missed polls, tight enough to not pin the banner for hours on
-# a genuinely dead provider. See docs/network-providers-roadmap.md's
-# Sept 8/9 session log.
+# half of the OR-condition above is force-expired instead of re-asserting a
+# frozen burst-active flag forever. Guards against fetch_modem.py stopping
+# entirely (crash, dead loop, expired credential) rather than writing a
+# fresh error state — that leaves the file saying "ok" with whatever it
+# last saw, which nothing else would catch. 900s (15min) is 3x the modem
+# provider's own 300s cache_ttl_sec — enough slack for a couple of missed
+# polls, tight enough to not pin the banner for hours on a genuinely dead
+# provider. See docs/network-providers-roadmap.md's Sept 8/9 session log.
 comcast_degraded_t3_stale_sec = 900

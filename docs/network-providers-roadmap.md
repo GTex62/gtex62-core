@@ -1309,6 +1309,92 @@ getting a clean 60-minute gap to reset. Two things came out of discussing that:
   against live data and against a non-default window (120min -> `(2H)`).
   `reading-the-widget.md` updated to match.
 
+### Session Log — Sept 10, 2026 (Follow-up: Burst/Trickle/Total — the Flat T3 Threshold Replaced with Delta-Rate Burst Detection)
+
+Discussed with the user after two more days of real observation (the row from the Sept 8/9
+sessions had by now run 40+ hours, ~103 total, averaging only ~2.5-3/hr — vs. the original
+burst's 90+ in under an hour). Landed on a three-tier mental model: **total** (overall
+condition since the anchor time — already shipped, `recent_t3_timeouts`/`recent_t3_elapsed`),
+**trickle** (nonzero total, not currently escalating — informative, no alert needed), and
+**burst** (a lot happening *right now* — the one that's actually important and didn't exist
+as a distinct signal yet). Implemented burst detection and wired it into `comcast-degraded`,
+replacing the flat threshold entirely.
+
+- **Why a lifetime-average rate (`total ÷ elapsed_hours`) was rejected for burst detection,
+  not just the flat threshold:** a long-lived row's average gets diluted by everything that
+  came before it — 103 over 40h always averages ~2.5/hr no matter how bad the last 20 minutes
+  have been, so a real fresh burst on top of an old trickle would get buried, not surfaced.
+  Burst needs a *recent* signal, not a lifetime one.
+- **Considered and discussed, before landing on the final shape:** an "independent of SitRep"
+  polling daemon (like the existing `gtex62-github-traffic.timer` systemd precedent) to avoid
+  losing burst-detection state across restarts — investigated and found unnecessary: unlike
+  GitHub's rolling 14-day API window (real, permanent data loss if unpolled), the CM1000's own
+  event log doesn't decay on a schedule, and `state.json`/`status.json` already persist on the
+  real ext4 disk regardless of process lifecycle (confirmed: `start-conky.sh` only kills PIDs,
+  never touches cache files; `df -T` confirmed the cache dir isn't tmpfs). Confirmed with the
+  user: no restart count, Titan reboot, or Titan being off for days negatively affects the
+  data, beyond two already-known, unrelated limits — the modem's own log buffer capacity if
+  it ever evicts rows (uncharacterized, but low-risk here since this MAC's condition has lived
+  as 1-2 rows updating in place rather than spawning many), and the inherent poll-based blind
+  spot for anything that starts and fully resolves entirely inside an unmonitored gap. Also
+  considered scheduled/manual `Clear Log` as a reset lever — investigated the button's actual
+  mechanism live (POST to `/goform/EventLog`, `buttonHit=clear_log`; its `onClick`'s second
+  call, `clearLog()`, doesn't exist anywhere in the modem's own JS — cosmetically broken,
+  harmless) and concluded manual-occasional is fine but automating it is the wrong tool: it
+  solves the same interpretability problem burst/rate math already solves, but by destroying
+  history instead.
+- **The real gotcha caught before shipping a wrong number:** at the normal ~5min poll cadence,
+  even one single isolated trickle hit computes to `1 ÷ (5/60) = 12/hr` from measurement
+  granularity alone — a rate threshold anywhere near the originally-floated "~10/hr" would have
+  flagged *every* trickle occurrence as a burst, the opposite of the goal. The threshold has to
+  sit clearly above that "one lone event at normal cadence" floor.
+- **Fix, `providers/alerts/fetch_alerts.sh`:**
+  - New state.json keys: `t3_last_seen_count`/`t3_last_seen_at` (the reading from the last poll
+    with genuinely fresh modem data) and `comcast_t3_burst_active` (replaces
+    `comcast_t3_breached`, same "persist across a same-poll hiccup" philosophy).
+  - Each poll: `delta = max(0, current - last_seen)`, `rate = delta ÷ hours_since(last_seen_at)`
+    — a rate, not a raw per-poll delta, specifically so an irregular real polling gap (missed
+    poll, manual re-run, slow provider) doesn't distort it. Burst fires when `rate >=
+    comcast_degraded_t3_burst_count ÷ (comcast_degraded_t3_burst_window_min ÷ 60)` (defaults
+    5 within 5min = 60/hr, using the same "9, then 12, climbing" real-episode reference the old
+    flat threshold used).
+  - Two deliberately conservative edge cases: no prior baseline (cold start, or right after a
+    cache-clearing event) -> *no burst*, never "everything's new" (same "don't derive a breach
+    from incomplete history" principle as everywhere else in this file); a count *lower* than
+    the last baseline (old row aged out, a smaller different one is now current) -> delta
+    floors at 0 rather than treating the whole new count as fresh. Both under-call rather than
+    over-call.
+  - Baseline only advances on a poll with fresh modem data — a stale/absent-data gap doesn't
+    poison the next real delta; the rate math already handles an arbitrary gap length
+    correctly whenever polling resumes.
+  - `comcast-degraded`'s T3 side now produces **two** children when active, not one:
+    `comcast-degraded-t3-burst` (`T3: +8 IN 10MIN` — revives the exact pre-2026-09-08 `T3: <n>
+    IN <window>M` phrasing, finally attached to a genuine short-window delta instead of the
+    lifetime total it used to be misapplied to) and `comcast-degraded-t3-total` (`T3: 93 TOTAL
+    FOR 14:05`, unchanged wording). A pure trickle no longer raises this alert *at all* — that
+    context lives solely on the WAN panel's `T3 X N TOTAL` line now.
+  - `comcast_degraded_t3_threshold` config removed entirely, replaced by
+    `comcast_degraded_t3_burst_count`/`comcast_degraded_t3_burst_window_min`.
+- **Verified live, all edge cases, against the real cache files** (backed up first, restored
+  byte-identical after — confirmed via diff): cold-start/key-migration (no crash, no false
+  burst, baseline established); a real trickle shape (delta=1 over 5min, computed rate 12/hr)
+  correctly produced *no* alert — this is the exact case the old flat threshold would have
+  wrongly fired on, since the underlying total was 101, well over the old `>=5`; a real burst
+  shape (delta=8 over 5min, 96/hr) correctly produced both children with the exact mocked-up
+  wording; the burst cleared cleanly on the very next poll once the delta stopped; the
+  reset-to-zero case correctly floored the delta and re-baselined; the stale-data force-expire
+  still worked correctly under the renamed field, even against a fabricated huge total (999).
+- No dedicated regression-test file added for this (unlike `fetch_modem.py`'s) — `fetch_alerts.sh`
+  has never had one; verified the same way its `sitrep-architecture.md` Sept 7 verification
+  session was: live, against real cache files, restored after. Noted as a known gap, not
+  addressed this session.
+- `sitrep-architecture.md` (config example, condition table, "What clears" section),
+  `examples/runtime/core.toml.example`, `gtex62-sitrep`'s `reading-the-widget.md`, and the
+  gitignored `design/sitrep-design-notes.md` mirror table all updated to match.
+- **Plan, per the user:** observe real events for about a week post-implementation before
+  revisiting the burst_count/window_min defaults — they're an explicit tuning knob, not a
+  final answer.
+
 ### Open Items
 
 **The first five bullets below are superseded, not open (2026-09-07)** — they're all
