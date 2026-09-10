@@ -3,13 +3,15 @@
 ## Role
 
 This is the shared engine and provider library for all gtex62 Conky suites
-(gtex62-osa, LCARS, Tech-HUD, Tri-HUD, Clean Suite). Changes here affect
-every suite built on this engine.
+(gtex62-osa, gtex62-sitrep, LCARS, Tech-HUD, Tri-HUD, Clean Suite). Changes
+here affect every suite built on this engine.
 
-## Two Repos — Always Separate
+## Repos — Always Separate
 
 - Engine: `~/.config/conky/gtex62-core/`
-- Active suite: `~/.config/conky/gtex62-osa/`
+- Suite repos: `~/.config/conky/gtex62-<suite>/` (e.g. `gtex62-osa/`,
+  `gtex62-sitrep/`) — core-native suites are their own repos, not
+  subdirectories of core.
 
 Commit and push each repo independently. Do not mix suite-specific code
 into core, and do not put engine/provider code into a suite repo.
@@ -18,7 +20,9 @@ into core, and do not put engine/provider code into a suite repo.
 
 - Do not refactor while fixing a bug. Smallest safe change only.
 - Do not rename files, dirs, or public paths unless explicitly requested.
-- Commit messages: no Co-Authored-By or AI attribution lines.
+- Commit messages: follow whatever AI attribution the current session's own
+  instructions specify — that's changed over time (was "none", is now a
+  Co-Authored-By line), so don't hardcode a specific rule here.
 - Changes to providers affect all suites — be conservative.
 
 ## Provider Pattern
