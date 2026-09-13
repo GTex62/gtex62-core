@@ -18,6 +18,22 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
+## 0.6.5 — 2026-09-13
+
+- **`alert_log.txt` records which sub-condition(s) triggered a `comcast-degraded` breach
+  (`providers/alerts/fetch_alerts.sh`).** Previously a plain `BREACH CAUTION comcast-degraded
+  COMCAST DEGRADED` line didn't say whether it was the T3 burst side, the gateway loss side, or
+  both — reconstructing that after the fact meant cross-referencing `banner.json`'s live
+  `children[]` before it cleared back to empty, which a real live episode (two breach/clear
+  cycles within a few minutes, Sept 13) showed doesn't always leave enough time. `log()` gains
+  an optional `detail` parameter, appended as a trailing `(...)`: `(LOSS)`, `(T3)`, or
+  `(T3+LOSS)`. Scoped to `comcast-degraded` only — the one condition with more than one
+  possible cause; `CLEAR` lines never carry it, since nothing is currently breached at that
+  point to attribute it to. Verified live against all three cases.
+- Full session log: [Network Providers Roadmap](docs/network-providers-roadmap.md)'s
+  Sept 12/13, 2026 entry (also covers the first-ever T2/T4/SYNC DOCSIS event sighting that day,
+  discussed and explicitly deferred pending a second occurrence).
+
 ## 0.6.4 — 2026-09-10
 
 - **Fixed a real false-positive burst alert from 0.6.3, same day it shipped
