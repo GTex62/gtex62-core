@@ -298,6 +298,23 @@ convention is shared.
 2026-08-22T19:54:49Z CLEAR SEVERE gateway-offline COMCAST OUTAGE DETECTED
 ```
 
+A `BREACH` line for a condition with more than one possible cause carries a trailing
+`(DETAIL)` naming which sub-condition(s) actually fired — added 2026-09-13, only for
+`comcast-degraded` (the one condition where this is ambiguous; every other alert has exactly
+one possible cause, already named by its own message):
+
+```text
+2026-09-13T04:07:58Z BREACH CAUTION comcast-degraded COMCAST DEGRADED (LOSS)
+2026-09-13T23:12:58Z BREACH CAUTION comcast-degraded COMCAST DEGRADED (T3+LOSS)
+```
+
+`CLEAR` lines never carry this — by the time something clears, nothing is currently breached
+to attribute it to. `banner.json`'s live `children[]` is still the authoritative source for
+full per-child detail (message, per-child `since`) while an alert is active; this log-line
+detail exists specifically so *which* sub-condition(s) caused a past breach is still
+answerable after the alert has already cleared and `banner.json` has gone back to empty —
+reconstructing that from `alert_log.txt` alone previously required guessing.
+
 ### Degraded-Source Handling
 
 If an upstream cache file is missing, unparseable, or its own envelope `state` isn't

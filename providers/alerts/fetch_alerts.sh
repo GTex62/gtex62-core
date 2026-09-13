@@ -238,8 +238,23 @@ state.setdefault("comcast_degraded_alerted", False)
 log_lines = []
 
 
-def log(action, severity, alert_id, message):
-    log_lines.append(f"{now_iso} {action} {severity} {alert_id} {message}")
+def log(action, severity, alert_id, message, detail=None):
+    """`detail` is an optional trailing "(...)" note for conditions that can
+    be triggered by more than one independent sub-condition at once —
+    added 2026-09-13 after a real live episode (comcast-degraded, loss vs.
+    T3 burst) where reconstructing *which* sub-condition(s) actually fired
+    required cross-referencing banner.json before it had already cleared
+    back to empty. banner.json's `children[]` always has this detail while
+    an alert is active, but alert_log.txt's plain BREACH/CLEAR lines never
+    captured it for later — this closes that gap at the one call site that
+    needs it (comcast-degraded) without touching the single-cause alerts
+    that don't (gateway-offline, killswitch, pihole, msmtch, unidentified-
+    ip, ap-offline all have exactly one possible cause each, already named
+    by their `message`)."""
+    line = f"{now_iso} {action} {severity} {alert_id} {message}"
+    if detail:
+        line += f" ({detail})"
+    log_lines.append(line)
 
 
 queue = []
@@ -444,6 +459,16 @@ if state["gateway_offline_since"] is not None:
 #     full-outage condition on a longer fuse). Same duration-sustain shape
 #     as gateway_offline_since/gateway_dur_s above, tracked separately as
 #     comcast_loss_since since the threshold/duration differ.
+#
+#   Both sub-conditions can be true at once, and only banner.json's live
+#   children[] said which one(s) actually fired — alert_log.txt's plain
+#   BREACH/CLEAR line never recorded that, which made a real live episode
+#   (2026-09-13: a loss-triggered breach, then a T3-triggered one, both
+#   already cleared by the time it was investigated) only partially
+#   reconstructable after the fact. degraded_detail below ("T3", "LOSS",
+#   or "T3+LOSS") gets appended to the BREACH log line as "(...)" — see
+#   log()'s own docstring. CLEAR never carries it: by the time something
+#   clears, nothing is currently breached to attribute it to.
 # -------------------------------------------------------------------------
 
 # `ok`/`status` here are the exact pfsense status.json already loaded above
@@ -522,6 +547,13 @@ elif ok_modem and modem_stale:
     state["comcast_t3_burst_active"] = False
 t3_burst = state["comcast_t3_burst_active"]
 
+degraded_triggers = []
+if t3_burst:
+    degraded_triggers.append("T3")
+if loss_breached:
+    degraded_triggers.append("LOSS")
+degraded_detail = "+".join(degraded_triggers) or None
+
 degraded_active = t3_burst or loss_breached
 
 if degraded_active:
@@ -535,7 +567,7 @@ else:
 
 if state["comcast_degraded_since"] is not None:
     if not state["comcast_degraded_alerted"]:
-        log("BREACH", "CAUTION", "comcast-degraded", "COMCAST DEGRADED")
+        log("BREACH", "CAUTION", "comcast-degraded", "COMCAST DEGRADED", detail=degraded_detail)
         state["comcast_degraded_alerted"] = True
     comcast_children = []
     # Fresh-data-only children: if the sub-condition's own source is

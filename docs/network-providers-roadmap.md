@@ -1452,6 +1452,50 @@ anchor (`FOR 56:32`) is 56.5 hours old.
 - No new config knob added — the anchor-matching tolerance (5s) is a small internal constant,
   not something meant to need tuning.
 
+### Session Log — Sept 12/13, 2026 (First T2/T4/SYNC Sighting; alert_log.txt Gains Per-Breach Detail)
+
+Two smaller, related follow-ups from watching the alerting work run against real events over
+a couple of days.
+
+**Sept 12: first-ever T2/T4/SYNC event, discussed, not yet built.** A real ~5-minute outage
+(11:07-11:12 host time, confirmed via the known ~60min modem clock skew against the raw
+EventLog's 10:07-10:12 modem-time entries) produced `SYNC Timing Synchronization failure`,
+`T2 time-out`, and `T4 time-out` — DOCSIS event types never seen before in this investigation,
+and ones `fetch_modem.py` doesn't watch for at all (`matches_t3()` only matches the T3-specific
+IDs/text). `recent_t3_timeouts` correctly stayed 0 — not a bug, just a different failure mode
+than the T3 work has covered. `DOCSIS // NOMINAL` also correctly didn't move: it's driven by
+`connectivity_state` from `DocsisStatus.asp`'s Startup Procedure table (`parse_startup_
+procedure()`), which reflects successful boot/registration completion, not live link health —
+the modem recovered by re-ranging in-service (confirmed by two `DS profile assignment change`
+entries right at the end of the burst), never re-entering its startup sequence, so that field
+had no reason to move. Discussed a blunt "SYNC/T2/T4 EVENT DETECTED" Alert Banner entry
+(deliberately not the T3 burst/trickle/total apparatus — that machinery exists specifically
+for a *chronic* condition, and a rare event doesn't have the "stuck breached for days" failure
+mode that justified it) — **explicitly deferred**, holding off until a second occurrence gives
+more than one data point. Tracked in memory (`t2-t4-sync-alert-followup.md`).
+
+**Sept 13: real episode exposed a genuine gap, closed same day.** A separate, fresh T3
+lineage started that evening (different `since_epoch` from the Sept 8 one) and produced two
+real `comcast-degraded` breach/clear cycles within a few minutes of each other. Reconstructing
+what actually happened afterward required cross-referencing `banner.json` before it had
+already cleared back to empty, because `alert_log.txt`'s plain `BREACH`/`CLEAR` lines only
+ever recorded the parent condition, never *which* sub-condition (T3 burst, gateway loss, or
+both) actually caused it. User: "sounds like an easy thing to add... proceed."
+
+- **Fix, `providers/alerts/fetch_alerts.sh`:** `log()` gains an optional `detail` parameter,
+  appended as a trailing `(...)` on the log line only when given. A new `degraded_detail`
+  ("T3", "LOSS", or "T3+LOSS", built from the same `t3_burst`/`loss_breached` booleans that
+  already drive `degraded_active`) is passed to `comcast-degraded`'s `BREACH` log call only —
+  `CLEAR` never carries it, since by the time something clears there's nothing currently
+  breached to attribute it to. Scoped to `comcast-degraded` specifically, the one condition
+  with more than one possible cause; every other alert (gateway-offline, killswitch, pihole,
+  msmtch, unidentified-ip, ap-offline) has exactly one, already named by its own message, so
+  they don't need this.
+- **Verified live**, backing up and restoring the real cache files byte-identical after: a
+  loss-only breach logs `(LOSS)`, a T3-only breach logs `(T3)`, both together logs `(T3+LOSS)`.
+- `sitrep-architecture.md`'s `alert_log.txt` format reference updated with the new detail
+  syntax and why `CLEAR` lines don't carry it.
+
 ### Open Items
 
 **The first five bullets below are superseded, not open (2026-09-07)** — they're all
