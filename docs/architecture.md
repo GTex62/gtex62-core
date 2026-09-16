@@ -183,25 +183,26 @@ making fast-track meters (VLAN, ping) appear frozen.
 
 | Domain       | Default TTL    | Notes                                                                                                            |
 |--------------|----------------|------------------------------------------------------------------------------------------------------------------|
-| net          | 1s             | Fast-track — VLAN, ping, WAN IP display                                                                          |
-| time         | 1s             | Fast-track — clock rows                                                                                          |
-| system       | 1s             | Fast-track — CPU, RAM, GPU, storage — see system-provider-status.md                                              |
-| vpn          | 10s            | PIA WireGuard tunnel status                                                                                      |
-| orb          | 60s            | Ephemeris positions                                                                                              |
+| air          | 900s           | AQI + pollution — see env-provider-status.md                                                                     |
 | alerts       | 60s            | Cross-cutting; recomputes from other domains' caches, no cache_ttl_sec of its own                                |
 | ap           | 120s           | Zyxel AP fleet status + named clients                                                                            |
-| weather      | 300s           | Current conditions + forecast                                                                                    |
-| air          | 900s           | AQI + pollution — see env-provider-status.md                                                                     |
-| solar        | 300s           | UV + radiation (weather-derived) — see env-provider-status.md                                                    |
-| modem        | 300s           | Cable modem status                                                                                               |
-| aviation     | 600s           | METAR/TAF, independent metar_ttl_sec/taf_ttl_sec                                                                 |
 | astro        | 60s            | Moon phase, solar events — see astro-provider-status.md                                                          |
+| aviation     | 600s           | METAR/TAF, independent metar_ttl_sec/taf_ttl_sec                                                                 |
+| calendar     | 86400s         | Calendar events; seasonal sub-cache TTL 31536000s (1 year)                                                       |
 | connectivity | on-demand      | Manual speedtest snapshots                                                                                       |
-| network      | varies         | NIC state                                                                                                        |
-| pfsense      | varies         | Firewall/SSH gate                                                                                                |
 | github       | varies         | Traffic data                                                                                                     |
-| mtr          | trigger-driven | Start/stop gated on SEVERE `gateway-offline`; live-pgrep-confirmed every poll while running (see `fetch_mtr.sh`) |
 | media        | write-through  | Lyrics library — not TTL-cadence, see lyrics-library-design.md                                                   |
+| modem        | 300s           | Cable modem status                                                                                               |
+| mtr          | trigger-driven | Start/stop gated on SEVERE `gateway-offline`; live-pgrep-confirmed every poll while running (see `fetch_mtr.sh`) |
+| net          | 1s             | Fast-track — VLAN, ping, WAN IP display                                                                          |
+| network      | varies         | NIC state                                                                                                        |
+| orb          | 60s            | Ephemeris positions                                                                                              |
+| pfsense      | varies         | Firewall/SSH gate                                                                                                |
+| solar        | 300s           | UV + radiation (weather-derived) — see env-provider-status.md                                                    |
+| system       | 1s             | Fast-track — CPU, RAM, GPU, storage — see system-provider-status.md                                              |
+| time         | 1s             | Fast-track — clock rows                                                                                          |
+| vpn          | 10s            | PIA WireGuard tunnel status                                                                                      |
+| weather      | 300s           | Current conditions + forecast                                                                                    |
 
 WAN IP (within net) is internally rate-limited to one external call per 30s
 regardless of TTL. Cache is invalidated immediately on VPN state change.
