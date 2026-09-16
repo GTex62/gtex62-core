@@ -140,18 +140,27 @@ suite-specific.
 
 Current provider domains include:
 
-- `system`
-- `time`
-- `calendar`
-- `astro`
-- `weather`
-- `aviation`
 - `air`
+- `alerts`
+- `ap`
+- `astro`
+- `aviation`
+- `calendar`
+- `connectivity`
+- `github`
+- `media`
+- `modem`
+- `mtr`
+- `net`
+- `network`
+- `orb`
+- `pfsense`
 - `solar` — UV index and shortwave radiation via Open-Meteo (no key required);
   geometric synthetic model as fallback
-- `network`
-- `connectivity`
-- `pfsense`
+- `system`
+- `time`
+- `vpn`
+- `weather`
 
 Provider status files use the same basic shape:
 
