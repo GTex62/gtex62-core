@@ -18,6 +18,106 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
+## 0.7.0 — 2026-09-17
+
+New `gtex62-doctor` design work (core-side provider audit) closed every confirmed
+"silent gap" — a domain reporting `state:"ok"` while something underneath it was
+actually wrong — at the source, across six domains. Minor bump: schema-additive
+(`vpn.json` gains one field, `fetch_alerts.sh`'s `load_json()` gains an optional
+parameter) and behavior-additive (`state:"degraded"` now fires in several cases that
+previously stayed `"ok"`), no breaking changes to any existing field or consumer.
+
+- **VPN (`providers/vpn/fetch_vpn.sh`) — two conditions closed.** A lone failed tunnel
+  ping (`tunnel_latency_ms:null`) while `health` was still `HEALTHY`/`STALE` previously
+  had no signal anywhere; `state` now goes `"degraded"` for exactly that case, with a
+  note naming when the ping last succeeded (`tunnel_latency_last_ok_epoch`, new field,
+  carried forward across polls the same way `killswitch` already was). A failed `wg
+  show` dump (sudoers misconfiguration, or the `wg` binary missing) previously relied
+  on `health` going `"DEAD"` as the only signal — `state` now elevates for this too,
+  but deliberately gated on `connectionstate == "Connected"` rather than on `health ==
+  "DEAD"` directly, since `health` also reads `"DEAD"` on an entirely ordinary
+  voluntary disconnect (PIA tears the `wgpia0` interface down on disconnect, which
+  would make the wg dump fail too, for a non-alarming reason) — gating on `health`
+  alone would have flagged every routine disconnect as `"degraded"`. Confirmed the two
+  conditions can't collide: a failed wg dump already forces `health:"DEAD"`, which is
+  exactly what excludes the tunnel-ping check from also firing, so at most one note
+  fragment appears per poll. Verified against the real shipped code across 11 total
+  scenarios (4 for the tunnel-ping case, 7 for the wg-dump case), including the
+  critical false-positive check: a normal disconnect with the wg dump also failing
+  stays `"ok"`.
+- **MODEM (`providers/modem/fetch_modem.py`) — three conditions closed.**
+  `connectivity_state.status` (the CM1000's own DOCSIS registration state) can read a
+  genuine problem value while the scrape itself succeeds cleanly — found by
+  cross-checking `gtex62-sitrep`'s `pf.lua`, whose DOCSIS header line treats this exact
+  field as the *primary* modem-health signal, not `status.json`'s own `state`. A fully
+  unlocked `upstream_channels` array (modem can't transmit upstream at all) previously
+  rendered as a plausible `US AVG 0.0DBMV` in SitRep's own display rather than a
+  missing-data marker. A parse failure on either channel table (`usTable`/
+  `d31dsTable` coming back empty — `parse_channel_table()`'s existing "not found"/"no
+  rows"/"header mapping incomplete" notes) previously logged a note with no state
+  change. All three now elevate `state` to `"degraded"`; none collide with each other
+  or with the pre-existing (still unelevated, and correctly so) case of a
+  `connectivity_state` row that's *missing* from the table entirely, which is a
+  different condition from a present-but-bad value. Verified against the real shipped
+  code across 13 scenarios total.
+- **AIR (`providers/air/fetch_air.sh`) — one condition closed.**
+  `openweather.valid`/`airnow.valid` can independently go `false` while the other
+  source still resolves a timestamp, leaving `state:"ok"` with nothing indicating
+  which AQI source was actually down — distinct from AIR's existing `"partial"` state,
+  which only fires when *neither* source resolves one. Now elevates to `"degraded"`
+  naming the failed source, gated on that source actually being enabled
+  (`OWM_ENABLED`/`airnow_active`, not the always-true jq payload `enabled` field) so a
+  site that never configured AirNow doesn't get falsely flagged. Verified live against
+  OSA's real, unmodified `env.lua`: `"degraded"` renders identically to the pre-existing
+  `"partial"` state (`DATA // NOMINAL`, both cases) — `gtex62-osa` untouched.
+- **CONNECT (`providers/connectivity/fetch_connectivity.sh`) — one condition closed.**
+  `status.json`'s `state` was unconditionally `"ok"` regardless of whether the
+  speedtest itself succeeded; a failed run only ever surfaced in `current.json`'s
+  nested `speedtest.state`. Now follows it: `speedtest.state:"error"` elevates to
+  `"degraded"`; `speedtest.state:"disabled"` (never enabled in the profile — a config
+  choice, not a failure) still reads `"ok"`.
+- **NETWORK (`providers/network/fetch_network.sh`) — one condition closed.**
+  `wan_ip`/`dns`/`gateway` could each independently come back null with no signal
+  beyond the absent value. Now elevates to `"degraded"`, naming exactly which field(s)
+  (scoped to these three only — `lan_ip` has the same gap and isn't covered).
+- **`providers/alerts/fetch_alerts.sh` — `load_json()` gains an `ok_states` tuple**
+  (default unchanged, `("ok",)`), required by the VPN/MODEM fixes above: its
+  killswitch-blocking (VPN) and T3-burst (MODEM) detection both gated on a strict
+  `state == "ok"` read, which would have silently frozen them for as long as any new
+  `"degraded"` reason held — for MODEM's DOCSIS-registration case, potentially the
+  entire length of a real outage, exactly what T3-burst tracking exists to help
+  corroborate. Only the VPN/MODEM call sites widen to `("ok", "degraded")`; every other
+  call site (pfsense status, pihole, ap_status, ap_clients, mtr) keeps the strict
+  default, since their degraded/error states genuinely do mean "don't trust this poll."
+  Verified live against an isolated cache root, both directions: a `"degraded"` VPN/
+  MODEM cache still gets freshly evaluated (killswitch-blocking `since`/T3 baseline
+  both advance); a genuinely `"error"` cache is still correctly ignored (state held,
+  not corrupted).
+- **`examples/runtime/core.toml.example` — `mtr` added to `[providers]`.** Already
+  defaulted safely to disabled via the launcher's own bash fallback
+  (`MTR_ENABLED="${MTR_ENABLED:-false}"`), but was silently absent from the template
+  unlike its four siblings (`vpn`/`ap`/`modem`/`alerts`) — now documented explicitly.
+- **`examples/runtime/profiles/github/default.toml.example` — GITHUB now actually
+  ships disabled, not just documented as such.** Two bugs, found together: the file
+  was named `default.toml` (no `.example` suffix), so `gtex62-core-bootstrap-runtime`'s
+  `find ... -name '*.example'` never installed it — dead template, invisible to
+  bootstrap. And its `enabled` key was `true` — meaningful here because GITHUB has no
+  `core.toml [providers]` flag at all (confirmed by grep — it runs on a systemd timer,
+  `gtex62-github-traffic.timer`, entirely outside `gtex62-core-launch`), so this
+  profile's own `enabled` key is GITHUB's *only* toggle, and `fetch_github_traffic.py`
+  defaults to `enabled = true` when the profile file is absent — meaning a fresh clone
+  shipped GITHUB on by default despite looking like it should follow the same
+  false-by-default convention as its siblings. Fixed both: renamed to the correct
+  `.example` suffix and set `enabled = false`.
+- **New design docs**: `docs/doctor-design.md` and `docs/doctor-missing-conditions.md`
+  — full design and per-domain verification for the not-yet-built `gtex62-doctor`
+  suite (provider health table for every core domain in one place). All six fixes
+  above trace back to gaps this design pass found while confirming each domain's
+  `state` field would be trustworthy enough for that widget to rely on without a
+  domain-specific exception. Both docs carry the full evidence and live-verification
+  detail for every fix in this entry, the same role `docs/network-providers-roadmap.md`
+  plays for the network/pfSense-family entries elsewhere in this file.
+
 ## 0.6.5 — 2026-09-13
 
 - **`alert_log.txt` records which sub-condition(s) triggered a `comcast-degraded` breach
