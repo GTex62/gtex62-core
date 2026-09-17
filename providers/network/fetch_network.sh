@@ -247,4 +247,20 @@ with open(out_path, "w", encoding="utf-8") as handle:
 PY
 
 mv -f "$TMP_OUT" "$CURRENT_JSON"
-write_status "ok" ""
+
+# Was unconditionally "ok" past preflight (confirmed silent gap,
+# doctor-missing-conditions.md's NETWORK entry): wan_ip/dns/gateway could
+# each independently come back null with no signal beyond the absent value
+# in current.json — status.json stayed "ok" regardless, so nothing ever
+# prompted a look at which lookup actually failed.
+NETWORK_NULL_FIELDS=()
+[[ -z "$WAN_IP" ]] && NETWORK_NULL_FIELDS+=("wan_ip")
+[[ -z "$DNS" ]] && NETWORK_NULL_FIELDS+=("dns")
+[[ -z "$GATEWAY" ]] && NETWORK_NULL_FIELDS+=("gateway")
+
+if [[ ${#NETWORK_NULL_FIELDS[@]} -gt 0 ]]; then
+  NETWORK_NOTE="$(IFS=','; echo "${NETWORK_NULL_FIELDS[*]}")"
+  write_status "degraded" "null field(s): $NETWORK_NOTE"
+else
+  write_status "ok" ""
+fi

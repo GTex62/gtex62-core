@@ -1,0 +1,18 @@
+profile_id = "default"
+# GITHUB has no core.toml [providers] flag of its own — unlike vpn/ap/
+# modem/alerts/mtr, this `enabled` key is the *only* toggle. It ships false
+# so a fresh bootstrap doesn't start polling the GitHub API and running the
+# systemd timer's ExecStartPost NAS-copy step for repos you haven't
+# configured yet. Set to true (and populate the repo registry below) once
+# you're ready to track traffic.
+enabled = false
+
+[repos]
+# Path to the shared repo registry JSON.
+# Default: ~/.config/conky/github-traffic-repos.json
+# registry_path = "~/.config/conky/github-traffic-repos.json"
+
+[request]
+# How long to reuse the cached result before re-fetching (seconds).
+# GitHub traffic API data changes at most once per hour; 6h is a safe default.
+cache_ttl_sec = 21600

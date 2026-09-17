@@ -250,4 +250,16 @@ PY
 
 mv -f "$TMP_OUT" "$CURRENT_JSON"
 rm -f "$TMP_SPEED"
-write_status "ok" ""
+
+# Was unconditionally "ok" regardless of SPEED_STATE (confirmed silent gap,
+# doctor-missing-conditions.md's CONNECT entry): a failed speedtest call
+# lived only in current.json's nested speedtest.state/note, never in this
+# top-level status.json, so a Doctor check reading only this file's state
+# would call CONNECT healthy through weeks of failing speedtests.
+# SPEED_STATE=="disabled" (speedtest not enabled in the profile) is
+# deliberate, not a failure, and stays "ok" here — only "error" elevates.
+if [[ "$SPEED_STATE" == "error" ]]; then
+  write_status "degraded" "speedtest failing: ${SPEED_NOTE:-speedtest failed or unavailable}"
+else
+  write_status "ok" ""
+fi

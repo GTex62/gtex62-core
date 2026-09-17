@@ -337,8 +337,37 @@ jq -n \
   ' > "$CURRENT_JSON"
 
 PROVIDER_TS="$(jq -r '.provider_updated_at // empty' "$CURRENT_JSON" 2>/dev/null || true)"
+
+# Per-source degraded check — confirmed silent gap, doctor-missing-conditions.md's
+# AIR entry: openweather.valid/airnow.valid can independently go false while the
+# *other* source still resolves a timestamp (PROVIDER_TS non-empty), leaving state
+# "ok" with nothing to show which AQI source is actually down. Gated on the source
+# being enabled at all (OWM_ENABLED/airnow_active, the bash-side config flags, not
+# the jq payload's own "enabled" field — that one is always true once a raw file
+# exists, empty placeholder included, so it can't distinguish "not configured" from
+# "configured but failing"). Distinct from "partial" below: both sources invalid at
+# once means PROVIDER_TS itself comes back empty (neither $owm_ts nor $anw_latest_ts
+# resolves), which still falls through to the pre-existing partial branch, not this
+# one — degraded only ever fires when at least one source is genuinely still good.
+AIR_STATE="ok"
+AIR_NOTES=()
 if [[ -n "$PROVIDER_TS" ]]; then
-  write_status "ok" "$PROVIDER_TS" ""
+  OWM_VALID="$(jq -r '.openweather.valid' "$CURRENT_JSON" 2>/dev/null || echo false)"
+  AIRNOW_VALID="$(jq -r '.airnow.valid' "$CURRENT_JSON" 2>/dev/null || echo false)"
+  if is_true "$OWM_ENABLED" && [[ "$OWM_VALID" == "false" ]]; then
+    AIR_STATE="degraded"
+    AIR_NOTES+=("openweather source invalid this poll")
+  fi
+  if [[ $airnow_active -eq 1 ]] && [[ "$AIRNOW_VALID" == "false" ]]; then
+    AIR_STATE="degraded"
+    AIR_NOTES+=("airnow source invalid this poll")
+  fi
+fi
+
+if [[ -n "$PROVIDER_TS" ]]; then
+  AIR_NOTE=""
+  [[ ${#AIR_NOTES[@]} -gt 0 ]] && AIR_NOTE="$(IFS='; '; echo "${AIR_NOTES[*]}")"
+  write_status "$AIR_STATE" "$PROVIDER_TS" "$AIR_NOTE"
 else
   write_status "partial" "" "air cache has no provider timestamp"
 fi

@@ -21,7 +21,7 @@ default_suite = "osa"
 allow_legacy_suites = true
 
 [providers]
-# vpn/ap/modem/alerts are wired into gtex62-core-launch (see
+# vpn/ap/modem/alerts/mtr are wired into gtex62-core-launch (see
 # bin/gtex62-core-launch, "Provider enable/disable" comment) — true starts
 # that domain's fetch script running via initial_refresh/refresh_loop.
 # alerts (providers/alerts/fetch_alerts.sh) reads other providers' already-
@@ -33,6 +33,14 @@ vpn = false
 ap = false
 modem = false
 alerts = false
+# mtr (providers/mtr/fetch_mtr.sh) is the Pi5 MTR-overnight-log trigger —
+# its own SSH target/gate (runtime/mtr), reads fetch_alerts.sh's
+# banner.json for the gateway-offline trigger condition rather than
+# recomputing it. Already defaulted safely to false by the launcher's own
+# bash fallback even before this line existed; listed explicitly now so
+# the template documents it the same way as the other SSH-dependent flags
+# above, instead of leaving it silently absent.
+mtr = false
 # Lyrics library provider (providers/media/fetch_lyrics.sh) — see
 # docs/lyrics-library-design.md. Config is global (site.toml
 # [media.lyrics]), not a profile TOML — same wiring shape as the flags

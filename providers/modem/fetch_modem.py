@@ -781,8 +781,52 @@ def main():
     if perm_warning:
         notes.append(perm_warning)
 
+    # Envelope state: was unconditionally "ok" past this point (confirmed
+    # silent category-3 gaps, doctor-missing-conditions.md's MODEM entry,
+    # 2026-09-16 — cross-checked against gtex62-sitrep's pf.lua, which
+    # treats connectivity_state.status as its *primary* modem-health
+    # signal). Both conditions below leave the scrape itself successful —
+    # no parse error, no note — which is exactly what made them invisible;
+    # the channel-table-header-mapping failure above already gets its own
+    # note, but a *present-and-bad* connectivity_state value, or an
+    # upstream array with no locked channel, produced no signal at all.
+    state = "ok"
+
+    # A completely empty upstream/downstream array means parse_channel_table()
+    # already hit one of its own failure notes above (table not found, no
+    # rows, or header mapping incomplete) — that text is already in `notes`
+    # via docsis["notes"]; this was the one remaining place the note got
+    # written without the matching state elevation. Distinct from the
+    # all-unlocked check below, which is about a *non-empty* array where
+    # nothing happens to be locked, not a parse failure.
+    if not docsis["upstream_channels"] or not docsis["downstream_ofdm_channels"]:
+        state = "degraded"
+
+    # SitRep's docsis_word() (pf.lua) answers "is the modem actually
+    # registered with Comcast" from this exact field, not from this
+    # envelope's own state — parse_startup_procedure() above only notes a
+    # *missing* connectivity-state row, never a present-but-bad value, so
+    # a modem that's reachable and scraping cleanly but genuinely not
+    # DOCSIS-registered was reporting clean "ok" with nothing to catch it.
+    connectivity_status = (docsis.get("connectivity_state") or {}).get("status") or ""
+    if connectivity_status and connectivity_status.strip().upper() != "OK":
+        state = "degraded"
+        notes.append(f"modem not registered with Comcast (connectivity state: {connectivity_status.strip()})")
+
+    # A fully-unlocked upstream array means the modem can't transmit
+    # upstream at all — a real DOCSIS problem, not a quiet reading.
+    # parse_channel_table() only validates that the columns it needs are
+    # present, never that any row is actually locked, so nothing upstream
+    # of this catches it either; SitRep's own US AVG power average
+    # (cm1000_fields() in pf.lua) silently computes to a plausible 0.0 in
+    # this case rather than signaling missing data.
+    upstream_channels = docsis["upstream_channels"]
+    if upstream_channels and not any(ch.get("locked") for ch in upstream_channels):
+        state = "degraded"
+        notes.append("no locked upstream channels (modem cannot transmit upstream)")
+
     payload = {
-        "state": "ok",
+        "state": state,
         "profile": PROFILE_ID,
         "collector": "modem",
         "generated_at": now_iso(),

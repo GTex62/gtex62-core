@@ -192,8 +192,10 @@ fi
 # -------------------------------------------------------------------------
 
 PREV_KILLSWITCH="false"
+PREV_TUNNEL_LATENCY_LAST_OK_EPOCH="null"
 if [[ -f "$VPN_JSON" ]]; then
   PREV_KILLSWITCH="$(jq -r '.killswitch // false' "$VPN_JSON" 2>/dev/null || echo false)"
+  PREV_TUNNEL_LATENCY_LAST_OK_EPOCH="$(jq -r '.tunnel_latency_last_ok_epoch // "null"' "$VPN_JSON" 2>/dev/null || echo null)"
 fi
 
 export VPN_ROUTE_TABLE
@@ -239,15 +241,16 @@ fi
 python3 - "$WG_RAW" "$VPN_JSON" \
   "$PROFILE_ID" "$CONNECTIONSTATE" "$REGION" "$PROTOCOL" "$VPNIP" \
   "$IFACE" "$WG_NOTE" "$PREV_KILLSWITCH" \
-  "$TUNNEL_LATENCY_MS" "$PING_NOTE" \
+  "$TUNNEL_LATENCY_MS" "$PING_NOTE" "$PREV_TUNNEL_LATENCY_LAST_OK_EPOCH" \
   "$KILLSWITCH_MODE_RAW" "$KILLSWITCH_MODE_NOTE" \
   "$(date -u +%Y-%m-%dT%H:%M:%SZ)" <<'PY'
 import json, os, sys, time
 
 (wg_raw_path, out_path, profile_id, connectionstate, region, protocol, vpnip,
  iface, wg_note, prev_killswitch, tunnel_latency_ms_raw, ping_note,
+ prev_tunnel_latency_last_ok_epoch,
  killswitch_mode_raw, killswitch_mode_note,
- generated_at) = sys.argv[1:16]
+ generated_at) = sys.argv[1:17]
 
 # --- wg dump parsing --------------------------------------------------
 # `wg show <iface> dump` (scoped to one device) writes an interface header
@@ -360,10 +363,62 @@ try:
 except ValueError:
     tunnel_latency_ms = None
 
-# --- assemble payload -------------------------------------------------
+# last-ok tracking for tunnel_latency_ms, same carry-forward shape as
+# `killswitch` above: updates to now on a successful ping, otherwise holds
+# whatever vpn.json already had (never reset to null just because this one
+# poll's ping happened to fail).
+try:
+    tunnel_latency_last_ok_epoch = int(prev_tunnel_latency_last_ok_epoch)
+except (TypeError, ValueError):
+    tunnel_latency_last_ok_epoch = None
+if tunnel_latency_ms is not None:
+    tunnel_latency_last_ok_epoch = int(time.time())
+
+# --- envelope state -----------------------------------------------------
+# Was unconditionally "ok" past preflight (confirmed silent category-3 gap,
+# doctor-missing-conditions.md's VPN entry, 2026-09-16): a failed `wg show`
+# dump already surfaces via `health` going "DEAD" (handshake age can't be
+# read), but a lone failed tunnel ping while otherwise connected
+# (health HEALTHY/STALE) left no signal anywhere. Elevate state to
+# "degraded" for exactly that case, matching aviation/weather's
+# name-the-field-and-last-ok shape — never for the wg-dump-failure case,
+# which `health` already covers on its own.
 note_parts = [p for p in (wg_note, ping_note, killswitch_mode_note) if p]
+state = "ok"
+
+# Closing the one remaining exception (doctor-missing-conditions.md's VPN
+# entry, 2026-09-17): a failed `wg show` dump used to surface only via
+# `health` going "DEAD", never via `state` — Doctor would have needed a
+# domain-specific "check health instead of state" exception for VPN alone.
+# Gated on connectionstate == "Connected", not on health == "DEAD" directly:
+# health also goes DEAD on a perfectly normal voluntary disconnect (PIA
+# tears the interface down, so `wg show` failing there is expected, not a
+# sudoers problem) — that's not a fetch failure and shouldn't read as one.
+# This only fires when piactl believes the tunnel is up but the wg dump
+# still failed (sudoers misconfigured, or the wg binary missing) while
+# nominally connected, which is exactly the anomaly worth surfacing.
+# wg_note already carries the exact reason ("sudo wg dump failed..." /
+# "wg not found") and is already in note_parts unconditionally above — no
+# new note text needed, only the missing state elevation.
+if connectionstate == "Connected" and wg_note:
+    state = "degraded"
+
+# Tunnel-ping failure while otherwise connected (added 2026-09-17, see
+# above's own history): independent of the wg-dump case — gated on
+# `health != "DEAD"` specifically so it never fires for the same poll the
+# wg-dump case (or a plain disconnect) already explains via health/state,
+# avoiding any note-text collision between the two conditions.
+if tunnel_latency_ms is None and health != "DEAD":
+    state = "degraded"
+    if tunnel_latency_last_ok_epoch:
+        last_ok_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(tunnel_latency_last_ok_epoch))
+        note_parts.append(f"tunnel ping failing; last ok {last_ok_iso}")
+    else:
+        note_parts.append("tunnel ping failing; no prior successful ping on record")
+
+# --- assemble payload -------------------------------------------------
 payload = {
-    "state":        "ok",
+    "state":        state,
     "profile":      profile_id,
     "collector":    "vpn",
     "generated_at": generated_at,
@@ -378,6 +433,7 @@ payload = {
     "keepalive_interval_seconds":  keepalive_interval_seconds,
     "transfer":                    transfer,
     "tunnel_latency_ms":           tunnel_latency_ms,
+    "tunnel_latency_last_ok_epoch": tunnel_latency_last_ok_epoch,
     "killswitch":                  killswitch,
     "killswitch_mode":             killswitch_mode,
     "health":                      health,

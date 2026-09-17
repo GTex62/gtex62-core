@@ -185,19 +185,30 @@ def iso(epoch):
     return datetime.fromtimestamp(epoch, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def load_json(path):
+def load_json(path, ok_states=("ok",)):
     """Returns (state_ok, data). state_ok is False for a missing file, bad
-    JSON, or an envelope whose own `state` isn't "ok" — the caller treats
-    that as "no fresh evidence this round" and carries forward whatever
-    state.json already has, rather than mis-deriving a clear/breach from
-    data that may not reflect current reality (a tripped SSH gate is not
-    the same fact as "the condition it monitors went away")."""
+    JSON, or an envelope whose own `state` isn't in `ok_states` — the
+    caller treats that as "no fresh evidence this round" and carries
+    forward whatever state.json already has, rather than mis-deriving a
+    clear/breach from data that may not reflect current reality (a tripped
+    SSH gate is not the same fact as "the condition it monitors went
+    away"). Defaults to the strict single-value check every call site used
+    before `ok_states` existed; `vpn_path`/`modem_status_path` below pass a
+    wider tuple because their two "degraded" reasons (added 2026-09-16 —
+    see doctor-missing-conditions.md's VPN/MODEM entries) are both
+    orthogonal to the specific fields this script reads from each: a
+    failing tunnel ping or a bad connectivity_state/unlocked-upstream
+    reading doesn't touch killswitch_mode/connectionstate (VPN) or
+    recent_t3_timeouts/recent_t3_since_epoch (MODEM), which are parsed
+    from entirely separate parts of each fetch. Every other call site
+    keeps the strict default — their own degraded/error states genuinely
+    do mean don't trust this data this round."""
     try:
         with open(path, "r", encoding="utf-8") as fh:
             data = json.load(fh)
     except (FileNotFoundError, json.JSONDecodeError):
         return False, {}
-    return data.get("state") == "ok", data
+    return data.get("state") in ok_states, data
 
 
 def load_state():
@@ -487,7 +498,7 @@ if state["comcast_loss_since"] is not None:
     if loss_duration >= loss_dur_s:
         loss_breached = True
 
-ok_modem, modem = load_json(modem_status_path)
+ok_modem, modem = load_json(modem_status_path, ok_states=("ok", "degraded"))
 modem_stale = True
 try:
     modem_stale = (now_epoch - os.path.getmtime(modem_status_path)) > t3_stale_s
@@ -625,7 +636,7 @@ if state["comcast_degraded_since"] is not None:
 # more useful to break out here than the single fact.
 # -------------------------------------------------------------------------
 
-ok, vpn = load_json(vpn_path)
+ok, vpn = load_json(vpn_path, ok_states=("ok", "degraded"))
 if ok:
     killswitch_mode = vpn.get("killswitch_mode")
     connectionstate = vpn.get("connectionstate")
