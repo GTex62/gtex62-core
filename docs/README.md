@@ -48,6 +48,18 @@ as a historical record of the original approach.
 - [SitRep Architecture](sitrep-architecture.md) — stable design: purpose, core principle, current/future data-flow diagrams, device inventory
 - [Network Providers Roadmap](network-providers-roadmap.md) — vpn/modem (built) and network-health (not started), drafted together in one investigation session
 
+## Doctor
+
+`gtex62-doctor` is a standalone suite, scaffolded the same way as `gtex62-sitrep` (own
+repo, runs alongside another suite), that reports on the health of every `gtex62-core`
+provider domain in one place. These docs stay in core rather than moving into that repo
+because they describe core-owned state (provider metadata, TTLs, cache/toggle semantics)
+that the doctor repo consumes, not anything specific to the doctor repo's own code —
+same rationale as the SitRep docs above.
+
+- [Doctor Design](doctor-design.md) — suite Doctor vs. core Doctor distinction, state vocabulary, reference implementations (tech-hud, tri-hud)
+- [Doctor Missing Conditions](doctor-missing-conditions.md) — per-provider MISSING (and other non-OK NOTE tag) semantics, verified against real provider scripts
+
 ## Incident Logs
 
 Dated observation logs spanning multiple domains/repos, too broad for any one provider's
