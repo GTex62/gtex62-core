@@ -68,6 +68,14 @@ defines rendering):
   sys-info).
 - Any suite-local data path that duplicates something a core domain now already provides
   (e.g. a leftover local fetch script that a core provider has since superseded)?
+- Does the widget correctly distinguish "provider disabled" from "provider enabled with
+  zero/empty data"? For any suite-scoped domain gated by a core.toml/[providers.pfsense]
+  toggle, check the toggle (or detect a missing cache file) and render an explicit
+  disabled/unavailable state — never silently fall through to a value that looks like
+  legitimate zero data. SitRep's ap.lua/pfblockerng.lua/pihole.lua/vpn.lua/pf.lua are the
+  correct reference pattern (`toml_bool(core_cfg, ...)` checks with an explicit DISABLED
+  render); gtex62-clean-suite-e's pf.lua VLAN-flow arc is the known counter-example — no
+  check at all.
 
 ## Section 3 — Rendering Compliance
 
