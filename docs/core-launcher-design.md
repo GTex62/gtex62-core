@@ -27,6 +27,21 @@ across every suite that still has one.
 
 One core-owned launcher, one sequence, per suite:
 
+### 0. Bootstrap Precondition (before any suite)
+
+Before Mode/Palette/Wallpaper/Launch, the launcher checks whether
+`~/.config/gtex62-core/` (or whatever the bootstrap-installed runtime root
+actually is) exists and is populated. If it doesn't — a fresh clone that's
+never had `gtex62-core-bootstrap-runtime` run — the launcher fails
+immediately with a plain terminal message pointing at the README/bootstrap
+script, and does not attempt to load any suite's theme-core file, palette,
+or Conky/Lua stack.
+
+This is universal, not suite-specific: it protects every suite (OSA, SitRep,
+Doctor, future suites) from attempting to start against a nonexistent config
+directory. No suite needs its own defensive handling for a zero-bootstrap
+launch — the launcher refuses to get that far.
+
 ### 1. Mode (conditional)
 
 Only prompted if the suite's theme-core file defines `tone_modes`. Detected, not
@@ -100,6 +115,11 @@ implementing some subset of {mode, palette, wallpaper}.
 
 **After:** `conkystart` → one core launcher entry point for every suite. The launcher:
 
+0. Checks the bootstrap precondition — `~/.config/gtex62-core/` (or the actual
+   bootstrap-installed runtime root) exists and is populated. If not, fails
+   immediately with a plain terminal message pointing at the
+   README/bootstrap script; no suite's theme-core file, palette, or
+   Conky/Lua stack is touched.
 1. Reads the suite's theme-core file; checks for `tone_modes` presence → prompts mode
    or skips.
 2. Reads the suite's palette file; prompts palette (always).
@@ -117,6 +137,10 @@ per-suite dir) is retired outright.
 
 ## Open Items
 
+- **Bootstrap precondition check mechanism.** Not yet decided which path and
+  which file's presence signals "bootstrap ran" — `~/.config/gtex62-core/`
+  itself, a specific file inside it (e.g. a provider profile TOML), or some
+  other marker written by `gtex62-core-bootstrap-runtime`.
 - **Where does the core launcher live?** Presumably `gtex62-core`, alongside the other
   Core-owned responsibilities (launch orchestration, PID management) per the guide's
   Core Rule table. Not yet decided whether this is a new script or an extension of the
