@@ -29,13 +29,29 @@ One core-owned launcher, one sequence, per suite:
 
 ### 0. Bootstrap Precondition (before any suite)
 
-Before Mode/Palette/Wallpaper/Launch, the launcher checks whether
-`~/.config/gtex62-core/` (or whatever the bootstrap-installed runtime root
-actually is) exists and is populated. If it doesn't — a fresh clone that's
-never had `gtex62-core-bootstrap-runtime` run — the launcher fails
-immediately with a plain terminal message pointing at the README/bootstrap
-script, and does not attempt to load any suite's theme-core file, palette,
-or Conky/Lua stack.
+Before Mode/Palette/Wallpaper/Launch, the launcher checks whether the
+runtime root is populated. Runtime root resolution reuses the fallback
+chain every provider script and the bootstrap script already use — no new
+discovery mechanism:
+
+```bash
+${GTEX62_CONFIG_DIR:-${GTEX62_CONKY_CONFIG_DIR:-$HOME/.config/gtex62-core}}
+```
+
+"Populated" means `core.toml` (or `site.toml` — either is unconditionally
+written by `gtex62-core-bootstrap-runtime` regardless of suite presence)
+exists directly under that root. A single stat on that file, not a bare
+directory-existence check — a stray empty directory (manual `mkdir`, a
+failed/partial prior run) shouldn't pass the gate. This check does not
+walk `profiles/` for per-provider completeness; that narrower gap is
+already covered by the 60s TTL fallback (see Bootstrap Gap in the project
+CLAUDE.md) and duplicating it here would slow every launch.
+
+If the check fails — a fresh clone that's never had
+`gtex62-core-bootstrap-runtime` run — the launcher fails immediately with a
+plain terminal message pointing at the README/bootstrap script, and does
+not attempt to load any suite's theme-core file, palette, or Conky/Lua
+stack.
 
 This is universal, not suite-specific: it protects every suite (OSA, SitRep,
 Doctor, future suites) from attempting to start against a nonexistent config
@@ -115,11 +131,11 @@ implementing some subset of {mode, palette, wallpaper}.
 
 **After:** `conkystart` → one core launcher entry point for every suite. The launcher:
 
-0. Checks the bootstrap precondition — `~/.config/gtex62-core/` (or the actual
-   bootstrap-installed runtime root) exists and is populated. If not, fails
-   immediately with a plain terminal message pointing at the
-   README/bootstrap script; no suite's theme-core file, palette, or
-   Conky/Lua stack is touched.
+0. Checks the bootstrap precondition — resolves the runtime root via
+   `${GTEX62_CONFIG_DIR:-${GTEX62_CONKY_CONFIG_DIR:-$HOME/.config/gtex62-core}}`
+   and stats `core.toml` under it. If missing, fails immediately with a
+   plain terminal message pointing at the README/bootstrap script; no
+   suite's theme-core file, palette, or Conky/Lua stack is touched.
 1. Reads the suite's theme-core file; checks for `tone_modes` presence → prompts mode
    or skips.
 2. Reads the suite's palette file; prompts palette (always).
@@ -137,10 +153,6 @@ per-suite dir) is retired outright.
 
 ## Open Items
 
-- **Bootstrap precondition check mechanism.** Not yet decided which path and
-  which file's presence signals "bootstrap ran" — `~/.config/gtex62-core/`
-  itself, a specific file inside it (e.g. a provider profile TOML), or some
-  other marker written by `gtex62-core-bootstrap-runtime`.
 - **Where does the core launcher live?** Presumably `gtex62-core`, alongside the other
   Core-owned responsibilities (launch orchestration, PID management) per the guide's
   Core Rule table. Not yet decided whether this is a new script or an extension of the
