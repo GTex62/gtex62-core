@@ -34,6 +34,15 @@ each suite prints a warning and falls back to prompting. That graceful fallback 
 working code today, not a proposal — the generalized per-group propagation in Palette
 (below) builds on this exact mechanism rather than inventing a new one.
 
+**Existing bootstrap behavior: self-healing auto-bootstrap (retained by decision).**
+OSA's and SitRep's `start-conky.sh` check for `core.toml` and their own
+`suites/<id>.toml`; clean-suite-e's checks only `suites/clean-e.toml`. If the file is
+missing, each runs its bootstrap wrapper and carries on: a fresh clone doesn't stop, it
+generates the runtime root from templates (placeholder values and all) and starts.
+Until 2026-09-19 all three sent the wrapper's output to `/dev/null`, so the
+bootstrap's "fill in `site.toml`" instructions never appeared; that is fixed (see
+Step 0). A fail-fast gate was designed as the alternative and rejected — see Step 0.
+
 ---
 
 ## Standardized Flow
@@ -41,36 +50,117 @@ working code today, not a proposal — the generalized per-group propagation in 
 One core-owned launcher, one sequence, covering however many suites are selected per
 invocation (see Suite Selection below — this is no longer assumed to be exactly one):
 
-### 0. Bootstrap Precondition (before any suite)
+### 0. First-Run Bootstrap (self-healing; output must be visible)
 
-Before Mode/Palette/Wallpaper/Launch, the launcher checks whether the
-runtime root is populated. Runtime root resolution reuses the fallback
-chain every provider script and the bootstrap script already use — no new
-discovery mechanism:
+Each core-native suite's front door (`start-conky.sh`) checks for its runtime files
+and, if missing, runs its bootstrap wrapper in the foreground and carries on. This
+self-healing behavior is retained: a fresh clone starts, with placeholder config,
+rather than stopping.
 
-```bash
-${GTEX62_CONFIG_DIR:-${GTEX62_CONKY_CONFIG_DIR:-$HOME/.config/gtex62-core}}
-```
+**Non-optional requirement: the wrapper's output must reach the terminal.** The front
+door calls the wrapper with its output *not* redirected. This is the only path to the
+bootstrap's "Fill in local site defaults ... in `site.toml`" guidance for anyone who
+never installs Doctor, so it is required regardless of what else is built. It was a
+regression in all three front doors (each ended the call with `>/dev/null`), fixed
+2026-09-19. Verified against a fresh scratch runtime root, using each suite's
+committed `HEAD` script versus the working-tree script: before, no bootstrap output
+reached the terminal; after, 35–37 lines did, including "Runtime root prepared at:"
+and the `site.toml` next steps.
 
-"Populated" means `core.toml` (or `site.toml` — either is unconditionally
-written by `gtex62-core-bootstrap-runtime` regardless of suite presence)
-exists directly under that root. A single stat on that file, not a bare
-directory-existence check — a stray empty directory (manual `mkdir`, a
-failed/partial prior run) shouldn't pass the gate. This check does not
-walk `profiles/` for per-provider completeness; that narrower gap is
-already covered by the 60s TTL fallback (see Bootstrap Gap in the project
-CLAUDE.md) and duplicating it here would slow every launch.
+#### Superseded: the fail-fast bootstrap gate
 
-If the check fails — a fresh clone that's never had
-`gtex62-core-bootstrap-runtime` run — the launcher fails immediately with a
-plain terminal message pointing at the README/bootstrap script, and does
-not attempt to load any suite's theme-core file, palette, or Conky/Lua
-stack.
+The original design had the launcher stat `core.toml` under the runtime root
+(resolved via the existing `GTEX62_CONFIG_DIR` / `GTEX62_CONKY_CONFIG_DIR` /
+`$HOME/.config/gtex62-core` fallback chain) and, if missing, fail immediately with a
+plain terminal message pointing at the README, loading nothing. It was never built,
+and is now **superseded**, not merely deferred:
 
-This is universal, not suite-specific: it protects every suite (OSA, SitRep,
-Doctor, future suites) from attempting to start against a nonexistent config
-directory. No suite needs its own defensive handling for a zero-bootstrap
-launch — the launcher refuses to get that far.
+- Doctor's config-completeness alert banner, as specified in `doctor-design.md`, is
+  designed specifically to surface incomplete first-boot config — unset TZ, unset
+  lat/lon, placeholder API keys — with live, per-field guidance ("Edit `<file>`, set
+  `<var>`"). A one-shot terminal fail-fast message can't match that. Building the hard
+  gate would duplicate a worse version of what Doctor is specified to do for anyone
+  who installs it. **This is a spec, not a shipped feature:** `gtex62-doctor` has no
+  commits yet, and `doctor-design.md` itself lists the config-completeness detail as
+  still to be sketched.
+- For anyone who doesn't install Doctor — and for everyone until Doctor's banner
+  exists — the visible bootstrap output above carries the same "fill in `site.toml`"
+  guidance at the moment it's relevant.
+- Fail-fast would also have reversed working behavior in three suites and added a
+  manual bootstrap step to every fresh install.
+
+The self-healing auto-bootstrap writes `~/.config/gtex62-core/`, which is consistent
+with the "never write outside the repo clone without explicit action" principle under
+Installation Location: the runtime root is the bootstrap's own designated target,
+and that principle governs placing files elsewhere in the user's environment (for
+example `~/.local/bin`).
+
+### 0b. Baseline Toolchain (before any suite)
+
+The one pre-launch gate in this design: `command -v jq` and `command -v python3`, as
+**one combined check** (bash builtin, no new dependency). If either is missing, print
+which one(s), point at the suite README's Requirements section, and exit 1 before
+anything else runs — including before the auto-bootstrap block in Step 0.
+
+Measured across the 23 launcher-invoked provider entry points: `jq` is referenced by
+20 (87%) and `python3` by 18 (78%). Every entry point needs at least one of them. They
+are gated together, not separately, because their numbers are too close to justify
+different treatment. Run empirically against the four local-only domains (`time`,
+`system`, `calendar`, `astro`) with each tool broken in turn: without `jq`, none reach
+an `ok` status and `system` writes no output at all; without `python3`, only `system`
+survives, degraded.
+
+**Placement matters as much as the check.** Suite `start-conky.sh` scripts detach the
+core launcher with `>/dev/null 2>&1` (OSA `start-conky.sh`, SitRep, clean-suite-e), so
+anything the launcher prints is discarded. This check must run in the foreground
+front door, before any redirect or detach. A launcher-side copy can only be a backstop
+for running `gtex62-core-launch` directly from a terminal.
+
+**Status:** implemented 2026-09-19 in the `scripts/start-conky.sh` of gtex62-osa,
+gtex62-sitrep, and gtex62-clean-suite-e — the same block in each, ahead of the
+bootstrap call and every redirect. Verified per suite with a restricted `PATH`
+(neither tool, `jq` only, `python3` only): each prints which tool(s) are missing,
+exits 1, and leaves no side effects; the real scripts were never run past the gate
+because each one `pkill`s its suite's live conky windows. Each suite's README
+Requirements section now lists `python3` (clean-suite-e had no Requirements section
+and gained one). gtex62-doctor has no front door yet (its `scripts/` is not built);
+its launcher must include this block when it is.
+
+#### Standard for what earns a pre-launch gate
+
+A condition is gated only if it is **silent and near-total, together** — not either
+alone:
+
+- *Silent:* today it fails with no visible signal (the launcher's output is
+  discarded, meters just freeze). A loud failure already tells the user what's wrong.
+- *Near-total:* it takes out nearly every provider entry point, measured rather than
+  assumed. Not "strictly total" — no single tool is needed by all 23. The measured
+  gap is wide (`jq` 87%, `python3` 78%, then `ssh` 35%, `curl` 26%, `sshpass` 4%), so no
+  fixed percentage cutoff is claimed.
+- Also required: a single root cause, and deterministically checkable before any
+  suite loads.
+
+Near-total but loud, or silent but partial, belongs in Doctor.
+
+#### Considered and excluded
+
+- **Malformed `core.toml`/`site.toml` — Doctor only.** Not total: only the launcher
+  and `fetch_alerts.sh` reference `core.toml`, and 6 of 23 entry points (`system`,
+  `time`, `vpn`, `mtr`, `modem`, `orb`) never read `site.toml`. Providers don't fail
+  identically: the shell providers use line-matching `awk`, which never validates
+  syntax; the Python loaders swallow parse errors into `{}` and fall back to defaults.
+  Tested cases: a garbage line elsewhere leaves every key readable, an unclosed
+  section header loses only that section's keys, an unterminated string is still read.
+  A parse-check would also add a `python3` 3.11+ (`tomllib`) dependency to a launcher
+  that is pure bash and awk today. And "malformed" has no single definition here: the
+  shipped `profiles/time/local.toml.example` fails strict parsing (unquoted
+  `America/Chicago` keys) and works only because its parser is hand-rolled. This is
+  not a missing-file analogue either: a never-bootstrapped install is total because the
+  launcher itself exits at its `SUITE_TOML` check, which a malformed file doesn't
+  trigger.
+- **Per-domain tools — Doctor only:** `curl` (4 domains fully dependent), `ssh`,
+  `sshpass` (the AP scraper only), `ephem` (`astro`, `orb`), `requests` (`media`), and
+  Python 3.11+ (`modem`, `media`, the AP script).
 
 ### 1. Suite Selection (multi-select)
 
@@ -252,11 +342,13 @@ each independently implementing some subset of {mode, palette, wallpaper}.
 bootstrap-installed — see Installation Location) → one core launcher entry point for
 every suite, covering any number of selected suites per invocation. The launcher:
 
-0. Checks the bootstrap precondition — resolves the runtime root via
-   `${GTEX62_CONFIG_DIR:-${GTEX62_CONKY_CONFIG_DIR:-$HOME/.config/gtex62-core}}`
-   and stats `core.toml` under it. If missing, fails immediately with a
-   plain terminal message pointing at the README/bootstrap script; no
-   suite's theme-core file, palette, or Conky/Lua stack is touched.
+0. First-run bootstrap (self-healing, retained): if the suite's runtime files are
+   missing, runs its bootstrap wrapper in the foreground with output visible, then
+   continues. The fail-fast gate originally planned here is superseded (see Step 0).
+0b. Checks the baseline toolchain — `command -v jq` and `command -v python3` as
+   one combined check; if either is missing, prints which and exits before
+   anything runs (including step 0). Runs in the foreground front door, ahead of
+   any redirect. Done in OSA, SitRep, and clean-suite-e.
 1. Lists installed suite dirs (directory-presence scan, unchanged); prompts
    multi-select instead of a single choice or a fixed combo label.
 2. For each selected suite, checks its theme-core file for `tone_modes`
@@ -281,6 +373,9 @@ worth preserving.
 
 ## Open Items
 
+- **Doctor's front door.** gtex62-doctor has no launcher script yet; when built it needs
+  the baseline-toolchain block (and a visible-output bootstrap call, if it self-
+  bootstraps like the other three).
 - **Detecting `tone_modes` presence.** Needs a concrete mechanism — likely the same awk
   pattern-matching approach `launch-lcars.sh`/`launch-tri-hud.sh` already use to read
   `tone_palettes`, extended to check for a `tone_modes` table in the same file, rather
