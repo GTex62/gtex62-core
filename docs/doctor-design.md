@@ -7,6 +7,12 @@ replacing it. Split out as its own repo rather than a shared "suite doctor" patt
 because suites are pure display — they have nothing of their own to diagnose that isn't
 already core state.
 
+**Status (2026-09-19): design only.** `gtex62-doctor` has no commits yet and no
+implementation beyond the scaffold. Everything below — including the alert banner and
+the config-completeness alerts — specifies what will be built, not behavior that
+exists today. The config-completeness detail is still to be sketched (see Open
+Questions).
+
 Reference implementations: `gtex62-tech-hud`'s Doctor script (`TECH HUD DOCTOR`),
 `gtex62-tri-hud`'s Doctor script (`TRI HUD DOCTOR`, built after tech-hud's and closer to
 the target state vocabulary), `architecture.md`'s provider/TTL table.
