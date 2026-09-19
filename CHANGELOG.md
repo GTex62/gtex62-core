@@ -18,10 +18,12 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
-## Unreleased — 2026-09-19
+## 0.8.0 — 2026-09-19
 
-Provider on/off mechanics cleaned up and documented. **Breaking for existing live
-configs:** the Pi-hole flag moved — see the first bullet.
+Provider on/off mechanics cleaned up and documented. Minor bump: **breaking for existing
+live configs** — the Pi-hole flag moved (see the first bullet), and gtex62-sitrep 0.3.1+
+reads the new key, so it needs core 0.8.0 (an older core or un-migrated `core.toml`
+shows the PI-HOLE panel as DISABLED).
 
 - **Pi-hole flag promoted to top-level `[providers]`.** `pihole` moved out of
   `[providers.pfsense]` into `[providers]` in `core.toml` / `core.toml.example`;
