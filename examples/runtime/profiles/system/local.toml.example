@@ -1,0 +1,8 @@
+# System provider profile — local workstation
+# Copy to: ~/.config/gtex62-core/profiles/system/local.toml
+
+profile_id = "local"
+enabled = true
+
+[cache]
+refresh_sec = 1

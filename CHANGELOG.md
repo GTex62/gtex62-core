@@ -18,6 +18,40 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
+## Unreleased — 2026-09-19
+
+Provider on/off mechanics cleaned up and documented. **Breaking for existing live
+configs:** the Pi-hole flag moved — see the first bullet.
+
+- **Pi-hole flag promoted to top-level `[providers]`.** `pihole` moved out of
+  `[providers.pfsense]` into `[providers]` in `core.toml` / `core.toml.example`;
+  `bin/gtex62-core-launch` reads `providers pihole`, and gtex62-sitrep's `pihole.lua`
+  reads the same key. **Migration:** move `pihole = ...` in your live `core.toml`
+  (an un-migrated file reads as `false` and silently stops Pi-hole polling). The launcher
+  and SitRep change must land together — SitRep reading the new key against an
+  un-migrated launcher (or the reverse) shows Pi-hole enabled off a stale cache. The
+  `[pihole]` profile section and `shared/pfsense/{profile}/pihole.json` path are unchanged.
+- **`pihole` is now suite-gated.** Like vpn/ap/modem/alerts/mtr, the launcher only starts
+  it when the launching suite lists `"pihole"` in `suites/<id>.toml` `[domains]`.
+  `sitrep.toml.example` (and a live `sitrep.toml`) need `"pihole"` added or Pi-hole
+  stops under SitRep; OSA doesn't list it, so it no longer polls Pi-hole.
+- **New profile examples:** `profiles/system/local.toml.example` (`enabled = true`) and
+  `profiles/mtr/pi5.toml.example` (`enabled = false`). Neither shipped before, so a
+  fresh bootstrap had no installed profile for either; a missing MTR profile is treated
+  as disabled.
+- **NET's `enabled` check aligned to the other domains.** `fetch_net.sh` disabled only on a
+  literal `false`; it now disables on anything other than `true`, like every other
+  fetch script. Identical for a missing key, `true` and `false`; differs only for
+  malformed values (`yes`, `True`, a trailing inline comment), which used to leave NET on.
+- **Docs:** README gains § Provider Toggles (which flags live in `core.toml`, the `[domains]`
+  suite-gating requirement, profile `enabled` for everything else, GITHUB's profile-only
+  toggle, ORB's missing mechanism, and why `core.toml` is partial by design);
+  `core.toml.example` comments corrected; `doctor-design.md` updated to 21 domains
+  (PIHOLE promoted out of the PFSENSE row) and a footer that points at README § Provider
+  Toggles instead of a file path.
+
+---
+
 ## 0.7.0 — 2026-09-17
 
 New `gtex62-doctor` design work (core-side provider audit) closed every confirmed

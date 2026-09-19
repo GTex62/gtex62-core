@@ -24,7 +24,7 @@ that suite's own display logic.
 | | Suite-local Doctor (tech-hud, tri-hud) | Core Doctor (`gtex62-doctor`) |
 | --- | --- | --- |
 | Scope | That suite's own config/cache/fonts/deps | Every core provider domain, suite-agnostic |
-| Source of truth | Hand-written per-widget checks | Loop over provider metadata (TTL, cache mtime, `core.toml` toggles) |
+| Source of truth | Hand-written per-widget checks | Loop over provider metadata (TTL, cache mtime, `core.toml` flags, profile `enabled`) |
 | Duplication | Each suite reimplements the same checks slightly differently | One script, one schema, every suite benefits |
 | Maintenance | Drifts as suites are added/converted | Grows automatically as core gains providers |
 
@@ -44,7 +44,7 @@ design":
 | --- | --- | --- |
 | OK | green | Present, fresh, within TTL |
 | WARN | yellow | Missing, stale, or misconfigured — needs attention |
-| DISABLED | highlighted | Provider toggle is off in `core.toml` — by design, not broken |
+| DISABLED | highlighted | Administratively off, by design, not broken — by either mechanism: its `core.toml [providers]` flag is false, or its profile `enabled` key is not `true` (the fetch script then writes `state:"disabled"`). Not the same as "flag on, but the launching suite omits the domain" — see below |
 | OPTIONAL | blue | Present and working, but not required (tri-hud's pfSense-enabled row is the model) |
 
 **STATE is derived, not set independently.** Whenever a domain's AGE exceeds its TTL, its
@@ -57,6 +57,19 @@ that's DISABLED. AP/GITHUB/PFSENSE being off should show DISABLED like VPN, not 
 OPTIONAL is reserved for a domain that's genuinely present and functioning but not a
 requirement either way.
 
+**DISABLED means administratively off — and only that.** Two situations both leave a
+domain with no fresh cache, and they are not the same state:
+
+| Situation | What is true | STATE |
+| --- | --- | --- |
+| Administratively off | Flag false in `core.toml`, or profile `enabled` not `true` — someone turned it off | DISABLED |
+| Flag on, suite omits it | Dual-gated domain (vpn/ap/modem/alerts/mtr/pihole) with its `core.toml` flag `true`, but absent from the launching suite's `[domains]` — nobody turned it off, the launcher just never started it | Not DISABLED. Derived like any other row: WARN (`MISSING`, or `STALE` past TTL) if no fresh cache exists, OK if another suite's launcher is keeping the shared cache fresh |
+
+The second row is a misconfiguration, not a choice, so it must not borrow DISABLED's
+"by design" highlight — and it does not get a special exemption from the derivation rule
+above either. What changes is the *remediation*, not the state: see Config-Completeness
+Alerts.
+
 **MTR needs its own word**, not OPTIONAL or DISABLED — it's trigger-armed, not off and not
 merely optional. IDLE / ARMED / RUNNING (or similar) rather than borrowing a state that
 means something else.
@@ -65,7 +78,10 @@ means something else.
 
 ## Provider Table — Layout
 
-**Settled: alphabetical, all 20 domains, one flat table.** Bucketing by refresh behavior
+**Settled: alphabetical, all 21 domains, one flat table.** (Was 20 until PIHOLE was
+promoted out of the PFSENSE row into its own — it runs on Pi5 with its own script, SSH
+gate and TTL, same as MTR, so worst-state-wins under PFSENSE would have blamed the
+firewall for a Pi5 failure.) Bucketing by refresh behavior
 (TTL-cadence / manual / conditional / event-driven, as originally proposed) turned out
 more confusing in practice than useful — dropped in favor of a single alphabetical list
 where STATE and per-row column content carry the distinction instead of table position.
@@ -77,7 +93,8 @@ is to its next refresh, so a dedicated countdown column was dropped as redundant
 itself switches representation depending on the domain's TTL:
 
 - **Duration** (plain seconds) for domains with TTL under roughly the 900s line — net,
-  time, system, vpn, orb, alerts, astro, ap, weather, solar, modem, aviation, air,
+  time, system, vpn, orb, alerts, astro, ap, pihole (60s in the shipped pfsense profile,
+  300s script fallback), weather, solar, modem, aviation, air,
   network (5s default — resolved below, no longer "varies"). A duration reads faster
   than a clock-time diff at these scales.
 - **Absolute timestamp** (`HH:MM:SSZ`) once a duration would stop being legible at a
@@ -126,13 +143,19 @@ until it gets the same script-level pass the other domains got.
 profile TOMLs:
 
 - **NETWORK** defaults to 5s (no profile override currently installed).
-- **PFSENSE** is a genuine multi-sub-cache family, not one TTL — status/router/pihole/
-  pfblockerng/ifaces/arp/leases each gate independently, ranging 5s-300s. A single
+- **PFSENSE** is a genuine multi-sub-cache family, not one TTL — status/router/
+  pfblockerng/ifaces/arp/leases (six) each gate independently, ranging 5s-300s. A single
   `degraded` on PFSENSE's row needs to name which sub-cache, not just "PFSENSE."
+  Pi-hole is **not** one of them: it has its own PIHOLE row (see Provider Table —
+  Layout), its own script (`fetch_pihole.sh`), SSH gate (`runtime/pihole`) and TTL. It
+  only shares PFSENSE's cache directory (`shared/pfsense/{profile}/pihole.json`) and
+  the pfsense profile TOML's `[pihole]` section, so Doctor's PIHOLE row reads that same
+  path.
 - **GITHUB runs entirely outside the launcher** — a systemd timer, not `refresh_loop`/TTL
-  at all. Doctor's provider-table loop (which reads `core.toml [providers]` + the
-  launcher's TTL variables) needs an explicit special case for GITHUB or it will
-  silently never appear in the live table the way every other domain does.
+  at all. Doctor's provider-table loop (which reads `core.toml [providers]`, each
+  domain's profile `enabled`/`state`, and the launcher's TTL variables) needs an
+  explicit special case for GITHUB or it will silently never appear in the live table
+  the way every other domain does.
 
 ---
 
@@ -142,49 +165,92 @@ profile TOMLs:
 table; the previz instead shows disabled domains (e.g. VPN) inline, alphabetically in
 place, STATE = DISABLED with a highlighted row, TTL still shown for reference. Simpler
 to scan as one continuous alphabetical list than splitting attention between a table and
-a separate call-out. One shared action, not per-domain remediation text, since the fix is
-always the same operation on the same file — shown once in the widget footer rather than
-repeated per row:
+a separate call-out.
+
+**Footer — a pointer, not an instruction.** The fix for a disabled domain differs by
+domain *and* by mechanism (see below), so the footer does not try to encode it — neither
+one generic `core.toml` line (wrong for most rows) nor per-domain file paths in the
+remediation table (too much for a table cell). Doctor's job is showing that something is
+off, not spelling out how to fix it. One fixed line, shown once in the widget footer:
 
 ```text
-ENABLE DOMAINS: ~/.config/gtex62-core/core.toml [providers]
+TO ENABLE PROVIDERS, SEE README § Provider Toggles
 ```
 
-The pfSense carve-out still matters even inline: `core.toml` has a top-level `[providers]`
-block (vpn/ap/modem/alerts/mtr) and a separately nested `[providers.pfsense]` block
-(status/router/pihole/pfblockerng/ifaces) for the same underlying concept at two levels. If
-PFSENSE ever needs its own enable note distinct from the footer's generic one, it should
-say `[providers.pfsense]`, not the top-level block.
+The literal text after `§` is the heading in `gtex62-core`'s README
+(`## Provider Toggles`) — the heading, not a section number, since numbers break
+silently on reorder. If that heading is ever renamed, this line, the Provider Toggles
+heading and the README's table-of-contents entry change together.
 
-**Ship-disabled defaults — verified against `examples/runtime/core.toml.example` and
-`bin/gtex62-core-launch` directly (2026-09-17), not assumed from the flag names alone:**
+Every "Domain disabled" case collapses to that same pointer. No DISABLED row gets its own
+file path or remediation text, in the table or the banner.
 
-- **AP, MODEM, VPN**: confirmed `= false` in the example template, matching the
+**Two disable mechanisms — DISABLED must be derived from both.** Verified against
+`bin/gtex62-core-launch` and every fetch script (2026-09-19):
+
+- **`core.toml [providers]` flag** — `vpn`/`ap`/`modem`/`alerts`/`mtr`/`pihole` (dual-gated:
+  the flag *and* the launching suite's `[domains]` list), `media`, and the
+  `[providers.pfsense]` sub-flags `status`/`router`/`pfblockerng`/`ifaces` (flag-only).
+  A false flag means the loop never starts, so there is no `status.json` to read — Doctor
+  reads the flag itself.
+- **Profile `enabled` key** — everything else: air/astro/aviation/calendar/connectivity/
+  net/network/solar/system/time/weather. The loop always runs; the fetch script sees
+  `enabled` is not `true`, writes `state:"disabled"` and exits. Doctor reads that state.
+
+`core.toml [providers]` is partial by design — it deliberately does not list the eleven
+profile-gated domains, because they are universal infrastructure with no suite-relevance
+question to gate on, and a second copy of their on/off state would be able to disagree
+with the profile. README § Provider Toggles states the rationale.
+
+One consequence for the dual-gated six: a `true` flag does not by itself mean the domain
+is running — if the launching suite's `[domains]` list omits it, the launcher skips it and
+that suite starts no fetch loop for it. That is **not** DISABLED (see State Vocabulary):
+Doctor derives the row from cache freshness like any other, and surfaces the cause in
+the config-completeness banner. Doctor can only check its own launching suite's list
+(`suites/doctor.toml`, per its `GTEX62_SUITE_ID`) — it has no view of which other suite
+launched what.
+
+The pfSense split is still real: the PFSENSE row is four flag-only sub-flags under
+`[providers.pfsense]` (`status`/`router`/`pfblockerng`/`ifaces`) and Pi-hole is no longer
+one of them — it moved to top-level `[providers]` as `pihole`, with its own row.
+
+**Ship-disabled defaults — verified against `examples/runtime/core.toml.example`,
+`examples/runtime/profiles/`, and `bin/gtex62-core-launch` directly, not assumed from the
+flag names alone:**
+
+- **AP, MODEM, VPN, PIHOLE**: confirmed `= false` in the example template, matching the
   launcher's own `${..._ENABLED:-false}` bash fallback.
-- **PFSENSE is not one flag.** It's five independent sub-flags under
-  `[providers.pfsense]` — `status`/`router`/`pihole`/`pfblockerng`/`ifaces` — each gating
-  its own `initial_refresh`/`refresh_loop` call separately. All five ship `= false`, so
+- **PFSENSE is not one flag.** It's four independent sub-flags under
+  `[providers.pfsense]` — `status`/`router`/`pfblockerng`/`ifaces` — each gating its own
+  `initial_refresh`/`refresh_loop` call separately. All four ship `= false`, so
   "PFSENSE defaults to false" is true in aggregate, but Doctor's own PFSENSE row (see the
   multi-sub-cache note in Provider Table — Layout) needs to treat this the same
-  five-way way, not as a single boolean.
-- **MTR** ships `= false` too (`examples/runtime/core.toml.example`, added 2026-09-17) —
-  previously silently absent from the template despite the launcher already defaulting
-  it safely to disabled; now documented explicitly the same way as the other four.
-- **GITHUB does not belong on this list.** It has no `core.toml [providers]` key at all
-  — confirmed by grep, `gtex62-core-launch` never references it. It runs on a systemd
+  four-way way, not as a single boolean.
+- **MTR** ships disabled at both layers: `= false` in `core.toml.example`, and
+  `profiles/mtr/pi5.toml.example` (added 2026-09-19 — previously no MTR profile example
+  shipped at all, and `fetch_mtr.sh` treats a missing profile file as disabled, so a fresh
+  bootstrap could not enable MTR from `core.toml` alone) ships `enabled = false`.
+- **SYSTEM** ships enabled: `profiles/system/local.toml.example` (also added 2026-09-19,
+  previously missing) has `enabled = true` — universal infrastructure, needed by every
+  suite. Absence was harmless (`fetch_system.sh` only honors `enabled` when the profile
+  file exists), but it left SYSTEM with no shipped way to be disabled.
+- **GITHUB does not belong on the `core.toml` list.** It has no `core.toml [providers]` key
+  at all — confirmed by grep, `gtex62-core-launch` never references it. It runs on a systemd
   timer (`gtex62-github-traffic.timer`) entirely outside this mechanism, and its actual
   on/off switch is `profiles/github/<profile>.toml`'s own `enabled` key — which
   previously defaulted to `true` when that file was absent (`fetch_github_traffic.py`'s
   `profile.get("enabled", True)`), meaning a fresh clone shipped GITHUB *on* despite
-  looking like it should follow the same "false by default" convention as its five
+  looking like it should follow the same "false by default" convention as its
   siblings. Fixed 2026-09-17: `examples/runtime/profiles/github/default.toml.example`
   (previously named `default.toml`, missing the `.example` suffix that
   `gtex62-core-bootstrap-runtime`'s `find ... -name '*.example'` requires to install it
   at all — a second, independent bug fixed in the same change) now ships
   `enabled = false`. GITHUB is real, intentionally disabled-by-default — just through a
-  different file than the other five, and Doctor's footer text ("ENABLE DOMAINS:
-  `core.toml [providers]`") doesn't cover it; it needs its own line pointing at the
-  profile file instead.
+  different file than the `core.toml` flags. The footer pointer above covers it too, since
+  README § Provider Toggles lists GITHUB as a special case.
+- **ORB has no disable mechanism at all** — no `core.toml` flag, and `fetch_orb.sh`/
+  `fetch_orb.py` never read a profile `enabled` key, so it always runs. Doctor cannot
+  represent ORB as DISABLED. See Open Questions.
 
 ---
 
@@ -201,6 +267,15 @@ unset timezone — closer to tech-hud's static `config/owm.vars LAT=` check than
 polled runtime condition. Different enough in shape (checked once at file-read time, not
 recomputed against a threshold/duration) that it wants its own small model rather than
 reusing alerts' severity-queue design.
+
+**Enabled in `core.toml` but absent from the suite's `[domains]`.** For a dual-gated domain
+(vpn/ap/modem/alerts/mtr/pihole) whose flag is `true`, whose cache is missing or stale,
+and which is not listed in Doctor's own launching suite (`suites/doctor.toml`), the
+banner names that as the cause in place of the generic "provider isn't running" text.
+Fixed text: "`<DOMAIN>` is enabled in `core.toml` but not listed in `[domains]` of
+`suites/doctor.toml` — add it, or the launcher never starts it." The row's own
+STATE/NOTE stay whatever the cache says (WARN, `MISSING`/`STALE`); if another suite's
+launcher is keeping the cache fresh, the row is OK and no banner entry is raised.
 
 **Unset TZ — verified 2026-09-17, and the obvious framing is wrong.** There is no
 system-TZ fallback mechanism anywhere in `gtex62-core` for an unset
@@ -276,7 +351,7 @@ NOTE column.
 | Provider stale past TTL, no `degraded` state reported | "Check API key / network reachability for `<domain>`" |
 | Config var present but placeholder (`LAT=`, `LON=-`) | "Edit `<file>`, set `<var>`" |
 | pfSense/AP SSH gate stuck | "Check SSH alias / sshpass credentials" |
-| Domain disabled | Shared footer action, see Disabled Domains above |
+| Domain disabled | No per-domain text — the footer pointer, `TO ENABLE PROVIDERS, SEE README § Provider Toggles` (see Disabled Domains above) |
 
 **Fifth category — "silent" gaps. Fully historical as of 2026-09-17: zero exceptions
 remain.** This category existed because some domains noticed a partial failure well
@@ -441,7 +516,9 @@ trustworthy on its own — zero exceptions, zero domain-specific reads needed.
 | ORB | `MISSING` | TTL reads 60s, can't confirm real vs. fallback | "ORB profile TOML missing or has no `[cache] ttl_sec` — cannot confirm the 60s TTL is configured, not a fallback. Rerun bootstrap." (real TTL and fallback value coincide at 60s, so this genuinely cannot be told apart without the flag — matches the previz's own ORB row) |
 | PFSENSE | `ERROR` | no `ssh_target` configured | "Set `ssh_target` in the pfsense profile TOML" |
 | PFSENSE | `DEGRADED` | SSH gate tripped/failed | "Check SSH alias / sshpass credentials" (shared wording with AP/MTR's own gates) |
-| PFSENSE | `STALE` | Any one sub-cache stale (worst-state-wins on the single row) | Name the specific sub-cache (status/pihole/router/pfblockerng/ifaces/arp/leases) in the banner, not just "PFSENSE" — a single `degraded`/`STALE` can originate from any one of seven independently-gated fetches |
+| PFSENSE | `STALE` | Any one sub-cache stale (worst-state-wins on the single row) | Name the specific sub-cache (status/router/pfblockerng/ifaces/arp/leases) in the banner, not just "PFSENSE" — a single `degraded`/`STALE` can originate from any one of six independently-gated fetches. Pi-hole is not one of them — see the PIHOLE rows |
+| PIHOLE | `ERROR` | no `ssh_target` configured (`fetch_pihole.sh`: "no ssh_target configured") | "Set `ssh_target` in the `[pihole]` section of the pfsense profile TOML, or `[pihole] ssh_target` in `site.toml`" |
+| PIHOLE | `DEGRADED` | SSH gate tripped ("ssh gate tripped") or SSH call failed ("ssh failed") | "Check SSH alias / sshpass credentials for PIHOLE (Pi5)" — never "check PFSENSE row"; PIHOLE's gate (`runtime/pihole`) and cache are independent of pfSense's, same self-containment as AP/MTR |
 | SOLAR | `WAITING` | `state:"waiting"` | "SOLAR is waiting on the WEATHER cache — check the WEATHER row, not SOLAR's own config" — defer entirely, don't render SOLAR-specific remediation. The fully-verified category-4 example (`fetch_solar.sh` polls up to 20s for weather's cache, writes explicit `state:"waiting"` if it never appears) |
 | SYSTEM | `STALE` | Missing/stale at 1s TTL | "SYSTEM provider isn't running — check `refresh_loop` is alive" |
 | TIME | `STALE` | Missing/stale at 1s TTL | "TIME provider isn't running — check `refresh_loop` is alive" |
@@ -457,10 +534,16 @@ trustworthy on its own — zero exceptions, zero domain-specific reads needed.
 ## Open Questions
 
 - **MEDIA's remediation entries** — provisional; needs the same script-level
-  verification pass the other 19 domains already got (see `doctor-missing-conditions.md`).
-- **PFSENSE's nested enable path** — the footer's generic enable action points at
-  `core.toml [providers]`; confirm whether PFSENSE needs its own note pointing at
-  `[providers.pfsense]` instead, or whether the footer text should just say both.
+  verification pass the other 20 domains already got (see `doctor-missing-conditions.md`).
+- ~~PFSENSE's nested enable path~~ — **resolved by the footer change.** The footer is a
+  fixed pointer to README § Provider Toggles (see Disabled Domains), not a file path, so
+  the top-level vs. `[providers.pfsense]` distinction no longer needs a per-row note.
+- **ORB has no disable mechanism — open item, not fixed.** No `core.toml` flag, and
+  `fetch_orb.sh`/`fetch_orb.py` never read a profile `enabled` key, so ORB always runs.
+  Doctor cannot show it as DISABLED and there is nothing to point a user at. Needs a
+  decision: a profile `enabled` key like the other eleven profile-gated domains (the
+  consistent fix — ORB is universal infrastructure, not opt-in), or accept that it is
+  unconditionally on. Until then README § Provider Toggles lists it as the one gap.
 - **GITHUB's special-case loop handling** — Doctor's provider-table loop needs explicit
   logic for a systemd-timer-driven domain outside the normal `refresh_loop`/TTL read, not
   yet designed.
@@ -508,10 +591,12 @@ Core-side:
 
 - `providers/doctor/fetch_doctor.sh <profile>` — no SSH/gate, same shape as
   `providers/alerts/fetch_alerts.sh`: reads every other domain's cache file/mtime, checks
-  `core.toml [providers]` enable state, surfaces any `degraded`/`state` field a provider
+  enable state (`core.toml [providers]` flag, or a profile-gated domain's own
+  `state:"disabled"` — see Disabled Domains), surfaces any `degraded`/`state` field a provider
   already exposes (aviation's pattern). Writes `shared/doctor/{profile}/status.json`.
 - `examples/runtime/suites/doctor.toml.example` — `required` list closer to the full
-  provider list than a curated subset, since Doctor's entire purpose is reporting on all
+  provider list than a curated subset (including `pihole`, which the launcher now
+  suite-gates like vpn/ap/modem/alerts/mtr), since Doctor's entire purpose is reporting on all
   of them.
 - Flip `[doctor] enabled = true` from inert placeholder to load-bearing once
   `fetch_doctor.sh` exists, with a code comment noting the toggle predates the
@@ -523,7 +608,7 @@ Core-side:
 
 | tech-hud / tri-hud check | Core equivalent |
 | --- | --- |
-| Per-suite config/cache dir checks | Generic: loop over `core.toml` providers |
+| Per-suite config/cache dir checks | Generic: loop over `core.toml` providers and each domain's profile `enabled` / `state` |
 | Weather deps/cache, MÉTAR/TAF checks | Folded into TTL/cadence + aviation's existing `degraded` state |
 | `config/owm.vars LAT=` / `LON=-` placeholder check | Config-completeness alert banner |
 | Fonts, SSH, Music/Lyrics deps | DISABLED / OPTIONAL rows, inline alphabetically, not a separate section per suite |

@@ -118,12 +118,13 @@ CACHE_ROOT="${CACHE_ROOT:-$(resolve_root "" "" "$HOME/.cache/gtex62-core" "$HOME
 # Missing file, missing section, or missing key all fall through to "false" —
 # a missing core.toml is equivalent to everything disabled. All nine flags
 # are wired into initial_refresh/refresh_loop below — see
-# docs/pfsense-provider-status.md.
+# docs/pfsense-provider-status.md. pihole is a top-level [providers] key (not
+# under [providers.pfsense]) — see README § Provider Toggles.
 PFSENSE_STATUS_ENABLED="$(parse_toml_section_value "$CORE_TOML" providers.pfsense status || true)"
 PFSENSE_STATUS_ENABLED="${PFSENSE_STATUS_ENABLED:-false}"
 ROUTER_ENABLED="$(parse_toml_section_value "$CORE_TOML" providers.pfsense router || true)"
 ROUTER_ENABLED="${ROUTER_ENABLED:-false}"
-PIHOLE_ENABLED="$(parse_toml_section_value "$CORE_TOML" providers.pfsense pihole || true)"
+PIHOLE_ENABLED="$(parse_toml_section_value "$CORE_TOML" providers pihole || true)"
 PIHOLE_ENABLED="${PIHOLE_ENABLED:-false}"
 PFBLOCKERNG_ENABLED="$(parse_toml_section_value "$CORE_TOML" providers.pfsense pfblockerng || true)"
 PFBLOCKERNG_ENABLED="${PFBLOCKERNG_ENABLED:-false}"
@@ -139,9 +140,9 @@ ALERTS_ENABLED="$(parse_toml_section_value "$CORE_TOML" providers alerts || true
 ALERTS_ENABLED="${ALERTS_ENABLED:-false}"
 MTR_ENABLED="$(parse_toml_section_value "$CORE_TOML" providers mtr || true)"
 MTR_ENABLED="${MTR_ENABLED:-false}"
-# These five are globally enabled/disabled in core.toml but only have a
-# real consumer in specific suites (today: only gtex62-sitrep's WAN/VPN/AP
-# panels and alert banner). Scope each to suites that actually declare the
+# These six are globally enabled/disabled in core.toml but only have a
+# real consumer in specific suites (today: only gtex62-sitrep's WAN/VPN/AP/
+# PI-HOLE panels and alert banner). Scope each to suites that actually declare the
 # domain, so e.g. gtex62-osa doesn't spin up a second, redundant poller
 # against the same modem/PIA/APs/pfSense-alerts endpoints SitRep already
 # owns — see suite_has_domain()'s comment above for the investigation this
@@ -160,6 +161,9 @@ if [[ "$ALERTS_ENABLED" == "true" ]] && ! suite_has_domain "$SUITE_TOML" "alerts
 fi
 if [[ "$MTR_ENABLED" == "true" ]] && ! suite_has_domain "$SUITE_TOML" "mtr"; then
   MTR_ENABLED="false"
+fi
+if [[ "$PIHOLE_ENABLED" == "true" ]] && ! suite_has_domain "$SUITE_TOML" "pihole"; then
+  PIHOLE_ENABLED="false"
 fi
 # Lyrics library provider (providers/media/fetch_lyrics.sh). See
 # docs/lyrics-library-design.md. local_dir/config is global (site.toml

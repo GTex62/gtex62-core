@@ -21,14 +21,39 @@ default_suite = "osa"
 allow_legacy_suites = true
 
 [providers]
-# vpn/ap/modem/alerts/mtr are wired into gtex62-core-launch (see
-# bin/gtex62-core-launch, "Provider enable/disable" comment) — true starts
-# that domain's fetch script running via initial_refresh/refresh_loop.
-# alerts (providers/alerts/fetch_alerts.sh) reads other providers' already-
-# written cache files, no SSH/gate of its own — same wiring shape as the
-# rest, just nothing to skip on an ssh_gate trip. Defaults here stay false
-# for a fresh install; flip per-suite in the live core.toml once you want a
-# given domain running.
+# This section is deliberately PARTIAL — it does not list every domain, and
+# is not meant to. It governs only the opt-in domains — the ones where
+# running them is an install/suite decision, not universal infrastructure:
+#   - dual-gated: vpn/ap/modem/alerts/mtr/pihole. The flag here AND the
+#     launching suite listing the domain in its own suites/<id>.toml
+#     [domains] required/optional list (suite_has_domain() in
+#     bin/gtex62-core-launch) must both be true, so a suite with no consumer
+#     for them never starts them.
+#   - flag-only: media, and the [providers.pfsense] sub-flags below — the
+#     flag alone decides; the suite's [domains] list is not consulted.
+#
+# Every other domain — air/astro/aviation/calendar/connectivity/net/network/
+# solar/system/time/weather — is universal infrastructure with no suite-
+# relevance question to answer, so it has no entry here: it is turned off
+# per-domain through that domain's own profile `enabled` key
+# (profiles/<domain>/<profile>.toml), and the fetch script then writes
+# state:"disabled". Listing them here too would keep two live copies of the
+# same on/off state. GITHUB is a third case: profile file only, no launcher
+# path at all. ORB currently has no disable mechanism.
+# Full explanation: README § Provider Toggles.
+#
+# The launcher treats a missing core.toml, section, or key as false.
+#
+# vpn/ap/modem/alerts/mtr/pihole are wired into gtex62-core-launch (see
+# bin/gtex62-core-launch, "Provider enable/disable" comment) — true (and the
+# suite listing the domain) starts that domain's fetch script running via
+# initial_refresh/refresh_loop. alerts (providers/alerts/fetch_alerts.sh)
+# reads other providers' already-written cache files, no SSH/gate of its
+# own — same wiring shape as the rest, just nothing to skip on an ssh_gate
+# trip. Defaults here stay false for a fresh install; set true in the live
+# core.toml once you want a given domain running. This file is global, not
+# per-suite — which suites actually run a domain is decided by each suite's
+# [domains] list, not by anything in here.
 vpn = false
 ap = false
 modem = false
@@ -46,20 +71,25 @@ mtr = false
 # [media.lyrics]), not a profile TOML — same wiring shape as the flags
 # above otherwise.
 media = false
+# Pi-hole (providers/pfsense/fetch_pihole.sh) runs on Pi5, not pfSense — its
+# own script, own SSH gate (runtime/pihole), own TTL, own loop. Top-level
+# here like vpn/ap/modem/alerts/mtr, and suite-gated the same way: the
+# launching suite must list "pihole" in its [domains]. It only borrows the
+# pfsense profile (profiles/pfsense/{profile}.toml [pihole] section) for
+# TTL/target and writes into the same shared/pfsense/{profile}/ directory;
+# both are unchanged and unrelated to where this flag lives.
+pihole = false
 
 # All four flags below are wired into gtex62-core-launch (see
 # bin/gtex62-core-launch, "Provider enable/disable" comment) — true starts
-# that domain's fetch script running. router/pihole/pfblockerng reuse the
-# pfsense profile (profiles/pfsense/{profile}.toml) for TTL/target
-# resolution, same as status. Defaults here stay false for a fresh install;
-# flip per-suite in the live core.toml once you want a given domain running.
+# that domain's fetch script running. router/pfblockerng reuse the pfsense
+# profile (profiles/pfsense/{profile}.toml) for TTL/target resolution, same
+# as status. These are flag-only: unlike vpn/ap/modem/alerts/mtr/pihole they
+# are not checked against a suite's [domains] list. Defaults here stay false
+# for a fresh install; set true once you want a given domain running.
 [providers.pfsense]
 status = false
 router = false
-# Note: Pi-hole runs on Pi5, not pfSense itself — nested here to match
-# fetch_pfsense.sh's existing four-output structure, not because it's
-# hosted on the pfSense box.
-pihole = false
 pfblockerng = false
 # Fast (~1s) interface byte-counter poller (fetch_pfsense_ifaces.sh) — own
 # cache file (ifaces.json), own gate (runtime/pfsense_ifaces), own TTL

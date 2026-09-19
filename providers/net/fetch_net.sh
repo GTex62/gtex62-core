@@ -61,7 +61,7 @@ write_status() {
 }
 
 ENABLED="$(parse_toml_value "$PROFILE_TOML" enabled || true)"
-if [[ "${ENABLED:-true}" == "false" ]]; then
+if [[ "${ENABLED:-true}" != "true" ]]; then
   write_status "disabled" "profile disabled"
   exit 0
 fi

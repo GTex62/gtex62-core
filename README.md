@@ -10,6 +10,7 @@ Built for Conky; not affiliated with or part of the Conky project.
 - [Repository Boundary](#repository-boundary)
 - [Runtime Roots](#runtime-roots)
 - [Configuration Model](#configuration-model)
+- [Provider Toggles](#provider-toggles)
 - [Provider Model](#provider-model)
 - [Bootstrap and Launch](#bootstrap-and-launch)
 - [Shared Assets](#shared-assets)
@@ -125,6 +126,98 @@ For example, OSA uses:
 ```text
 ~/.config/gtex62-core/suites/osa.toml
 ```
+
+To turn providers on or off, see [Provider Toggles](#provider-toggles) — that
+is a separate file, `core.toml`, not `site.toml`.
+
+## Provider Toggles
+
+Which providers run is controlled in three different places, depending on the
+domain. `site.toml` is not one of them.
+
+### `core.toml [providers]` — opt-in domains
+
+```text
+~/.config/gtex62-core/core.toml
+```
+
+| Flag | Domain | Also requires |
+| --- | --- | --- |
+| `vpn`, `ap`, `modem`, `alerts`, `mtr`, `pihole` | VPN, AP, MODEM, ALERTS, MTR, PIHOLE | The launching suite lists the domain in its own `suites/<id>.toml` `[domains]` |
+| `media` | MEDIA (lyrics) | — |
+| `[providers.pfsense]` `status`, `router`, `pfblockerng`, `ifaces` | PFSENSE sub-caches | — |
+
+- **Dual-gated** (`vpn`/`ap`/`modem`/`alerts`/`mtr`/`pihole`): the flag **and**
+  the launching suite's `[domains]` `required`/`optional` list must both name
+  the domain. `core.toml` is one global file, so the suite list is what keeps a
+  suite with no consumer for these from polling a modem, VPN, AP or Pi5 for
+  nothing.
+- **Flag-only** (`media` and the `[providers.pfsense]` sub-flags): the flag
+  alone decides.
+- All flags ship `false` in `core.toml.example`. A missing `core.toml`, missing
+  section or missing key counts as `false` — everything this file governs is
+  off.
+- Flipping a flag to `false` stops that domain's fetch loop entirely.
+
+Pi-hole is a top-level `[providers]` flag, not a `[providers.pfsense]` one, even
+though it borrows the pfSense profile's `[pihole]` section and cache directory —
+it runs on a separate host with its own script and SSH gate.
+
+To enable one, for example MTR under SitRep:
+
+```toml
+# core.toml
+[providers]
+mtr = true
+```
+
+```toml
+# suites/sitrep.toml
+[domains]
+required = ["pfsense", "vpn", "ap", "modem", "alerts", "mtr"]
+```
+
+### Profile `enabled` — everything else
+
+AIR, ASTRO, AVIATION, CALENDAR, CONNECT, NET, NETWORK, SOLAR, SYSTEM, TIME and
+WEATHER have no `core.toml` entry. Each is turned off through the `enabled` key
+in its own profile:
+
+```text
+~/.config/gtex62-core/profiles/<domain>/<profile>.toml
+```
+
+```toml
+enabled = false
+```
+
+The launcher still runs the loop; the fetch script sees `enabled` is anything
+other than `true`, writes `state:"disabled"` to its `status.json` and exits.
+These profiles ship `enabled = true`, and a missing profile file counts as
+enabled. The profile TOMLs are installed by `gtex62-core-bootstrap-runtime`
+from `examples/runtime/profiles/*.toml.example`.
+
+### `core.toml` is partial on purpose
+
+`core.toml [providers]` does not list every domain, and it is not going to. Those
+eleven domains are universal infrastructure: every suite needs them, so there is
+no "does this suite use it?" question to gate on. Listing them in `core.toml` as
+well would keep two live copies of the same on/off state — one in the profile,
+one in `core.toml` — that can disagree. The domains that do get a `core.toml`
+flag are the ones where running them is a per-install, per-suite decision.
+
+The domains in `core.toml` also honor their own profile `enabled` key, which
+works the same way as above. The `core.toml` flag is the one that stops the loop.
+
+### Special cases
+
+- **GITHUB** has no `core.toml` flag and no launcher path at all. It runs from
+  a systemd timer (`gtex62-github-traffic.timer`), and its only toggle is
+  `enabled` in `profiles/github/<profile>.toml`, which ships `false`.
+- **ORB** currently has no disable mechanism at all — no `core.toml` flag and
+  no profile `enabled` key. It always runs. Open item.
+- **MTR** ships with `profiles/mtr/pi5.toml.example` set to `enabled = false`;
+  a missing MTR profile is treated as disabled.
 
 ## Provider Model
 

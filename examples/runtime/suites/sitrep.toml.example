@@ -10,6 +10,7 @@ ap = "main_router"
 alerts = "main_router"
 vpn = "local"
 modem = "local"
+mtr = "pi5"
 
 [domains]
 required = [
@@ -18,8 +19,10 @@ required = [
   "ap",
   "modem",
   "alerts",
+  "mtr",
+  "pihole",
 ]
 optional = []
 
 [suite_cache]
-namespaces = ["pfsense", "vpn", "modem", "alerts"]
+namespaces = ["pfsense", "vpn", "modem", "alerts", "mtr"]

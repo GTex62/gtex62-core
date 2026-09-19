@@ -1,0 +1,29 @@
+# MTR provider profile — Pi5 overnight-log trigger
+# Copy to: ~/.config/gtex62-core/profiles/mtr/pi5.toml
+#
+# Ships disabled, like the other SSH-dependent domains. fetch_mtr.sh treats a
+# missing profile file the same as enabled = false. To turn MTR on, all three:
+#   1. set enabled = true below
+#   2. set mtr = true under [providers] in core.toml
+#   3. list "mtr" in the launching suite's [domains] (suites/<id>.toml)
+# See README § Provider Toggles.
+
+profile_id = "pi5"
+enabled = false
+
+# Only reaches Pi5 over SSH while its own last-known state says running=true,
+# so this stays quiet in the common case (nothing running).
+cache_ttl_sec = 15
+
+# SSH alias for the Pi5 host. Gated independently (runtime/mtr/ssh_state) —
+# never shared with the pfSense or Pi-hole gates.
+ssh_target = "pi5"
+
+# Outer safety bound (disk/resource backstop), not a reaction to the gateway
+# recovering. mtr_overnight_log.sh has no cap of its own.
+max_runtime_hours = 72
+
+[script]
+# Path to the overnight MTR logger on Pi5. fetch_mtr.sh only ever starts it —
+# never modifies or stops it.
+remote_path = "~/mtr_overnight_log.sh"

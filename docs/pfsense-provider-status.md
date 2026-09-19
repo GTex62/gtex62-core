@@ -120,6 +120,12 @@ when it's `false` (or the key/section/file is absent) — the domain is not
 fetched at all, not fetched-and-discarded. `fetch_pfsense.sh` itself was not
 touched; the gate is purely at the launcher's call site.
 
+**Update (2026-09-19):** the Pi-hole flag no longer lives in `[providers.pfsense]` —
+it moved to top-level `[providers] pihole`, and is now also suite-gated by the
+launching suite's `[domains]` list like vpn/ap/modem/alerts/mtr. Anywhere below that
+says `providers.pfsense.pihole` describes the pre-move layout. See README § Provider
+Toggles.
+
 **Wired (Aug 22, 2026):** `vpn`, `ap`, `modem`, `router`, `pihole`,
 `pfblockerng` are now all gated into `gtex62-core-launch` the same shape as
 `pfsense.status` — profile resolution, per-script `cache_ttl_sec`-matched
