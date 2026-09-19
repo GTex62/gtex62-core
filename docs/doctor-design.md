@@ -48,19 +48,26 @@ design":
 
 | State | Color | Meaning |
 | --- | --- | --- |
-| OK | green | Present, fresh, within TTL |
-| WARN | yellow | Missing, stale, or misconfigured — needs attention |
-| DISABLED | highlighted | Administratively off, by design, not broken — by either mechanism: its `core.toml [providers]` flag is false, or its profile `enabled` key is not `true` (the fetch script then writes `state:"disabled"`). Not the same as "flag on, but the launching suite omits the domain" — see below |
+| NOMINAL | green | Present, fresh, within TTL |
+| WARN | yellow, highlighted | Missing, stale, or misconfigured — needs attention |
+| DISABLED | unhighlighted | Administratively off, by design, not broken — by either mechanism: its `core.toml [providers]` flag is false, or its profile `enabled` key is not `true` (the fetch script then writes `state:"disabled"`). Not the same as "flag on, but the launching suite omits the domain" — see below |
+| PRIVATE | unhighlighted | GITHUB's state — maintainer-only and hardcoded: never computed from its `enabled` key, `status.json` or any live signal, a fixed fact about which domain this is. No one but the maintainer can meaningfully enable it (`gthb_format.py`, which it depends on, lives outside both repos in a private directory), so it is structurally not-applicable to any other install, not a setting someone turned off. PRIVATE does not mean nothing to watch — GITHUB can still carry a `REFRESH` NOTE (see NOTE Column) that highlights independently of STATE |
 | HYBRID | purple | One or more, but not all, of a multi-sub-flag domain's sub-caches are enabled — informational, not a problem |
 | OPTIONAL | blue | Present and working, but not required (tri-hud's pfSense-enabled row is the model) |
 
+**The STATE column says NOMINAL, not OK**, for suite-family visual consistency with
+OSA/SitRep, which deliberately avoid "OK" for the same reason. "OK" survives only where
+it quotes something literal — a provider's own `state:"ok"` JSON value, or tech-hud's
+original two-state model above.
+
 **STATE is derived, not set independently.** Whenever a domain's AGE exceeds its TTL, its
 STATE is WARN — regardless of what caused it (missing cache, fetch failure, stale data).
-Two columns disagreeing about the same row (AGE showing stale while STATE still shows OK)
-defeats the point of scanning STATE as the fast path.
+Two columns disagreeing about the same row (AGE showing stale while STATE still shows NOMINAL)
+defeats the point of scanning STATE as the fast path. The one exception is GITHUB, whose
+STATE is hardcoded PRIVATE (see the table).
 
 **OPTIONAL is narrower than it first looked.** It does not mean "provider toggle is off" —
-that's DISABLED. AP/GITHUB/PFSENSE being off should show DISABLED like VPN, not OPTIONAL.
+that's DISABLED. AP/PFSENSE being off should show DISABLED like VPN, not OPTIONAL.
 OPTIONAL is reserved for a domain that's genuinely present and functioning but not a
 requirement either way.
 
@@ -70,10 +77,10 @@ domain with no fresh cache, and they are not the same state:
 | Situation | What is true | STATE |
 | --- | --- | --- |
 | Administratively off | Flag false in `core.toml`, or profile `enabled` not `true` — someone turned it off | DISABLED |
-| Flag on, suite omits it | Dual-gated domain (vpn/ap/modem/alerts/mtr/pihole) with its `core.toml` flag `true`, but absent from the launching suite's `[domains]` — nobody turned it off, the launcher just never started it | Not DISABLED. Derived like any other row: WARN (`MISSING`, or `STALE` past TTL) if no fresh cache exists, OK if another suite's launcher is keeping the shared cache fresh |
+| Flag on, suite omits it | Dual-gated domain (vpn/ap/modem/alerts/mtr/pihole) with its `core.toml` flag `true`, but absent from the launching suite's `[domains]` — nobody turned it off, the launcher just never started it | Not DISABLED. Derived like any other row: WARN (`MISSING`, or `STALE` past TTL) if no fresh cache exists, NOMINAL if another suite's launcher is keeping the shared cache fresh |
 
 The second row is a misconfiguration, not a choice, so it must not borrow DISABLED's
-"by design" highlight — and it does not get a special exemption from the derivation rule
+"by design" treatment — and it does not get a special exemption from the derivation rule
 above either. What changes is the *remediation*, not the state: see Config-Completeness
 Alerts.
 
@@ -88,12 +95,46 @@ post Pi-hole promotion). The "six sub-caches" named elsewhere in this doc counts
 families, not flags — arp/leases ride on `status`'s fetch and have no flag of their own,
 so HYBRID counts the four flags. Precedence, in order: DISABLED (zero sub-caches enabled)
 → HYBRID (some but not all enabled, and everything that is enabled is otherwise healthy)
-→ OK/WARN by cache freshness once all sub-caches are enabled, same derivation rule as any
+→ NOMINAL/WARN by cache freshness once all sub-caches are enabled, same derivation rule as any
 other row. WARN always overrides HYBRID — if any enabled sub-cache is genuinely stale or
 unhealthy, the row shows WARN regardless of how many sub-caches are enabled; HYBRID never
 masks a real freshness problem, it only applies when hybrid-but-healthy is the actual
 situation. Only enabled sub-caches count toward that freshness check — a disabled
 sub-flag's leftover cache file must not drag the row to WARN.
+
+### Highlight rule — actionable NOTE only
+
+Row highlight (see the STATE table above) marks **triggered/transient conditions only,
+never category, and it is keyed on the NOTE column, not on STATE.** A row is highlighted
+whenever its NOTE cell carries an actionable tag, regardless of what STATE shows — a
+highlight represents an event, not a resting condition. Confirmed against three previz
+frames (errors, normal, shipped), all consistent with this rule.
+
+- **Highlighted: any row whose NOTE carries an actionable tag** (`ERROR`, `DEGRADED`,
+  `PARTIAL`, `WAITING`, `STALE`, `MISSING`, `REFRESH` — see NOTE Column). Each is
+  something that actively changed: a threshold crossed, a fetch failed, a condition
+  activated. An informational entry is not actionable and does not highlight — MEDIA's
+  `OPTIONAL` genius-token note is the example.
+- **STATE alone never highlights.** NOMINAL, DISABLED, PRIVATE, HYBRID, IDLE and RUNNING
+  are what a row simply *is* — working, administratively off, structurally
+  not-applicable, hybrid-but-healthy, armed-and-waiting, capturing-as-designed — a condition a row settles into and stays in,
+  regardless of whether the underlying fact is "working" or "off by design." OPTIONAL
+  follows the same way. WARN is not an exception: it highlights only because a NOTE is
+  always populated alongside it.
+
+**Why NOTE, not STATE.** For freshness-derived domains WARN and a populated NOTE always
+co-occur, which made this look like a STATE-level rule ("highlight when STATE is WARN").
+For every domain except GITHUB the two wordings behave identically. GITHUB is the case
+that needs the distinction: its STATE is permanently PRIVATE, never WARN, yet it can carry
+a real, time-sensitive NOTE (`REFRESH`) that must highlight independently of STATE.
+
+**Deliberate reversal — don't flip this back without reading why.** An earlier draft did
+the opposite: DISABLED and PRIVATE were highlighted and WARN was not. It was reversed on
+purpose. Highlight should draw the eye toward what needs attention right now, not toward
+stable category facts. Under the earlier draft a fresh install — where the ship-disabled
+defaults leave several domains DISABLED — would light up rows that need nothing from the
+reader, while WARN, the row that does, would not stand out. That defeats scanning STATE
+as the fast path (see "STATE is derived" above).
 
 ---
 
@@ -119,13 +160,38 @@ itself switches representation depending on the domain's TTL:
   network (5s default — resolved below, no longer "varies"). A duration reads faster
   than a clock-time diff at these scales.
 - **Absolute timestamp** (`HH:MM:SSZ`) once a duration would stop being legible at a
-  glance — calendar (86400s TTL), and the domains that don't have a real countdown story
+  glance — calendar (86400s TTL), github (12h systemd-timer cadence, no TTL — well past the line; date-only, see below),
+  and the domains that don't have a real countdown story
   at all: connect (last manual run), media (last write-through), mtr (last triggered —
   see below), pfsense (not unresolved — a genuine multi-sub-cache family with no single
   TTL number to count down, see "Varies" TTL — resolved below). The threshold is "past
   the point a human can eyeball the duration," not an arbitrary cutoff — 900s already
   exists as a real TTL value in the table (air), so it's a natural line rather than an
   invented one.
+
+**GITHUB's AGE timestamp is its continuous, always-visible signal; `REFRESH` is the
+escalation, not the only way to notice a problem.** GITHUB sits in the timestamp group,
+showing the last successful fetch (read from `history_days`, see `REFRESH` under NOTE
+Column). A dead timer is visible the moment someone looks at the table — the timestamp
+simply stops advancing, exactly as it would for CALENDAR — so no tag is needed for that.
+It also handles a powered-off machine with no reconciliation logic: the timestamp is the
+real last-successful-pull time regardless of uptime, so AGE reads correctly the instant
+the widget is next checked.
+
+**The timestamp is date-level — settled.** GITHUB shows `YYYY-MM-DD`, the newest
+`history_days` day (it trails the pull by about a day), not the `HH:MM:SSZ` wall-clock
+time other members of the group show. No other field in this doc is date-only
+(CALENDAR's AGE is `HH:MM:SSZ` too), so plain `YYYY-MM-DD` is the format, not a truncated
+`HH:MM:SSZ`. The reasoning: this domain's detection goal is "noticeable within a day or
+two, well ahead of a two-week deadline," which a date already satisfies — the same
+"doesn't need the rigor applied elsewhere" reasoning that justifies `REFRESH` as an
+instruction rather than a condition. No change to `fetch_github_traffic.py` is needed to
+record an exact last-success time this domain wouldn't use.
+
+Once `REFRESH` fires, AGE switches to whole days elapsed over the 14-day window — e.g.
+`10/14`. That replaces the timestamp because at that point remaining-days-until-loss is
+more urgent than the raw timestamp, not because the timestamp was hiding anything
+before then.
 
 **MTR's timestamp should be read, not recomputed.** SitRep's widget already tracks when
 MTR last triggered (gated on a SEVERE gateway-offline alert). Doctor's row should read
@@ -177,7 +243,10 @@ profile TOMLs:
   at all. Doctor's provider-table loop (which reads `core.toml [providers]`, each
   domain's profile `enabled`/`state`, and the launcher's TTL variables) needs an
   explicit special case for GITHUB or it will silently never appear in the live table
-  the way every other domain does.
+  the way every other domain does. Its STATE is likewise hardcoded PRIVATE (see State Vocabulary) — one underlying fact,
+  that GITHUB is structurally special-cased in Doctor, not two. It also has a NOTE condition no other domain has —
+  `REFRESH`, a 14-day data-loss deadline (see NOTE Column) — which PRIVATE STATE does not
+  suppress.
 
 ---
 
@@ -185,7 +254,7 @@ profile TOMLs:
 
 **Settled: inline, not pulled out.** Originally planned as a separate section below the
 table; the previz instead shows disabled domains (e.g. VPN) inline, alphabetically in
-place, STATE = DISABLED with a highlighted row, TTL still shown for reference. Simpler
+place, STATE = DISABLED unhighlighted (see State Vocabulary — Highlight rule), TTL still shown for reference. Simpler
 to scan as one continuous alphabetical list than splitting attention between a table and
 a separate call-out.
 
@@ -236,7 +305,7 @@ The pfSense split is still real: the PFSENSE row is four flag-only sub-flags und
 `[providers.pfsense]` (`status`/`router`/`pfblockerng`/`ifaces`) and Pi-hole is no longer
 one of them — it moved to top-level `[providers]` as `pihole`, with its own row. Those
 four give the row three tiers, not two: none enabled → DISABLED, some enabled → HYBRID
-(unless an enabled one is unhealthy, then WARN), all four enabled → OK/WARN by freshness.
+(unless an enabled one is unhealthy, then WARN), all four enabled → NOMINAL/WARN by freshness.
 See State Vocabulary.
 
 **Ship-disabled defaults — verified against `examples/runtime/core.toml.example`,
@@ -251,7 +320,7 @@ flag names alone:**
   "PFSENSE defaults to false" is true in aggregate, but Doctor's own PFSENSE row (see the
   multi-sub-cache note in Provider Table — Layout) needs to treat this the same
   four-way way, not as a single boolean: all four false ships as DISABLED, and flipping
-  any one (but not all) on moves the row to HYBRID rather than straight to OK.
+  any one (but not all) on moves the row to HYBRID rather than straight to NOMINAL.
 - **MTR** ships disabled at both layers: `= false` in `core.toml.example`, and
   `profiles/mtr/pi5.toml.example` (added 2026-09-19 — previously no MTR profile example
   shipped at all, and `fetch_mtr.sh` treats a missing profile file as disabled, so a fresh
@@ -260,20 +329,6 @@ flag names alone:**
   previously missing) has `enabled = true` — universal infrastructure, needed by every
   suite. Absence was harmless (`fetch_system.sh` only honors `enabled` when the profile
   file exists), but it left SYSTEM with no shipped way to be disabled.
-- **GITHUB does not belong on the `core.toml` list.** It has no `core.toml [providers]` key
-  at all — confirmed by grep, `gtex62-core-launch` never references it. It runs on a systemd
-  timer (`gtex62-github-traffic.timer`) entirely outside this mechanism, and its actual
-  on/off switch is `profiles/github/<profile>.toml`'s own `enabled` key — which
-  previously defaulted to `true` when that file was absent (`fetch_github_traffic.py`'s
-  `profile.get("enabled", True)`), meaning a fresh clone shipped GITHUB *on* despite
-  looking like it should follow the same "false by default" convention as its
-  siblings. Fixed 2026-09-17: `examples/runtime/profiles/github/default.toml.example`
-  (previously named `default.toml`, missing the `.example` suffix that
-  `gtex62-core-bootstrap-runtime`'s `find ... -name '*.example'` requires to install it
-  at all — a second, independent bug fixed in the same change) now ships
-  `enabled = false`. GITHUB is real, intentionally disabled-by-default — just through a
-  different file than the `core.toml` flags. The footer pointer above covers it too, since
-  README § Provider Toggles lists GITHUB as a special case.
 - **ORB has no disable mechanism at all** — no `core.toml` flag, and `fetch_orb.sh`/
   `fetch_orb.py` never read a profile `enabled` key, so it always runs. Doctor cannot
   represent ORB as DISABLED. See Open Questions.
@@ -301,7 +356,7 @@ banner names that as the cause in place of the generic "provider isn't running" 
 Fixed text: "`<DOMAIN>` is enabled in `core.toml` but not listed in `[domains]` of
 `suites/doctor.toml` — add it, or the launcher never starts it." The row's own
 STATE/NOTE stay whatever the cache says (WARN, `MISSING`/`STALE`); if another suite's
-launcher is keeping the cache fresh, the row is OK and no banner entry is raised.
+launcher is keeping the cache fresh, the row is NOMINAL and no banner entry is raised.
 
 **Unset TZ — verified 2026-09-17, and the obvious framing is wrong.** There is no
 system-TZ fallback mechanism anywhere in `gtex62-core` for an unset
@@ -334,17 +389,46 @@ This is a bootstrap edge case only, not a live concern — both the shipped
 
 ## NOTE Column vs. Alert Banner — Division of Labor
 
-**Settled.** Two places on the widget carry non-OK information, deliberately not
+**Settled.** Two places on the widget carry non-NOMINAL information, deliberately not
 duplicating each other:
 
 - **NOTE column** (in the table, per row) — a short tag only, drawn from a fixed
-  vocabulary: `ERROR`, `DEGRADED`, `PARTIAL`, `WAITING`, `STALE`, `MISSING`. The first
+  vocabulary: `ERROR`, `DEGRADED`, `PARTIAL`, `WAITING`, `STALE`, `MISSING`, `REFRESH`. The first
   four mirror a provider's own `state` field directly (`error`/`degraded`/`partial`/
   `waiting` — `partial` is AIR-only today, `waiting` is SOLAR-only today); `STALE` and
   `MISSING` are Doctor-derived, not read from any provider's own state (`STALE` = age
   past TTL with the provider still claiming `state:"ok"`; `MISSING` = the TTL-fallback
   collision flag — see Provider Table — Layout — a row can show `MISSING` even when AGE
-  is well under TTL, exactly ORB's case in the previz). One tag routinely maps to
+  is well under TTL, exactly ORB's case in the previz). `REFRESH` is GITHUB-only and
+  Doctor-derived too, not mirrored from any GitHub-side JSON state (the fetch script has
+  no concept of it). It fires once the age of GITHUB's last successful fetch crosses 10
+  days — a 4-day buffer before the real 14-day cliff — independent of the current run's
+  STATE. GitHub's traffic API exposes only a rolling 14-day window, and
+  `fetch_github_traffic.py` accumulates `history_days` from each fetch, so a day not
+  captured before it rolls out of that window is gone for good. "Last successful fetch"
+  is read from `history_days`, not file mtime or `status.json`: the script rewrites
+  `current.json` and `status.json` on every run, including one where every repo failed,
+  but a repo's newest `history_days` key advances only when its `gh api` pull actually
+  succeeds (zero-traffic days are stored too, so a quiet repo doesn't stall it — checked
+  against the live cache). Doctor takes the oldest newest-key across the repos *currently
+  in the registry* — a repo dropped from the registry stays in the cache and must not
+  count. The key is day-granular and trails the fetch by about a day, so the 10-day line
+  effectively trips about 9 days after the last pull. While active, AGE shows `N/14` (see
+  AGE column).
+  **`STALE` is not used for GITHUB at all.** `STALE` means a provider that should be
+  actively updating our cache hasn't — a polling-cadence concept. GITHUB doesn't fit that
+  shape: the source data on GitHub is always current, and the only real risk is our copy
+  falling behind the 14-day window before it's pulled — a copy-deadline concept, which
+  `REFRESH` expresses directly. Because `REFRESH` doesn't depend on STATE, it can sit
+  beside `ERROR` in the same NOTE cell (fetches failing *and* the deadline approaching) or
+  appear alone (a timer that has stopped firing). It is the escalation for the final
+  approach to the deadline, not the only way to notice a problem: a dead timer is already
+  visible earlier as AGE's timestamp stops advancing (see AGE column), so it needs no tag
+  of its own. `REFRESH` is a conscious exception to
+  this vocabulary's convention — every other tag describes what is true, this one tells
+  the reader what to do — acceptable only because GITHUB is PRIVATE and seen only by the
+  maintainer, so don't copy the pattern for a public-facing domain unless the same
+  reasoning holds. One tag routinely maps to
   several distinct underlying conditions (AIR's `ERROR` alone covers three — missing
   coordinates, missing API key, no cache yet); the banner is what disambiguates, by
   matching against the provider's own free-text `note`, not the one-word tag. Its job is
@@ -364,7 +448,7 @@ quick-reference surface.
 
 ## Actions / Remediation
 
-Every non-OK state maps to fixed remediation text, not generated prose — same principle
+Every non-NOMINAL state maps to fixed remediation text, not generated prose — same principle
 as alerts' fixed per-condition messages, applied to config-completeness and provider
 health instead of runtime conditions. This is the text the alert banner shows, not the
 NOTE column.
@@ -524,7 +608,8 @@ trustworthy on its own — zero exceptions, zero domain-specific reads needed.
 | CONNECT | `STALE` | Speedtest stale beyond `max_age_days`, no error (Doctor-derived from `current.json`'s own `age_days`, not `status.json`'s age) | "No speedtest has run in N days (on-demand only, no automatic refresh) — run manually" |
 | GITHUB | `ERROR` | Empty repo registry | "Populate `~/.config/conky/github-traffic-repos.json`" |
 | GITHUB | `ERROR` | fetch failed for one or more repos | "GitHub API fetch failing for: `<repos>` — check `gh auth status`" |
-| GITHUB | `MISSING`/`STALE` | Missing/stale entirely (MISSING if never run, STALE if the timer stopped firing) | "Check `systemctl --user status gtex62-github-traffic.timer`" — GITHUB runs on a systemd timer entirely outside the launcher's `refresh_loop`, so a stale cache means the timer needs attention, not `fetch_github.sh` itself |
+| GITHUB | `MISSING` | Cache never written (never run) — GITHUB has no `STALE`; see `REFRESH` | "Check `systemctl --user status gtex62-github-traffic.timer`" — GITHUB runs on a systemd timer entirely outside the launcher's `refresh_loop`, so a missing cache means the timer needs attention, not `fetch_github.sh` itself |
+| GITHUB | `REFRESH` | Age of last successful fetch (newest `history_days` key, oldest across registry repos) ≥ 10 days — independent of STATE, so it can sit beside `ERROR` or appear alone (Doctor-derived; AGE shows `N/14`) | "GitHub traffic copy is `N`/14 days behind — run `systemctl --user start gtex62-github-traffic.service` now, then check `systemctl --user status gtex62-github-traffic.timer` (timer not firing) and `gh auth status` (fetches failing — an `ERROR` in the same cell). The API keeps only a rolling 14-day window, so older data is lost" |
 | MEDIA | `DEGRADED` | `local_dir` unreachable | "local_dir unreachable — check NAS mount" |
 | MEDIA | `OPTIONAL` | `genius_token` unset | Config-completeness, not WARN — informational only ("Genius API not configured — optional") |
 | MODEM | `ERROR` | password not configured | "Set `[credentials].password` in the modem profile TOML (not `CHANGE_ME`)" |
@@ -536,6 +621,7 @@ trustworthy on its own — zero exceptions, zero domain-specific reads needed.
 | MTR | `ERROR` | no `ssh_target` configured | "Set `ssh_target` in the mtr profile TOML" |
 | MTR | `DEGRADED` | SSH gate tripped | "Check SSH alias / sshpass credentials for MTR (Pi5)" |
 | MTR | *(IDLE, not a NOTE)* | `running:false`, trigger inactive | No action — this is idle, not a problem; don't render a WARN for it |
+| MTR | *(RUNNING, not a NOTE)* | `running:true`, overnight capture in progress | No action — the capture is doing its job in response to a real condition; the trigger already fired as designed. The gateway-offline problem itself is surfaced by ALERTS' row and the banner, so MTR doesn't duplicate it |
 | NET | `MISSING` | profile TOML missing or lacks `[cache] ttl_sec` (`state` stays `"ok"`) | "NET profile TOML missing or has no `[cache] ttl_sec` — VLAN/ping meters are running at the 60s fallback cadence, not 1s. Rerun bootstrap." — the canonical, already-documented instance of the TTL-fallback collision (see Provider Table — Layout above) |
 | NET | `STALE` | Missing/not refreshing at all | "NET provider isn't running — check `refresh_loop` is alive" |
 | NETWORK | `DEGRADED` | note starts "null field(s):" | "NIC detection or public-IP lookup failing — check `primary_interface` config and outbound connectivity" — fixed at the source 2026-09-17; the note names exactly which of `wan_ip`/`dns`/`gateway` came back empty (one, two, or all three) |
@@ -571,12 +657,34 @@ trustworthy on its own — zero exceptions, zero domain-specific reads needed.
   decision: a profile `enabled` key like the other eleven profile-gated domains (the
   consistent fix — ORB is universal infrastructure, not opt-in), or accept that it is
   unconditionally on. Until then README § Provider Toggles lists it as the one gap.
-- **GITHUB's special-case loop handling** — Doctor's provider-table loop needs explicit
+- **GITHUB's special-case loop handling** (mechanics only — GITHUB's STATE is already
+  decided, hardcoded PRIVATE) — Doctor's provider-table loop needs explicit
   logic for a systemd-timer-driven domain outside the normal `refresh_loop`/TTL read, not
   yet designed.
 - ~~Silent-gap field lookup table~~ — **resolved, not just answered.** All ten confirmed
   silent-gap conditions were closed at the source instead of needing a Doctor-side
   lookup table; see the Fifth Category note in Actions/Remediation above.
+- ~~MTR's RUNNING highlight treatment~~ — **resolved.** RUNNING carries no actionable
+  NOTE and does not highlight under the NOTE-keyed rule (see Highlight rule). It is the
+  overnight capture correctly doing its job in response to a real condition — the trigger
+  already fired as designed, so there is no action for the row itself. The underlying
+  gateway-offline problem is already surfaced by ALERTS' own row and the alert banner, so
+  MTR doesn't duplicate that signal.
+- ~~GITHUB: `REFRESH` vs. `STALE` precedence, GITHUB's AGE format, and what "last
+  successful run" reads from~~ — **resolved.** `STALE` is dropped for GITHUB entirely, so
+  there is no precedence question and no `STALE` threshold to define (see NOTE Column).
+  `REFRESH` is driven by the age of the newest `history_days` key, which advances only on
+  a real successful pull — closing the earlier gap where an alive-but-failing timer kept
+  file timestamps fresh while history was being lost. GITHUB's AGE is in the timestamp
+  group as a date-level `YYYY-MM-DD` (no script change), switching to `N/14` once
+  `REFRESH` is active (see AGE column).
+- ~~PRIVATE vs. DISABLED for GITHUB~~ — **resolved as a design decision, not a derivation
+  problem.** GITHUB's STATE is hardcoded PRIVATE, never computed from its `enabled` key,
+  `status.json` or any live signal: it is a fixed fact about which domain this is, since no
+  user besides the maintainer can meaningfully enable it. GITHUB was never a real member
+  of the OPTIONAL / ship-disabled-defaults group, so it was deleted from both rather than
+  reworded. This is the same underlying fact as the loop special-case below, not a second
+  question.
 - **Panels beyond the PROVIDERS table** — providers previz is settled (alphabetical,
   flat, banner at top). Still to sketch: config-completeness detail, media detail, and
   whatever else groups outside the provider table itself.
