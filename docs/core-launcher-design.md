@@ -9,7 +9,7 @@ into one core-owned flow, replacing the current per-suite scattered scripts.
 
 | Script | Suite(s) | Does |
 | ------ | -------- | ---- |
-| `conkystart` | dispatcher | **Untracked personal script at `~/.local/bin/conkystart`** (aliased in `~/.bash_aliases`) — not in either repo. Lists suite dirs, dispatches to suite-specific script. Already special-cases a hardcoded "osa + sitrep" combo menu entry (`COMBO_LABEL`), launching both in sequence and propagating OSA's palette/wallpaper choice to SitRep via env-var override (see below) |
+| `conkystart` | dispatcher | **Untracked personal script at `~/.local/bin/conkystart`** (aliased in `~/.bash_aliases`) — not in either repo. Lists suite dirs, dispatches to suite-specific script. Already special-cases a hardcoded "osa + sitrep" combo menu entry (`COMBO_LABEL`), launching both in sequence and propagating OSA's palette/wallpaper choice to SitRep via env-var override (see below). This location is a stopgap — see Installation Location for the decided replacement |
 | `conkystart_legacy` | dispatcher (dead) | Also untracked at `~/.local/bin/`, predates the combo-label logic. Confirmed zero references anywhere — not aliased, not invoked by any script or the current `conkystart`. Dead weight, not a fallback path in use |
 | `start-conky.sh` (OSA) | gtex62-osa | Palette selection (flat list, single axis) + wallpaper (shared-assets, with None) + hands off to core launcher |
 | `start-conky.sh` (LCARS, legacy) | gtex62-lcars | Wallpaper only (per-suite dir) — not actually invoked by conkystart; superseded by launch-lcars.sh |
@@ -207,6 +207,40 @@ later follow-up, not in scope for this build — see Open Items.
 
 ---
 
+## Installation Location
+
+**Decided: versioned in `gtex62-core/bin/`** — e.g. `gtex62-core/bin/gtex62-conkystart`
+— not an untracked personal file. `gtex62-core-bootstrap-runtime` installs and updates
+it there and nowhere else: no writes outside the repo clone, no `sudo`, no touching
+`/bin`, `/usr/bin`, or `/usr/local/bin` — ruled out entirely, since those are
+root-owned and this project has no reason to require elevated permissions.
+
+Bootstrap does **not** create a `~/.local/bin` symlink itself, and does not
+interactively prompt for one either — that's left entirely to the user, documented as
+an optional one-line README instruction:
+
+```bash
+ln -s ~/.config/conky/gtex62-core/bin/gtex62-conkystart ~/.local/bin/conkystart
+```
+
+for anyone who wants the convenience of invoking it by name instead of full path.
+Running the script directly, unlinked, works identically — the symlink is pure
+convenience layered on top of something already fully functional, not a required
+setup step.
+
+**Rationale:** an installer silently placing a file in someone's personal `bin/` —
+even a directory that's already commonly on `$PATH` — is the kind of uninvited write
+that erodes trust in a dotfiles-style project, regardless of how convenient the end
+result is. Bootstrap should never modify anything outside the repo clone without the
+user's own explicit action.
+
+This replaces today's untracked `~/.local/bin/conkystart` (see Current State).
+Repointing the existing `~/.bash_aliases` entry at the new versioned path or the new
+symlink is the user's own action to take when they're ready — not something bootstrap
+does for them.
+
+---
+
 ## Consolidation Path
 
 **Before:** `conkystart` (untracked, `~/.local/bin/`) → name-based special case for
@@ -214,8 +248,9 @@ LCARS/tri-hud, plus one hardcoded fixed-label combo (OSA+SitRep) → one of thre
 divergent scripts (`start-conky.sh` variants, `launch-lcars.sh`, `launch-tri-hud.sh`),
 each independently implementing some subset of {mode, palette, wallpaper}.
 
-**After:** `conkystart` → one core launcher entry point for every suite, covering any
-number of selected suites per invocation. The launcher:
+**After:** `conkystart` (now `gtex62-core/bin/gtex62-conkystart`, versioned and
+bootstrap-installed — see Installation Location) → one core launcher entry point for
+every suite, covering any number of selected suites per invocation. The launcher:
 
 0. Checks the bootstrap precondition — resolves the runtime root via
    `${GTEX62_CONFIG_DIR:-${GTEX62_CONKY_CONFIG_DIR:-$HOME/.config/gtex62-core}}`
@@ -246,14 +281,6 @@ worth preserving.
 
 ## Open Items
 
-- **Where does the core launcher live?** Now sharper than "presumably `gtex62-core`":
-  today's real dispatcher (`conkystart`) is an untracked personal script at
-  `~/.local/bin/conkystart`, outside both repos entirely — not previously known, since
-  earlier searches only checked the two repos and found nothing. Undecided whether the
-  consolidated launcher gets committed into `gtex62-core` and installed via bootstrap
-  (replacing the untracked personal copy — a real, and not obviously easy, migration
-  for an already-aliased daily-use script), or stays a standalone personal script
-  outside version control as it is today.
 - **Detecting `tone_modes` presence.** Needs a concrete mechanism — likely the same awk
   pattern-matching approach `launch-lcars.sh`/`launch-tri-hud.sh` already use to read
   `tone_palettes`, extended to check for a `tone_modes` table in the same file, rather

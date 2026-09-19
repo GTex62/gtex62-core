@@ -219,6 +219,18 @@ Suite `start-conky.sh` scripts should prepare suite-specific environment
 values, optionally apply wallpaper/theme choices, and then hand off to the core
 launcher.
 
+Consolidated suite dispatcher (planned — see `docs/core-launcher-design.md`):
+`bin/gtex62-conkystart` will be installed and updated by bootstrap, replacing today's
+untracked personal `~/.local/bin/conkystart`. Bootstrap does not create a symlink for
+it. Anyone who wants to invoke it by name instead of full path can add one themselves:
+
+```bash
+ln -s ~/.config/conky/gtex62-core/bin/gtex62-conkystart ~/.local/bin/conkystart
+```
+
+Running the script directly, unlinked, works identically — the symlink is optional
+convenience, not a required setup step.
+
 ## Shared Assets
 
 Shared binary and data assets belong in:
