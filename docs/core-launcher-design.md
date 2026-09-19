@@ -179,8 +179,11 @@ core-native version is the going-forward path, not a forced migration.
 directory-scan discovery (`is_suite_dir` over `$CONKY_ROOT`) already lists legacy and
 converted versions of the same suite side by side with no naming collision and no
 special-casing needed — a user can have both `gtex62-lcars` and `gtex62-lcars-e`
-installed and pick either from the same suite list. OSA has no `-e` variant since it was
-built core-native from the start rather than converted.
+installed and pick either from the same suite list. The `-e` suffix marks a
+*conversion* specifically — a suite built core-native from inception never gets one,
+regardless of how many suites exist. OSA, SitRep, and Doctor all have no `-e` variant
+for this reason: none of them started as a legacy standalone suite that was converted,
+so there's no pre-existing legacy directory for an `-e` name to live alongside.
 
 ### 5. Launch
 
