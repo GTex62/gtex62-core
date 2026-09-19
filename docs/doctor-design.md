@@ -45,6 +45,7 @@ design":
 | OK | green | Present, fresh, within TTL |
 | WARN | yellow | Missing, stale, or misconfigured — needs attention |
 | DISABLED | highlighted | Administratively off, by design, not broken — by either mechanism: its `core.toml [providers]` flag is false, or its profile `enabled` key is not `true` (the fetch script then writes `state:"disabled"`). Not the same as "flag on, but the launching suite omits the domain" — see below |
+| HYBRID | purple | One or more, but not all, of a multi-sub-flag domain's sub-caches are enabled — informational, not a problem |
 | OPTIONAL | blue | Present and working, but not required (tri-hud's pfSense-enabled row is the model) |
 
 **STATE is derived, not set independently.** Whenever a domain's AGE exceeds its TTL, its
@@ -73,6 +74,20 @@ Alerts.
 **MTR needs its own word**, not OPTIONAL or DISABLED — it's trigger-armed, not off and not
 merely optional. IDLE / ARMED / RUNNING (or similar) rather than borrowing a state that
 means something else.
+
+**HYBRID is for domains with multiple independent `core.toml` sub-flags** — written
+generally, not hardcoded to one domain, though PFSENSE is currently its only user: four
+independent `[providers.pfsense]` sub-flags (`status`/`router`/`pfblockerng`/`ifaces`,
+post Pi-hole promotion). The "six sub-caches" named elsewhere in this doc counts cache
+families, not flags — arp/leases ride on `status`'s fetch and have no flag of their own,
+so HYBRID counts the four flags. Precedence, in order: DISABLED (zero sub-caches enabled)
+→ HYBRID (some but not all enabled, and everything that is enabled is otherwise healthy)
+→ OK/WARN by cache freshness once all sub-caches are enabled, same derivation rule as any
+other row. WARN always overrides HYBRID — if any enabled sub-cache is genuinely stale or
+unhealthy, the row shows WARN regardless of how many sub-caches are enabled; HYBRID never
+masks a real freshness problem, it only applies when hybrid-but-healthy is the actual
+situation. Only enabled sub-caches count toward that freshness check — a disabled
+sub-flag's leftover cache file must not drag the row to WARN.
 
 ---
 
@@ -145,8 +160,9 @@ profile TOMLs:
 - **NETWORK** defaults to 5s (no profile override currently installed).
 - **PFSENSE** is a genuine multi-sub-cache family, not one TTL — status/router/
   pfblockerng/ifaces/arp/leases (six) each gate independently, ranging 5s-300s. A single
-  `degraded` on PFSENSE's row needs to name which sub-cache, not just "PFSENSE."
-  Pi-hole is **not** one of them: it has its own PIHOLE row (see Provider Table —
+  `degraded` on PFSENSE's row needs to name which sub-cache, not just "PFSENSE." Which
+  sub-caches are enabled at all is a three-tier question, not a boolean — see State
+  Vocabulary (HYBRID). Pi-hole is **not** one of them: it has its own PIHOLE row (see Provider Table —
   Layout), its own script (`fetch_pihole.sh`), SSH gate (`runtime/pihole`) and TTL. It
   only shares PFSENSE's cache directory (`shared/pfsense/{profile}/pihole.json`) and
   the pfsense profile TOML's `[pihole]` section, so Doctor's PIHOLE row reads that same
@@ -212,7 +228,10 @@ launched what.
 
 The pfSense split is still real: the PFSENSE row is four flag-only sub-flags under
 `[providers.pfsense]` (`status`/`router`/`pfblockerng`/`ifaces`) and Pi-hole is no longer
-one of them — it moved to top-level `[providers]` as `pihole`, with its own row.
+one of them — it moved to top-level `[providers]` as `pihole`, with its own row. Those
+four give the row three tiers, not two: none enabled → DISABLED, some enabled → HYBRID
+(unless an enabled one is unhealthy, then WARN), all four enabled → OK/WARN by freshness.
+See State Vocabulary.
 
 **Ship-disabled defaults — verified against `examples/runtime/core.toml.example`,
 `examples/runtime/profiles/`, and `bin/gtex62-core-launch` directly, not assumed from the
@@ -225,7 +244,8 @@ flag names alone:**
   `initial_refresh`/`refresh_loop` call separately. All four ship `= false`, so
   "PFSENSE defaults to false" is true in aggregate, but Doctor's own PFSENSE row (see the
   multi-sub-cache note in Provider Table — Layout) needs to treat this the same
-  four-way way, not as a single boolean.
+  four-way way, not as a single boolean: all four false ships as DISABLED, and flipping
+  any one (but not all) on moves the row to HYBRID rather than straight to OK.
 - **MTR** ships disabled at both layers: `= false` in `core.toml.example`, and
   `profiles/mtr/pi5.toml.example` (added 2026-09-19 — previously no MTR profile example
   shipped at all, and `fetch_mtr.sh` treats a missing profile file as disabled, so a fresh
@@ -516,7 +536,8 @@ trustworthy on its own — zero exceptions, zero domain-specific reads needed.
 | ORB | `MISSING` | TTL reads 60s, can't confirm real vs. fallback | "ORB profile TOML missing or has no `[cache] ttl_sec` — cannot confirm the 60s TTL is configured, not a fallback. Rerun bootstrap." (real TTL and fallback value coincide at 60s, so this genuinely cannot be told apart without the flag — matches the previz's own ORB row) |
 | PFSENSE | `ERROR` | no `ssh_target` configured | "Set `ssh_target` in the pfsense profile TOML" |
 | PFSENSE | `DEGRADED` | SSH gate tripped/failed | "Check SSH alias / sshpass credentials" (shared wording with AP/MTR's own gates) |
-| PFSENSE | `STALE` | Any one sub-cache stale (worst-state-wins on the single row) | Name the specific sub-cache (status/router/pfblockerng/ifaces/arp/leases) in the banner, not just "PFSENSE" — a single `degraded`/`STALE` can originate from any one of six independently-gated fetches. Pi-hole is not one of them — see the PIHOLE rows |
+| PFSENSE | `STALE` | Any one *enabled* sub-cache stale (worst-state-wins on the single row; sub-caches whose flag is off are excluded, and WARN overrides HYBRID) | Name the specific sub-cache (status/router/pfblockerng/ifaces/arp/leases) in the banner, not just "PFSENSE" — a single `degraded`/`STALE` can originate from any one of six independently-gated fetches. Pi-hole is not one of them — see the PIHOLE rows |
+| PFSENSE | *(HYBRID, not a NOTE)* | 1-3 of the four `[providers.pfsense]` sub-flags enabled, every enabled sub-cache fresh | No action — informational, not a problem; don't render a WARN for it. Same treatment as MTR's IDLE row. Text is a template, not a static line: "pfSense is in hybrid mode using N of 4 sub-flags", where N is the number of `[providers.pfsense]` sub-flags enabled at read time (1-3 in this state; the 4 is the fixed flag count). All four flags off is DISABLED (footer pointer only), not this row |
 | PIHOLE | `ERROR` | no `ssh_target` configured (`fetch_pihole.sh`: "no ssh_target configured") | "Set `ssh_target` in the `[pihole]` section of the pfsense profile TOML, or `[pihole] ssh_target` in `site.toml`" |
 | PIHOLE | `DEGRADED` | SSH gate tripped ("ssh gate tripped") or SSH call failed ("ssh failed") | "Check SSH alias / sshpass credentials for PIHOLE (Pi5)" — never "check PFSENSE row"; PIHOLE's gate (`runtime/pihole`) and cache are independent of pfSense's, same self-containment as AP/MTR |
 | SOLAR | `WAITING` | `state:"waiting"` | "SOLAR is waiting on the WEATHER cache — check the WEATHER row, not SOLAR's own config" — defer entirely, don't render SOLAR-specific remediation. The fully-verified category-4 example (`fetch_solar.sh` polls up to 20s for weather's cache, writes explicit `state:"waiting"` if it never appears) |
