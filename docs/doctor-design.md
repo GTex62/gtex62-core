@@ -8,8 +8,8 @@ because suites are pure display — they have nothing of their own to diagnose t
 already core state.
 
 **Status (2026-09-19): design only.** `gtex62-doctor` has no commits yet and no
-implementation beyond the scaffold. Everything below — including the alert banner and
-the config-completeness alerts — specifies what will be built, not behavior that
+implementation beyond the scaffold. Everything below — including DCM and the
+config-completeness alerts — specifies what will be built, not behavior that
 exists today. The config-completeness detail is still to be sketched (see Open
 Questions).
 
@@ -108,7 +108,8 @@ Row highlight (see the STATE table above) marks **triggered/transient conditions
 never category, and it is keyed on the NOTE column, not on STATE.** A row is highlighted
 whenever its NOTE cell carries an actionable tag, regardless of what STATE shows — a
 highlight represents an event, not a resting condition. Confirmed against three previz
-frames (errors, normal, shipped), all consistent with this rule.
+frames (errors, normal, shipped), all consistent with this rule. The same condition —
+an actionable NOTE present — is DCM's takeover trigger (see DCM — Digital Core Monitor).
 
 - **Highlighted: any row whose NOTE carries an actionable tag** (`ERROR`, `DEGRADED`,
   `PARTIAL`, `WAITING`, `STALE`, `MISSING`, `REFRESH` — see NOTE Column). Each is
@@ -158,7 +159,10 @@ itself switches representation depending on the domain's TTL:
   time, system, vpn, orb, alerts, astro, ap, pihole (60s in the shipped pfsense profile,
   300s script fallback), weather, solar, modem, aviation, air,
   network (5s default — resolved below, no longer "varies"). A duration reads faster
-  than a clock-time diff at these scales.
+  than a clock-time diff at these scales. **NET, SYSTEM and TIME (1s TTL) show a blank AGE
+  by design:** at a 1s TTL the value would only flicker between 0 and 1 on each redraw —
+  the same fast-track reasoning that excludes them from DCM's gauges (see Gauge
+  eligibility). NETWORK's blank AGE is a different, still-open case (see Open Questions).
 - **Absolute timestamp** (`HH:MM:SSZ`) once a duration would stop being legible at a
   glance — calendar (86400s TTL), github (12h systemd-timer cadence, no TTL — well past the line; date-only, see below),
   and the domains that don't have a real countdown story
@@ -222,7 +226,7 @@ the file count:
 | Paid/API site configured | `genius_token` set vs. empty — presence only, never the token itself |
 
 `genius_token` presence is a config-completeness check, not a runtime health check —
-belongs with the alert banner (see below), not the live table. **Not independently
+belongs with DCM (see below), not the live table. **Not independently
 re-verified against `fetch_lyrics.sh`/`fetch_lyrics.py` yet** — treat as provisional
 until it gets the same script-level pass the other domains got.
 
@@ -274,7 +278,7 @@ silently on reorder. If that heading is ever renamed, this line, the Provider To
 heading and the README's table-of-contents entry change together.
 
 Every "Domain disabled" case collapses to that same pointer. No DISABLED row gets its own
-file path or remediation text, in the table or the banner.
+file path or remediation text, in the table or DCM.
 
 **Two disable mechanisms — DISABLED must be derived from both.** Verified against
 `bin/gtex62-core-launch` and every fetch script (2026-09-19):
@@ -297,7 +301,7 @@ One consequence for the dual-gated six: a `true` flag does not by itself mean th
 is running — if the launching suite's `[domains]` list omits it, the launcher skips it and
 that suite starts no fetch loop for it. That is **not** DISABLED (see State Vocabulary):
 Doctor derives the row from cache freshness like any other, and surfaces the cause in
-the config-completeness banner. Doctor can only check its own launching suite's list
+DCM's config-completeness entries. Doctor can only check its own launching suite's list
 (`suites/doctor.toml`, per its `GTEX62_SUITE_ID`) — it has no view of which other suite
 launched what.
 
@@ -343,7 +347,7 @@ handles *runtime* conditions — gateway-offline, Pi-hole inactive, MSMTCH, unkn
 offline — each with a severity tier and fixed message text, recomputed from other
 providers' caches on a cadence.
 
-Doctor's banner is *config-completeness* at startup: unset lat/lon, placeholder API keys,
+Doctor's DCM alerts are *config-completeness* at startup: unset lat/lon, placeholder API keys,
 unset timezone — closer to tech-hud's static `config/owm.vars LAT=` check than to a
 polled runtime condition. Different enough in shape (checked once at file-read time, not
 recomputed against a threshold/duration) that it wants its own small model rather than
@@ -351,12 +355,12 @@ reusing alerts' severity-queue design.
 
 **Enabled in `core.toml` but absent from the suite's `[domains]`.** For a dual-gated domain
 (vpn/ap/modem/alerts/mtr/pihole) whose flag is `true`, whose cache is missing or stale,
-and which is not listed in Doctor's own launching suite (`suites/doctor.toml`), the
-banner names that as the cause in place of the generic "provider isn't running" text.
+and which is not listed in Doctor's own launching suite (`suites/doctor.toml`), DCM
+names that as the cause in place of the generic "provider isn't running" text.
 Fixed text: "`<DOMAIN>` is enabled in `core.toml` but not listed in `[domains]` of
 `suites/doctor.toml` — add it, or the launcher never starts it." The row's own
 STATE/NOTE stay whatever the cache says (WARN, `MISSING`/`STALE`); if another suite's
-launcher is keeping the cache fresh, the row is NOMINAL and no banner entry is raised.
+launcher is keeping the cache fresh, the row is NOMINAL and no DCM entry is raised.
 
 **Unset TZ — verified 2026-09-17, and the obvious framing is wrong.** There is no
 system-TZ fallback mechanism anywhere in `gtex62-core` for an unset
@@ -377,7 +381,7 @@ fields anywhere either — they're fully inert outside TIME's own local-clock ro
 was never wired to `site.toml` to begin with. The intuition behind "falls back to system
 TZ, informational only" is directionally right about the *outcome* (nothing breaks
 today), but wrong about the *mechanism* — it isn't that unset TZ triggers a fallback,
-it's that TZ is vestigial config almost everywhere it's read. Doctor's banner copy
+it's that TZ is vestigial config almost everywhere it's read. Doctor's DCM copy
 should say that, not imply a fallback that doesn't exist: **"TZ NOT SET (UNUSED)"**, not
 "USING SYSTEM TZ" — the latter would misrepresent ASTRO/CALENDAR/WEATHER/SOLAR/AIR as
 silently doing the right thing when they're actually just not using the value at all.
@@ -387,7 +391,7 @@ This is a bootstrap edge case only, not a live concern — both the shipped
 
 ---
 
-## NOTE Column vs. Alert Banner — Division of Labor
+## NOTE Column vs. DCM — Division of Labor
 
 **Settled.** Two places on the widget carry non-NOMINAL information, deliberately not
 duplicating each other:
@@ -430,19 +434,195 @@ duplicating each other:
   maintainer, so don't copy the pattern for a public-facing domain unless the same
   reasoning holds. One tag routinely maps to
   several distinct underlying conditions (AIR's `ERROR` alone covers three — missing
-  coordinates, missing API key, no cache yet); the banner is what disambiguates, by
+  coordinates, missing API key, no cache yet); DCM's active-state entry is what disambiguates, by
   matching against the provider's own free-text `note`, not the one-word tag. Its job is
   fast-scan pointing, not explanation.
-- **Alert banner** — placed at the top of the widget, same convention as SitRep's banner.
-  Whenever a row has a NOTE, a corresponding banner entry gives the full condition and
+- **DCM** (see DCM — Digital Core Monitor, next section) — the left-column panel that
+  replaced the old "Alert Banner" and absorbed its job. In its active state, whenever a
+  row has an actionable NOTE, a corresponding QRH-style entry gives the full condition and
   the remedy. This is where the Actions/Remediation table below actually surfaces to the
-  user — the NOTE column stays lightweight specifically because the banner is carrying
-  the detail.
+  user — the NOTE column stays lightweight specifically because DCM is carrying the detail.
 
 This mirrors the SitRep/Doctor split from earlier in this doc at a smaller scale: SitRep's
-banner covers runtime conditions with full message text; Doctor's banner does the same
+banner covers runtime conditions with full message text; DCM does the same
 for provider-health and config-completeness conditions, while the table itself stays a
 quick-reference surface.
+
+---
+
+## DCM — Digital Core Monitor
+
+DCM replaces the panel previously called "Alert Banner." It absorbs that panel's job
+rather than adding a second panel beside it: the active state below is the old banner's
+behavior (itself modeled on SitRep's banner), and the idle state replaces what used to be a
+mostly-blank panel body with something genuinely useful in the common case (its "NO HEALTH
+ALERTS" text now lives only in the header line — see Two states).
+
+### Name and naming trail
+
+DCM = **Digital Core Monitor.** The name went ECAM → ECCM (Electronic Central Core
+Monitor) → ECM (Electronic Core Monitor) → DCM. "Electronic" was rejected because nothing
+in this stack is electronic-hardware-flavored; "Digital" is accurate to what is actually
+being monitored — `gtex62-core`'s domains. **"Display Core Monitor" was explicitly
+rejected too:** it reads oddly, implying a monitor that displays a core rather than a
+monitor *of* the digital core. Don't drift back to either.
+
+### Two states
+
+Matching ECAM's own E/WD-to-STATUS convention, DCM is always in exactly one of two states —
+never a blend, never gauges and entries side by side:
+
+- **Idle** — no domain has an active NOTE. The panel shows one vertical bar gauge per
+  eligible, currently-enabled domain (see Gauge eligibility and Disabled domains get no
+  gauge below).
+- **Active** — any domain has an actionable NOTE. Full takeover: the gauges are entirely
+  replaced by QRH-style entries, each a condition line, an action line and a PROC line. This
+  is exactly the old Alert Banner behavior. The takeover trigger is **identical to the
+  Highlight rule's** — an actionable NOTE present (see Highlight rule — actionable NOTE
+  only, and NOTE Column vs. DCM) — so DCM goes active on precisely the conditions that
+  highlight a row in the PROVIDERS table. Informational entries (MEDIA's `OPTIONAL` note)
+  and states that are not NOTEs (HYBRID, MTR's IDLE/RUNNING) don't trigger it.
+
+**The takeover applies to the panel body only.** The header's one-line summary — `NO
+HEALTH ALERTS` when idle, `CHECK ACTIONS (N)` when active, N being the count of active
+entries — is a separate, always-present fast top-level check, unaffected by which state
+DCM's body is in. It reads the same actionable-NOTE condition but is rendered
+independently: the header is the quick answer, DCM's body is the detail.
+
+Takeover is domain-agnostic: an entry is raised for *every* domain with an actionable NOTE,
+including domains that never get a gauge (NET, GITHUB's `REFRESH`, and so on). Gauge
+eligibility only shapes the idle state. Entry text is the fixed remediation from Actions /
+Remediation, not generated prose.
+
+### Gauge mechanics
+
+Each gauge is a vertical bar with **the domain's own TTL printed as its top label.** This is
+a per-domain scale, not a normalized 0-1 ratio: each domain's real numbers stay legible and
+comparable to its own limit rather than to an artificial common denominator — the same
+logic as individual aircraft gauges having individual redlines instead of one shared
+normalized dial (AIR's 900 and WEATHER's 300, by launcher default, each read on their own
+scale). The marker's vertical position is current AGE against that domain's own TTL: **top =
+fresh (AGE near 0), falling toward the bottom as AGE approaches TTL.**
+
+AGE past TTL makes the domain's STATE WARN with a NOTE (see "STATE is derived"), which puts
+DCM in its active state — so an idle-state gauge never has to represent an over-limit
+marker.
+
+### Gauge eligibility
+
+A general rule, restated for any future provider rather than a one-time list. A domain gets
+a gauge only if **both** hold:
+
+1. **Its AGE is a duration against a single TTL** — it is in the AGE column's duration
+   group (see Provider Table — Layout), not the timestamp group. The timestamp-group domains
+   (CALENDAR, CONNECT, GITHUB, MEDIA, MTR, PFSENSE) have no single countdown-able TTL, so
+   there is nothing to plot. This condition matters: CALENDAR's TTL would pass the second
+   condition on its own, but it has no duration AGE.
+2. **Its TTL meaningfully exceeds Conky's own refresh cadence**, so the marker has a real
+   range to visibly traverse over time.
+
+Condition 1 yields exactly fifteen candidates — net, time, system, vpn, orb, alerts, astro,
+ap, pihole, weather, solar, modem, aviation, air, network, the duration group — and
+condition 2 removes four:
+
+| Excluded | TTL | Why |
+| --- | --- | --- |
+| NET, SYSTEM, TIME | 1s | At Conky's own cadence there is no visible range; the marker would just flicker or jump between redraws, reading as noise or a broken widget rather than data |
+| NETWORK | 5s | Confirmed too close to the flicker zone for reliable per-refresh motion |
+
+There is no fixed numeric cutoff beyond that observed boundary: 5s is confirmed too close,
+and the smallest eligible launcher default is VPN's 10s.
+
+**Final eligible set, confirmed via previz — eleven domains:** AIR, ALERTS, AP, ASTRO,
+AVIATION, MODEM, ORB, PIHOLE, SOLAR, VPN, WEATHER. Any future provider is admitted or
+excluded by the rule above with no edit here; a polling provider in the 30-60s range that
+`airgradient-provider-design.md` proposes for AirGradient would qualify automatically.
+
+NETWORK's exclusion inherits whatever the PROVIDERS table's eventual answer is for its AGE,
+which has been blank in every PROVIDERS previz reviewed — the one unresolved AGE-blank
+case (see Open Questions), independent of DCM. NET, SYSTEM and TIME are blank by the 1s
+reasoning above and are not part of that question.
+
+### Disabled domains get no gauge
+
+A gauge represents AGE against TTL, and both are undefined for a DISABLED domain — no cache
+is being written, so there is nothing to plot. An empty slot would misread as either "zero
+age, perfectly fresh" (wrong) or a rendering error, so a DISABLED domain gets **no gauge at
+all, not a blank one.** The gauge set is dynamic: a gauge is drawn for every eligible domain
+whose STATE is not DISABLED.
+
+The row's width is therefore itself informational — fewer gauges means more eligible
+domains are disabled. Only eligible domains count toward it: of the eleven, four (AP,
+MODEM, PIHOLE, VPN) are DISABLED in the shipped-defaults previz frame, leaving seven
+gauges — confirmed against that frame. MTR's, PFSENSE's and MEDIA's DISABLED rows in the
+same frame are excluded from the count entirely, since they were never gauge-eligible to
+begin with.
+
+### Layout
+
+Gauges are equally spaced across whatever is present, **re-flowing to fill the full panel
+width** — not fixed positional slots with gaps left for absent domains. Confirmed by direct
+previz comparison: two draft layouts side by side, and the re-flowed version, matching the
+PROVIDERS table's own row set, was clearly correct.
+
+For the real build, spacing is computed across the full panel width *including the panel
+edges themselves*, not merely evenly between the first and last visible gauge. Otherwise a
+small enabled-domain count (shipped defaults) would leave the gauges clustered in the
+middle with dead margin on both sides rather than genuinely filling the panel.
+
+### Domain codes and legend
+
+Codes are three letters, using a standard abbreviation where one already exists (AVN for
+AVIATION) rather than an arbitrary truncation. **Two codes are deliberately shorter than
+three letters: AP and WX.** Both are already unambiguous on their own — they are not
+truncations — and read cleanly alongside the three-letter codes in previz without looking
+like an inconsistency. The panel's legend states this explicitly so it reads as a
+deliberate exception, not a gap.
+
+| Code | Domain | Note |
+| --- | --- | --- |
+| AIR | AIR | |
+| ALR | ALERTS | |
+| AP | AP (access points) | Deliberate two-letter exception |
+| AST | ASTRO | |
+| AVN | AVIATION | Standard aviation abbreviation |
+| MDM | MODEM | |
+| ORB | ORB | |
+| PIH | PIHOLE | |
+| SOL | SOLAR | |
+| VPN | VPN | |
+| WX | WEATHER | Deliberate two-letter exception |
+
+### Panel growth rule
+
+The widget's left column stacks DCM above the RUNTIME and CONFIG panels; PROVIDERS sits
+beside it. **General rule for any future addition:** when a provider is added, PROVIDERS
+grows by one row and DCM grows matching vertical space in the left column, so the two
+panels stay visually height-aligned. RUNTIME and CONFIG are fixed-content panels (six root
+paths and five config fields respectively) that never grow with provider count; they simply
+shift downward as DCM's height increases above them.
+
+PROVIDERS already has **one row reserved for the AirGradient air-quality provider**, beyond
+the 21 domains counted in Provider Table — Layout. Its design is in
+`airgradient-provider-design.md` (titled "AirGradient Engine Integration"):
+`shared/airgradient/{profile}/status.json`, written atomically, with the pfSense provider's
+three-value `state` convention. The aquarium / Home Assistant integration is a real future
+candidate but has **no design doc yet**, unlike AirGradient, so no table space is reserved
+for it — it is flagged here as a known future possibility only.
+
+### Gauge-row capacity
+
+The current design fits comfortably beyond the eleven eligible: an earlier full-panel
+previz rendered all fifteen candidate domains (before the eligibility exclusions were
+finalized) legibly with two-letter codes at that count. No overflow or widening logic is
+needed now. If a future addition ever pushes the eligible, enabled count meaningfully past
+fifteen, that is a threshold to revisit then, not something to design against
+speculatively today.
+
+### Color
+
+No dedicated color layer. DCM stays within the existing shared OSA/SitRep/Doctor palette,
+single-hue, consistent with every other part of Doctor's design in this doc.
 
 ---
 
@@ -450,7 +630,7 @@ quick-reference surface.
 
 Every non-NOMINAL state maps to fixed remediation text, not generated prose — same principle
 as alerts' fixed per-condition messages, applied to config-completeness and provider
-health instead of runtime conditions. This is the text the alert banner shows, not the
+health instead of runtime conditions. This is the text DCM's active state shows, not the
 NOTE column.
 
 **Generic fallback shape:**
@@ -621,14 +801,14 @@ trustworthy on its own — zero exceptions, zero domain-specific reads needed.
 | MTR | `ERROR` | no `ssh_target` configured | "Set `ssh_target` in the mtr profile TOML" |
 | MTR | `DEGRADED` | SSH gate tripped | "Check SSH alias / sshpass credentials for MTR (Pi5)" |
 | MTR | *(IDLE, not a NOTE)* | `running:false`, trigger inactive | No action — this is idle, not a problem; don't render a WARN for it |
-| MTR | *(RUNNING, not a NOTE)* | `running:true`, overnight capture in progress | No action — the capture is doing its job in response to a real condition; the trigger already fired as designed. The gateway-offline problem itself is surfaced by ALERTS' row and the banner, so MTR doesn't duplicate it |
+| MTR | *(RUNNING, not a NOTE)* | `running:true`, overnight capture in progress | No action — the capture is doing its job in response to a real condition; the trigger already fired as designed. The gateway-offline problem itself is surfaced by ALERTS' row and DCM's active state, so MTR doesn't duplicate it |
 | NET | `MISSING` | profile TOML missing or lacks `[cache] ttl_sec` (`state` stays `"ok"`) | "NET profile TOML missing or has no `[cache] ttl_sec` — VLAN/ping meters are running at the 60s fallback cadence, not 1s. Rerun bootstrap." — the canonical, already-documented instance of the TTL-fallback collision (see Provider Table — Layout above) |
 | NET | `STALE` | Missing/not refreshing at all | "NET provider isn't running — check `refresh_loop` is alive" |
 | NETWORK | `DEGRADED` | note starts "null field(s):" | "NIC detection or public-IP lookup failing — check `primary_interface` config and outbound connectivity" — fixed at the source 2026-09-17; the note names exactly which of `wan_ip`/`dns`/`gateway` came back empty (one, two, or all three) |
 | ORB | `MISSING` | TTL reads 60s, can't confirm real vs. fallback | "ORB profile TOML missing or has no `[cache] ttl_sec` — cannot confirm the 60s TTL is configured, not a fallback. Rerun bootstrap." (real TTL and fallback value coincide at 60s, so this genuinely cannot be told apart without the flag — matches the previz's own ORB row) |
 | PFSENSE | `ERROR` | no `ssh_target` configured | "Set `ssh_target` in the pfsense profile TOML" |
 | PFSENSE | `DEGRADED` | SSH gate tripped/failed | "Check SSH alias / sshpass credentials" (shared wording with AP/MTR's own gates) |
-| PFSENSE | `STALE` | Any one *enabled* sub-cache stale (worst-state-wins on the single row; sub-caches whose flag is off are excluded, and WARN overrides HYBRID) | Name the specific sub-cache (status/router/pfblockerng/ifaces/arp/leases) in the banner, not just "PFSENSE" — a single `degraded`/`STALE` can originate from any one of six independently-gated fetches. Pi-hole is not one of them — see the PIHOLE rows |
+| PFSENSE | `STALE` | Any one *enabled* sub-cache stale (worst-state-wins on the single row; sub-caches whose flag is off are excluded, and WARN overrides HYBRID) | Name the specific sub-cache (status/router/pfblockerng/ifaces/arp/leases) in DCM's entry, not just "PFSENSE" — a single `degraded`/`STALE` can originate from any one of six independently-gated fetches. Pi-hole is not one of them — see the PIHOLE rows |
 | PFSENSE | *(HYBRID, not a NOTE)* | 1-3 of the four `[providers.pfsense]` sub-flags enabled, every enabled sub-cache fresh | No action — informational, not a problem; don't render a WARN for it. Same treatment as MTR's IDLE row. Text is a template, not a static line: "pfSense is in hybrid mode using N of 4 sub-flags", where N is the number of `[providers.pfsense]` sub-flags enabled at read time (1-3 in this state; the 4 is the fixed flag count). All four flags off is DISABLED (footer pointer only), not this row |
 | PIHOLE | `ERROR` | no `ssh_target` configured (`fetch_pihole.sh`: "no ssh_target configured") | "Set `ssh_target` in the `[pihole]` section of the pfsense profile TOML, or `[pihole] ssh_target` in `site.toml`" |
 | PIHOLE | `DEGRADED` | SSH gate tripped ("ssh gate tripped") or SSH call failed ("ssh failed") | "Check SSH alias / sshpass credentials for PIHOLE (Pi5)" — never "check PFSENSE row"; PIHOLE's gate (`runtime/pihole`) and cache are independent of pfSense's, same self-containment as AP/MTR |
@@ -668,7 +848,7 @@ trustworthy on its own — zero exceptions, zero domain-specific reads needed.
   NOTE and does not highlight under the NOTE-keyed rule (see Highlight rule). It is the
   overnight capture correctly doing its job in response to a real condition — the trigger
   already fired as designed, so there is no action for the row itself. The underlying
-  gateway-offline problem is already surfaced by ALERTS' own row and the alert banner, so
+  gateway-offline problem is already surfaced by ALERTS' own row and DCM's active state, so
   MTR doesn't duplicate that signal.
 - ~~GITHUB: `REFRESH` vs. `STALE` precedence, GITHUB's AGE format, and what "last
   successful run" reads from~~ — **resolved.** `STALE` is dropped for GITHUB entirely, so
@@ -685,9 +865,31 @@ trustworthy on its own — zero exceptions, zero domain-specific reads needed.
   of the OPTIONAL / ship-disabled-defaults group, so it was deleted from both rather than
   reworded. This is the same underlying fact as the loop special-case below, not a second
   question.
+- **`fetch_lyrics.py`'s `requests` import is unguarded — recorded, not blocking.** The
+  import sits at module top level, outside the script's try/except, so a fresh install
+  missing `requests` would fail with a traceback and no `status.json` update on every
+  poll cycle (5s by default) in which a player is active — idle cycles now take the bash
+  fast-path (`506d619`) and never start Python. It is the same silent-failure shape as
+  several cases already fixed in this doc (NET's TTL fallback, MODEM's connectivity
+  gaps): the provider's own state never reports it, and Doctor would see only a stale
+  cache. Read from the code, not reproduced by uninstalling the package. `core-launcher-design.md` already
+  lists `requests` (`media`) among the Doctor-only per-domain tool checks, so the fix is
+  a dependency check or a graceful failure path in the provider. Not this round.
+- **NETWORK's AGE is blank in every PROVIDERS previz reviewed — permanent by design, or a
+  gap?** The sole unresolved case among the blank AGEs. NET, SYSTEM and TIME are blank
+  by the 1s fast-track reasoning in the AGE column section and are not part of this
+  question. NETWORK (5s TTL) sits just above that line: the AGE column lists it in the
+  duration group, DCM excludes it as too close to the flicker zone, and whether its blank
+  AGE is deliberate or a gap has never been confirmed. Independent of DCM, which simply
+  inherits the answer.
+- **DCM active-state details — three things undefined.** (1) What a PROC line contains
+  (a pointer to the remediation procedure, or something else). (2) Ordering and overflow
+  when many entries are active at once. (3) Whether a config-completeness alert with no
+  row NOTE (e.g. `TZ NOT SET (UNUSED)`) raises an entry, since the takeover trigger is
+  "an actionable NOTE present."
 - **Panels beyond the PROVIDERS table** — providers previz is settled (alphabetical,
-  flat, banner at top). Still to sketch: config-completeness detail, media detail, and
-  whatever else groups outside the provider table itself.
+  flat, DCM in the left column — see DCM). Still to sketch: config-completeness detail,
+  media detail, and whatever else groups outside the provider table itself.
 - **`gtex62-clean-suite-e`'s VLAN-flow widget has the same shape of bug the vpn/ap/
   modem/alerts flip caused for SitRep, unfixed — logged here, not fixed, cross-repo.**
   `lua/suite/pf.lua`'s `M.flow_fractions()` reads
@@ -745,7 +947,7 @@ Core-side:
 | --- | --- |
 | Per-suite config/cache dir checks | Generic: loop over `core.toml` providers and each domain's profile `enabled` / `state` |
 | Weather deps/cache, MÉTAR/TAF checks | Folded into TTL/cadence + aviation's existing `degraded` state |
-| `config/owm.vars LAT=` / `LON=-` placeholder check | Config-completeness alert banner |
+| `config/owm.vars LAT=` / `LON=-` placeholder check | Config-completeness entries in DCM |
 | Fonts, SSH, Music/Lyrics deps | DISABLED / OPTIONAL rows, inline alphabetically, not a separate section per suite |
 | tech-hud's `Actions` remediation line | Actions/Remediation lookup table above |
 | tri-hud's OPTIONAL (pfSense enabled) row | OPTIONAL state, informational not a problem |
