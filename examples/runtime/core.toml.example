@@ -50,14 +50,22 @@ allow_legacy_suites = true
 # initial_refresh/refresh_loop. alerts (providers/alerts/fetch_alerts.sh)
 # reads other providers' already-written cache files, no SSH/gate of its
 # own — same wiring shape as the rest, just nothing to skip on an ssh_gate
-# trip. Defaults here stay false for a fresh install; set true in the live
-# core.toml once you want a given domain running. This file is global, not
+# trip. Defaults here stay false for a fresh install (alerts excepted — see its
+# entry below); set true in the live core.toml once you want a given domain
+# running. This file is global, not
 # per-suite — which suites actually run a domain is decided by each suite's
 # [domains] list, not by anything in here.
 vpn = false
 ap = false
 modem = false
-alerts = false
+# alerts ships true, unlike its neighbors: it has no hardware or network
+# dependency — pure computation over other domains' already-written caches,
+# no SSH/gate, no external calls — so defaulting it off would not protect
+# against a missing device, it would only disable the one domain that watches
+# the rest of the system, on a fresh install where catching misconfiguration
+# matters most. Still dual-gated: the launching suite must list "alerts" in
+# its [domains].
+alerts = true
 # mtr (providers/mtr/fetch_mtr.sh) is the Pi5 MTR-overnight-log trigger —
 # its own SSH target/gate (runtime/mtr), reads fetch_alerts.sh's
 # banner.json for the gateway-offline trigger condition rather than

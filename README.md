@@ -154,7 +154,10 @@ domain. `site.toml` is not one of them.
   nothing.
 - **Flag-only** (`media` and the `[providers.pfsense]` sub-flags): the flag
   alone decides.
-- All flags ship `false` in `core.toml.example`. A missing `core.toml`, missing
+- All flags ship `false` in `core.toml.example` except `alerts`, which ships `true`: it
+  has no hardware or network dependency (it only recomputes from other domains' cached
+  data), so it is safe on a fresh install and is what catches misconfiguration there. It
+  is still dual-gated on the suite's `[domains]` list. A missing `core.toml`, missing
   section or missing key counts as `false` — everything this file governs is
   off.
 - Flipping a flag to `false` stops that domain's fetch loop entirely.
