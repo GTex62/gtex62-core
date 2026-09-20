@@ -28,6 +28,9 @@ the full domain set including ones with no dedicated doc yet.
 - [Orb Provider Reference](orb-provider-reference.md) — ephemeris.vars format, per-body key reference, location resolution
 - [AirGradient Provider Design](airgradient-provider-design.md) — indoor AQI (`air` domain) design: collector/engine/display separation
 - [Lyrics Library Design](lyrics-library-design.md) — `media` domain design: library-vs-cache distinction, write-through safety
+- [MEDIA Event-Driven Refresh Design](media-event-driven-design.md) — draft: replacing MEDIA's poll with an MPRIS D-Bus listener; measurements, launcher-integration open questions, standing test-safety note
+- [Bug: lyrics blank after a fetch when the library write fails](2026-09-20-lyrics-publish-then-searching-bug.md) — `media` domain; violates lyrics-library-design.md's "not a blank widget"; resolved
+- [Bug: failed lyrics lookup cached as "not found" for 12 hours](2026-09-20-lyrics-failed-lookup-cached-as-miss-bug.md) — `media` domain; a timeout/5xx is recorded as a genuine miss; inherited from tech-hud; open
 
 ## Suite Conversion
 
