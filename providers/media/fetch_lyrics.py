@@ -39,6 +39,7 @@ TMP_DIR = CACHE_ROOT / "tmp"
 LYRICS_JSON = OUT_DIR / "lyrics.json"
 STATUS_JSON = OUT_DIR / "status.json"
 STATE_JSON = OUT_DIR / "lyrics_state.json"
+LAST_HIT_JSON = OUT_DIR / "lyrics_last_hit.json"
 ORPHAN_STAMP = OUT_DIR / "lyrics_orphan_sweep.stamp"
 
 HOSTNAME = socket.gethostname() or "unknown"
@@ -186,7 +187,11 @@ def read_cmd(argv):
 
 
 def get_player():
-    status = read_cmd(["playerctl", "status"]) or ""
+    # fetch_lyrics.sh's idle fast-path has already asked `playerctl status`
+    # this cycle and hands the answer over so a playing cycle doesn't pay for
+    # a second query. Unset (direct invocation, or the wrapper bailed out
+    # before asking) -> ask here, as before.
+    status = os.environ.get("GTEX62_MEDIA_PLAYER_STATUS") or read_cmd(["playerctl", "status"]) or ""
     if status not in ("Playing", "Paused"):
         return status, "", ""
     artist = read_cmd(["playerctl", "metadata", "xesam:artist"]) or ""
@@ -505,6 +510,43 @@ def fresh_state():
     }
 
 
+def save_last_hit(key, provider, write_note, lines, fmt, library_path, text, in_library):
+    """Keep the last online hit across invocations: display `lines` to serve,
+    plus the raw `text`/`fmt` (ext) so a skipped or failed library write can
+    be retried without re-fetching. `in_library` records whether a library
+    file for this track existed once the fetch was done (wrote it, or it was
+    already there). Best-effort: a failed write here just degrades to
+    re-fetching."""
+    try:
+        atomic_write(LAST_HIT_JSON, json.dumps({
+            "key": key, "provider": provider, "write_note": write_note,
+            "lines": lines, "format": fmt, "library_path": library_path,
+            "text": text, "in_library": in_library,
+        }, separators=(",", ":")))
+    except OSError:
+        pass
+
+
+def held_note(held):
+    provider = held.get("provider")
+    if not provider:
+        return "re-published held lyrics"
+    return f"fetched via {provider}" + (f"; {held['write_note']}" if held.get("write_note") else "")
+
+
+def load_last_hit(key):
+    """The saved hit for this track, or None (missing, unreadable, other
+    track, or no lines)."""
+    try:
+        with open(LAST_HIT_JSON, "r", encoding="utf-8") as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(d, dict) or d.get("key") != key or not isinstance(d.get("lines"), list) or not d["lines"]:
+        return None
+    return d
+
+
 # -----------------------------------------------------------------------
 # Publish
 # -----------------------------------------------------------------------
@@ -595,6 +637,51 @@ def main():
     # permissions) is NOT "no lyrics exist" — fall through to online exactly
     # as if nothing was found locally, same as a genuine not-found.
 
+    # 2. Held lyrics. An online hit the library couldn't keep (write skipped or
+    # failed, or the library unreachable since) is not findable locally, and
+    # lyrics.json is rewritten every cycle from a fresh process — so serve the
+    # copy kept in lyrics_last_hit.json rather than downgrading to searching /
+    # not_found / offline. Checked ahead of the online-disabled/offline
+    # branches and of any re-fetch: nothing about the situation has changed
+    # since the fetch that succeeded, so there is nothing to ask the network,
+    # and a later failed attempt must never replace a held-good result. Not
+    # used when the file was in the library and the library is reachable
+    # again but the file is gone — that is a deliberate removal (delete to
+    # force a re-fetch), so it falls through to a normal lookup. See
+    # docs/2026-09-20-lyrics-publish-then-searching-bug.md.
+    held = load_last_hit(key)
+    if held and (not held.get("in_library") or not reachable):
+        retry_note = None
+        # Dropping the periodic re-fetch also drops the only thing that used to
+        # put such a track into the library once it became writable again, so
+        # retry the write from the stored raw text — create-only and race-safe
+        # like any write-through, and at most once per FETCH_THROTTLE_SEC so a
+        # library that stays read-only isn't hammered every cycle.
+        t = time.time()
+        if (cfg["enable_local"] and reachable and not held.get("in_library")
+                and held.get("text") and held.get("format")
+                and t - (state.get("last_write_retry") or 0) >= FETCH_THROTTLE_SEC):
+            state["last_write_retry"] = t
+            path, wrote, err = write_through(local_dir, raw_stem, safe_stem, held["format"], held["text"])
+            if path and not err:
+                held["in_library"], held["library_path"] = True, path
+                held["write_note"] = (f"written to library ({held['format']}) on retry" if wrote
+                                      else "already present in library — not overwritten")
+                save_last_hit(key, held.get("provider"), held["write_note"], held["lines"], held["format"],
+                              path, held["text"], True)
+                state["last_saved_track_key"] = key
+                state["last_saved_path"] = path
+                retry_note = held["write_note"]
+            else:
+                retry_note = f"library write retry failed: {err}"
+        write_lyrics_json("ok", held_note(held), track=track, lines=held["lines"],
+                           source=f"online:{held.get('provider')}", fmt=held.get("format"),
+                           library_path=held.get("library_path"))
+        write_status_json("ok", "re-published held lyrics (no re-fetch)" + (f"; {retry_note}" if retry_note else ""),
+                          status_extra)
+        save_state(state)
+        return 0
+
     if not cfg["enable_online"]:
         write_lyrics_json("not_found", "not in local library, online disabled", track=track)
         write_status_json("ok", "not found, online disabled", status_extra)
@@ -644,7 +731,8 @@ def main():
 
     # Online hit. Write-through into local_dir (create-only, race-safe), then
     # publish regardless of whether the write itself succeeded — a write
-    # failure costs a re-fetch next time, not a blank widget.
+    # failure is retried later from the held copy (see "Held lyrics" above),
+    # not a blank widget and not a re-fetch.
     write_note = None
     written_path = None
     if cfg["enable_local"]:
@@ -661,12 +749,14 @@ def main():
 
     lines = [strip_lrc_prefix(l, cfg["strip_lrc_timestamps"]) for l in text.split("\n")]
     state["last_result"] = "hit"
+    state["last_write_retry"] = now
     state["last_saved_track_key"] = key
     state["last_saved_path"] = written_path or ""
     write_lyrics_json("ok", f"fetched via {provider}" + (f"; {write_note}" if write_note else ""),
                        track=track, lines=lines, source=f"online:{provider}", fmt=ext,
                        library_path=written_path)
     write_status_json("ok", write_note or f"fetched via {provider}", status_extra)
+    save_last_hit(key, provider, write_note, lines, ext, written_path, text, bool(written_path))
     save_state(state)
 
     if cfg["enable_local"] and reachable:

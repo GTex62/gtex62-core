@@ -18,6 +18,41 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
+## Unreleased
+
+- **MEDIA idle fast-path (`providers/media/fetch_lyrics.sh`, `fetch_lyrics.py`).** Every
+  poll cycle (5s default) started Python and imported `requests` — ~130 ms of a ~160 ms
+  cycle — even with no player running. `fetch_lyrics.sh` now asks
+  `timeout 5 playerctl status` first and, when nothing is Playing/Paused, writes the same
+  `inactive` `lyrics.json`/`status.json` pair from bash and exits without starting Python.
+  Any doubt (odd profile id, write failure) falls through to `fetch_lyrics.py`, which stays
+  the source of truth. Idle cycle ~176 → ~39 ms wall, ~170 → ~20 ms CPU. The status the
+  wrapper already read is handed to Python in `GTEX62_MEDIA_PLAYER_STATUS` (used when set;
+  a direct `fetch_lyrics.py` run still asks `playerctl` itself), so a cycle with a player
+  doesn't query it twice — a first version of the fast-path did, costing ~30 ms per
+  playing cycle; playing cycles are back to the pre-change ~297 ms. Output is
+  byte-identical to before (modulo `generated_at`) for no player, `playerctl` missing,
+  status `Stopped`, hung `playerctl`, playing, and paused. No config, schema, or cache-file
+  change. Context: [docs/media-event-driven-design.md](docs/media-event-driven-design.md).
+- **MEDIA: fixed lyrics going blank after a fetch whose library write fails or is skipped
+  (`providers/media/fetch_lyrics.py`).** When the NAS was unreachable, read-only, or
+  `enable_local = false`, a successful online fetch was published for one cycle and then
+  replaced by `searching` with no lines for the next five, violating
+  [lyrics-library-design.md](docs/lyrics-library-design.md#failure-handling)'s "not a blank
+  widget" — and every 30 s the provider re-queried lrclib/lyrics.ovh, where one failed
+  re-fetch replaced the lyrics it already had with `not_found`, cached for 12 h. The last hit
+  is now kept in a new sidecar, `shared/media/<profile>/lyrics_last_hit.json` (display lines
+  plus the raw fetched text). While it is the only copy — library write skipped or failed, or
+  the library unreachable — those lyrics are served with **no re-fetch**, and neither a failed
+  lookup, being offline, nor `enable_online = false` can downgrade them. The skipped library
+  write is retried from the stored text once the library is writable again (at most once per
+  30 s), so the track still reaches the library without a re-fetch. Deleting a library file
+  with the NAS up still forces a fresh lookup. Cost: one small file write per online hit; the
+  local-hit, miss, and instrumental paths are unchanged. Write-up, reproduction, and
+  verification in
+  [docs/2026-09-20-lyrics-publish-then-searching-bug.md](docs/2026-09-20-lyrics-publish-then-searching-bug.md).
+---
+
 ## 0.8.0 — 2026-09-19
 
 Provider on/off mechanics cleaned up and documented. Minor bump: **breaking for existing
