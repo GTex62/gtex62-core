@@ -18,7 +18,12 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
-## Unreleased
+## 0.8.1 — 2026-09-20
+
+Two MEDIA changes: an idle-cost fast-path, and a fix for lyrics going blank when the library
+write fails. Patch bump: no schema, config, or `state`-value changes, and nothing for
+consumers or live configs to migrate (`lyrics_last_hit.json` is a new ephemeral cache file
+that nothing else reads).
 
 - **MEDIA idle fast-path (`providers/media/fetch_lyrics.sh`, `fetch_lyrics.py`).** Every
   poll cycle (5s default) started Python and imported `requests` — ~130 ms of a ~160 ms
@@ -51,6 +56,7 @@ this file and has not been backfilled — see each domain's own
   local-hit, miss, and instrumental paths are unchanged. Write-up, reproduction, and
   verification in
   [docs/2026-09-20-lyrics-publish-then-searching-bug.md](docs/2026-09-20-lyrics-publish-then-searching-bug.md).
+
 ---
 
 ## 0.8.0 — 2026-09-19
