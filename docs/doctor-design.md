@@ -163,6 +163,21 @@ itself switches representation depending on the domain's TTL:
   by design:** at a 1s TTL the value would only flicker between 0 and 1 on each redraw —
   the same fast-track reasoning that excludes them from DCM's gauges (see Gauge
   eligibility). NETWORK's blank AGE is a different, still-open case (see Open Questions).
+  **NET's blank is the normal-operation state, and it is not a contradiction that its AGE
+  can appear.** Blank (or near-zero) describes NET refreshing at its real 1s TTL. When the
+  TTL-fallback condition holds (see TTL-fallback collision, below) NET is no longer
+  refreshing at 1s but roughly every 60s, so its AGE no longer flickers between 0 and 1 —
+  it becomes a populated value that climbs toward 60 before each refresh resets it, as on
+  the flagged NET row in the errors previz (AGE 47). Two different operating states, one
+  column; the climbing AGE is how the fallback is confirmed when the TTL cell still reads
+  `1` (see `NET FALLBACK TTL` in `doctor-qrh.md`).
+  **Implementation constraint:** NET's blank AGE must be conditional on the fallback flag
+  (the same `MISSING` condition `fetch_doctor.sh` derives from the profile's existence and
+  `[cache] ttl_sec` key), not hardcoded per domain. A NET row that always renders a blank AGE
+  would hide the one signal that confirms the fallback, and the TTL cell can't be trusted
+  to substitute for it. The rendering logic has to treat NET's AGE as blank *only while the
+  flag is clear*. SYSTEM and TIME have no such divergence (their launcher fallback is also
+  1s), so for them a fixed blank is safe.
 - **Absolute timestamp** (`HH:MM:SSZ`) once a duration would stop being legible at a
   glance — calendar (86400s TTL), github (12h systemd-timer cadence, no TTL — well past the line; date-only, see below),
   and the domains that don't have a real countdown story
@@ -755,6 +770,14 @@ modified.
   `"degraded"` today (confirmed, not changed), so SitRep's display is unaffected either
   way in the meantime.
 
+**Full QRH entries now exist (2026-09-20).** Every condition row below has a full procedure
+in [`doctor-qrh.md`](../../gtex62-doctor/docs/doctor-qrh.md), in the `gtex62-doctor` repo
+beside the suite that renders it. The `Action text` column is DCM's fixed one-line action;
+the QRH procedure is the long form that DCM's `PROC:` line names, and the `PROC` column gives
+each procedure's exact title (`PROC: NET FALLBACK TTL`). The three rows marked *(none)* — MTR's
+IDLE and RUNNING, PFSENSE's HYBRID — are not conditions and have no procedure. DISABLED has
+no row here at all; it collapses to the footer pointer (see Disabled Domains).
+
 **Per-domain remediation, verified against every domain's real fetch script and the live
 installed profile TOMLs (2026-09-16) — see `doctor-missing-conditions.md` for full
 evidence.** These override the generic shape above wherever real behavior diverges from
@@ -766,61 +789,61 @@ has no API of its own, so "check API key" would be wrong for it). Domains not li
 `—` does not appear anywhere in the NOTE column below. Every domain's `state` is
 trustworthy on its own — zero exceptions, zero domain-specific reads needed.
 
-| Domain | NOTE | Condition | Action text |
-| --- | --- | --- | --- |
-| AIR | `ERROR` | missing coordinates | "Set `[location] lat`/`lon` in the air profile or `site.toml`" |
-| AIR | `ERROR` | missing API key | "Set OpenWeather Air Pollution API key in the air profile" |
-| AIR | `ERROR` | no cache yet | "Check OpenWeather/AirNow API reachability for AIR" |
-| AIR | `PARTIAL` | no provider timestamp | "AIR cache has data but no reliable timestamp — check AirNow/OpenWeather API status" |
-| AIR | `DEGRADED` | note starts "openweather source invalid" | "OpenWeather AQI source down — check API key/quota" — fixed at the source 2026-09-17; only fires while the *other* source is still resolving a timestamp, otherwise it's the pre-existing `PARTIAL` row above |
-| AIR | `DEGRADED` | note starts "airnow source invalid" | "AirNow AQI source down — check API key/quota" — fixed at the source 2026-09-17, same shape as the OpenWeather row above; gated on AirNow actually being enabled, so a site that never configured it doesn't get falsely flagged |
-| ALERTS | `STALE` | Missing/stale `banner.json` | "Alerts provider isn't running — check `fetch_alerts.sh` is wired into the refresh loop" — **not** "check API key/network," alerts has no API of its own and always writes `state:"ok"` when it runs at all |
-| AP | `ERROR` | no AP IPs configured | "Set `[ap] ips`/`labels` in `site.toml`" |
-| AP | `ERROR` | password file not found | "Create `~/.config/zyxel_ap/.pass`" |
-| AP | `DEGRADED` | SSH gate tripped | "Check SSH alias / sshpass credentials for AP" — never "check PFSENSE row"; AP's gate and cache are independently self-contained, confirmed not a category-4 dependency despite the architecture doc's cache-layout comment suggesting otherwise |
-| ASTRO | `ERROR` | missing location | "Set `[location] lat`/`lon` in the astro profile or `site.toml`" |
-| ASTRO | `MISSING` | TTL reads 60s, can't confirm real vs. fallback | "ASTRO profile TOML has no `[cache]` section — cannot confirm the 60s TTL is configured, not a fallback. Rerun bootstrap." |
-| AVIATION | `DEGRADED` | one of metar/taf failing | "`<FIELD>` fetch failing for AVIATION; serving cached data from `<last_ok>`" (field + timestamp straight from `note`) |
-| AVIATION | `DEGRADED` | both failing | "METAR and TAF both failing for AVIATION; serving cached data" |
-| AVIATION | `ERROR` | no cache yet | "Check aviationweather.gov reachability for AVIATION" |
-| CALENDAR | `MISSING` | Missing cache entirely | "Calendar has never run — check `refresh_loop`/`initial_refresh` wiring" — not a credentials message, this provider reads local text files only |
-| CONNECT | `DEGRADED` | note starts "speedtest failing" | "Speedtest failing — check `speedtest` CLI is installed/licensed (`--accept-license --accept-gdpr`)" — fixed at the source 2026-09-17 (`status.json`'s `state` now follows `current.json`'s nested `speedtest.state` instead of staying unconditionally `"ok"`); `speedtest.state:"disabled"` (never enabled in the profile) deliberately still reads `"ok"`, since that's not a failure |
-| CONNECT | `STALE` | Speedtest stale beyond `max_age_days`, no error (Doctor-derived from `current.json`'s own `age_days`, not `status.json`'s age) | "No speedtest has run in N days (on-demand only, no automatic refresh) — run manually" |
-| GITHUB | `ERROR` | Empty repo registry | "Populate `~/.config/conky/github-traffic-repos.json`" |
-| GITHUB | `ERROR` | fetch failed for one or more repos | "GitHub API fetch failing for: `<repos>` — check `gh auth status`" |
-| GITHUB | `MISSING` | Cache never written (never run) — GITHUB has no `STALE`; see `REFRESH` | "Check `systemctl --user status gtex62-github-traffic.timer`" — GITHUB runs on a systemd timer entirely outside the launcher's `refresh_loop`, so a missing cache means the timer needs attention, not `fetch_github.sh` itself |
-| GITHUB | `REFRESH` | Age of last successful fetch (newest `history_days` key, oldest across registry repos) ≥ 10 days — independent of STATE, so it can sit beside `ERROR` or appear alone (Doctor-derived; AGE shows `N/14`) | "GitHub traffic copy is `N`/14 days behind — run `systemctl --user start gtex62-github-traffic.service` now, then check `systemctl --user status gtex62-github-traffic.timer` (timer not firing) and `gh auth status` (fetches failing — an `ERROR` in the same cell). The API keeps only a rolling 14-day window, so older data is lost" |
-| MEDIA | `DEGRADED` | `local_dir` unreachable | "local_dir unreachable — check NAS mount" |
-| MEDIA | `OPTIONAL` | `genius_token` unset | Config-completeness, not WARN — informational only ("Genius API not configured — optional") |
-| MODEM | `ERROR` | password not configured | "Set `[credentials].password` in the modem profile TOML (not `CHANGE_ME`)" |
-| MODEM | `DEGRADED` | note starts "modem unreachable" | "Check pfSense NAT path to 192.168.100.1 (modem admin UI)" |
-| MODEM | `DEGRADED` | note starts "modem auth failed" | "Check modem credentials in `[credentials].password`" |
-| MODEM | `DEGRADED` | note mentions "header mapping incomplete", "not found", or "has no rows" | "Modem admin UI layout may have changed — check the channel-table note in MODEM's status" — fixed at the source 2026-09-17, the last of MODEM's three silent gaps; triggers on either channel table (`usTable`/`d31dsTable`) coming back empty, distinct from the two conditions above and from a merely-missing `connectivity_state` row (still not elevated — a present-but-empty row is different from a present-but-bad value) |
-| MODEM | `DEGRADED` | note starts "modem not registered with Comcast" | "Modem not registered with Comcast (`<connectivity_state.status>`) — check DOCSIS sync, not the scraper" — fixed at the source 2026-09-17 (`fetch_modem.py` now elevates `state` itself); SitRep's own DOCSIS header line treats this field as the primary modem-health signal |
-| MODEM | `DEGRADED` | note starts "no locked upstream channels" | "Modem has no locked upstream channels — check DOCSIS upstream sync" — fixed at the source 2026-09-17; SitRep's own US AVG power average used to silently render this as a plausible `0.0` before the fix |
-| MTR | `ERROR` | no `ssh_target` configured | "Set `ssh_target` in the mtr profile TOML" |
-| MTR | `DEGRADED` | SSH gate tripped | "Check SSH alias / sshpass credentials for MTR (Pi5)" |
-| MTR | *(IDLE, not a NOTE)* | `running:false`, trigger inactive | No action — this is idle, not a problem; don't render a WARN for it |
-| MTR | *(RUNNING, not a NOTE)* | `running:true`, overnight capture in progress | No action — the capture is doing its job in response to a real condition; the trigger already fired as designed. The gateway-offline problem itself is surfaced by ALERTS' row and DCM's active state, so MTR doesn't duplicate it |
-| NET | `MISSING` | profile TOML missing or lacks `[cache] ttl_sec` (`state` stays `"ok"`) | "NET profile TOML missing or has no `[cache] ttl_sec` — VLAN/ping meters are running at the 60s fallback cadence, not 1s. Rerun bootstrap." — the canonical, already-documented instance of the TTL-fallback collision (see Provider Table — Layout above) |
-| NET | `STALE` | Missing/not refreshing at all | "NET provider isn't running — check `refresh_loop` is alive" |
-| NETWORK | `DEGRADED` | note starts "null field(s):" | "NIC detection or public-IP lookup failing — check `primary_interface` config and outbound connectivity" — fixed at the source 2026-09-17; the note names exactly which of `wan_ip`/`dns`/`gateway` came back empty (one, two, or all three) |
-| ORB | `MISSING` | TTL reads 60s, can't confirm real vs. fallback | "ORB profile TOML missing or has no `[cache] ttl_sec` — cannot confirm the 60s TTL is configured, not a fallback. Rerun bootstrap." (real TTL and fallback value coincide at 60s, so this genuinely cannot be told apart without the flag — matches the previz's own ORB row) |
-| PFSENSE | `ERROR` | no `ssh_target` configured | "Set `ssh_target` in the pfsense profile TOML" |
-| PFSENSE | `DEGRADED` | SSH gate tripped/failed | "Check SSH alias / sshpass credentials" (shared wording with AP/MTR's own gates) |
-| PFSENSE | `STALE` | Any one *enabled* sub-cache stale (worst-state-wins on the single row; sub-caches whose flag is off are excluded, and WARN overrides HYBRID) | Name the specific sub-cache (status/router/pfblockerng/ifaces/arp/leases) in DCM's entry, not just "PFSENSE" — a single `degraded`/`STALE` can originate from any one of six independently-gated fetches. Pi-hole is not one of them — see the PIHOLE rows |
-| PFSENSE | *(HYBRID, not a NOTE)* | 1-3 of the four `[providers.pfsense]` sub-flags enabled, every enabled sub-cache fresh | No action — informational, not a problem; don't render a WARN for it. Same treatment as MTR's IDLE row. Text is a template, not a static line: "pfSense is in hybrid mode using N of 4 sub-flags", where N is the number of `[providers.pfsense]` sub-flags enabled at read time (1-3 in this state; the 4 is the fixed flag count). All four flags off is DISABLED (footer pointer only), not this row |
-| PIHOLE | `ERROR` | no `ssh_target` configured (`fetch_pihole.sh`: "no ssh_target configured") | "Set `ssh_target` in the `[pihole]` section of the pfsense profile TOML, or `[pihole] ssh_target` in `site.toml`" |
-| PIHOLE | `DEGRADED` | SSH gate tripped ("ssh gate tripped") or SSH call failed ("ssh failed") | "Check SSH alias / sshpass credentials for PIHOLE (Pi5)" — never "check PFSENSE row"; PIHOLE's gate (`runtime/pihole`) and cache are independent of pfSense's, same self-containment as AP/MTR |
-| SOLAR | `WAITING` | `state:"waiting"` | "SOLAR is waiting on the WEATHER cache — check the WEATHER row, not SOLAR's own config" — defer entirely, don't render SOLAR-specific remediation. The fully-verified category-4 example (`fetch_solar.sh` polls up to 20s for weather's cache, writes explicit `state:"waiting"` if it never appears) |
-| SYSTEM | `STALE` | Missing/stale at 1s TTL | "SYSTEM provider isn't running — check `refresh_loop` is alive" |
-| TIME | `STALE` | Missing/stale at 1s TTL | "TIME provider isn't running — check `refresh_loop` is alive" |
-| VPN | `ERROR` | "piactl not found" | "PIA client not installed or not on PATH" |
-| VPN | `DEGRADED` | note mentions "sudo wg dump failed" or "wg not found", `connectionstate:"Connected"` | "WireGuard stats unavailable — check `/etc/sudoers.d/gtex62-core-vpn`" (or confirm the `wg` binary is installed, per which note text matches) — fixed at the source 2026-09-17, the last of the ten silent gaps closed this pass. Gated on `connectionstate == "Connected"`, not on `health == "DEAD"` directly, so an ordinary voluntary disconnect (which also drives `health` to `"DEAD"`) doesn't get misread as a fetch failure. |
-| VPN | `DEGRADED` | note starts "tunnel ping failing" | "VPN tunnel ping failing — check tunnel interface routing (transient, or `1.1.1.1` unreachable through the tunnel)" — fixed at the source 2026-09-17 (`fetch_vpn.sh` now elevates `state` itself); a separate failure mode from the sudoers case above, which is deliberately left as-is since `health` already catches it |
-| WEATHER | `ERROR` | missing credentials/coordinates | "Set API key and `[location] lat`/`lon` in the weather profile" |
-| WEATHER | `DEGRADED` | one of current/forecast failing | "`<FIELD>` fetch failing for WEATHER; serving cached data from `<last_ok>`" (same pattern as AVIATION) |
-| WEATHER | `ERROR` | no cache yet | "Check OpenWeather API reachability for WEATHER" |
+| Domain | NOTE | Condition | Action text | PROC |
+| --- | --- | --- | --- | --- |
+| AIR | `ERROR` | missing coordinates | "Set `[location] lat`/`lon` in the air profile or `site.toml`" | `AIR COORDINATES MISSING` |
+| AIR | `ERROR` | missing API key | "Set OpenWeather Air Pollution API key in the air profile" | `AIR API KEY MISSING` |
+| AIR | `ERROR` | no cache yet | "Check OpenWeather/AirNow API reachability for AIR" | `AIR NO CACHE` |
+| AIR | `PARTIAL` | no provider timestamp | "AIR cache has data but no reliable timestamp — check AirNow/OpenWeather API status" | `AIR NO TIMESTAMP` |
+| AIR | `DEGRADED` | note starts "openweather source invalid" | "OpenWeather AQI source down — check API key/quota" — fixed at the source 2026-09-17; only fires while the *other* source is still resolving a timestamp, otherwise it's the pre-existing `PARTIAL` row above | `AIR OPENWEATHER DEGRADED` |
+| AIR | `DEGRADED` | note starts "airnow source invalid" | "AirNow AQI source down — check API key/quota" — fixed at the source 2026-09-17, same shape as the OpenWeather row above; gated on AirNow actually being enabled, so a site that never configured it doesn't get falsely flagged | `AIR AIRNOW DEGRADED` |
+| ALERTS | `STALE` | Missing/stale `banner.json` | "Alerts provider isn't running — check `fetch_alerts.sh` is wired into the refresh loop" — **not** "check API key/network," alerts has no API of its own and always writes `state:"ok"` when it runs at all | `ALERTS NOT RUNNING` |
+| AP | `ERROR` | no AP IPs configured | "Set `[ap] ips`/`labels` in `site.toml`" | `AP NO IPS CONFIGURED` |
+| AP | `ERROR` | password file not found | "Create `~/.config/zyxel_ap/.pass`" | `AP PASSWORD FILE MISSING` |
+| AP | `DEGRADED` | SSH gate tripped | "Check SSH alias / sshpass credentials for AP" — never "check PFSENSE row"; AP's gate and cache are independently self-contained, confirmed not a category-4 dependency despite the architecture doc's cache-layout comment suggesting otherwise | `AP SSH GATE` |
+| ASTRO | `ERROR` | missing location | "Set `[location] lat`/`lon` in the astro profile or `site.toml`" | `ASTRO LOCATION MISSING` |
+| ASTRO | `MISSING` | TTL reads 60s, can't confirm real vs. fallback | "ASTRO profile TOML has no `[cache]` section — cannot confirm the 60s TTL is configured, not a fallback. Rerun bootstrap if the file is absent; if it exists, add `[cache] refresh_sec` by hand. Then restart the suite." — bootstrap skips a profile that already exists, and `--force` overwrites the whole file, discarding local edits; the launcher reads TTLs once at startup, so the restart is required either way (see `ASTRO FALLBACK TTL`) | `ASTRO FALLBACK TTL` |
+| AVIATION | `DEGRADED` | one of metar/taf failing | "`<FIELD>` fetch failing for AVIATION; serving cached data from `<last_ok>`" (field + timestamp straight from `note`) | `AVIATION DEGRADED` |
+| AVIATION | `DEGRADED` | both failing | "METAR and TAF both failing for AVIATION; serving cached data" | `AVIATION DEGRADED` |
+| AVIATION | `ERROR` | no cache yet | "Check aviationweather.gov reachability for AVIATION" | `AVIATION NO CACHE` |
+| CALENDAR | `MISSING` | Missing cache entirely | "Calendar has never run — check `refresh_loop`/`initial_refresh` wiring" — not a credentials message, this provider reads local text files only | `CALENDAR NEVER RUN` |
+| CONNECT | `DEGRADED` | note starts "speedtest failing" | "Speedtest failing — check `speedtest` CLI is installed/licensed (`--accept-license --accept-gdpr`)" — fixed at the source 2026-09-17 (`status.json`'s `state` now follows `current.json`'s nested `speedtest.state` instead of staying unconditionally `"ok"`); `speedtest.state:"disabled"` (never enabled in the profile) deliberately still reads `"ok"`, since that's not a failure | `CONNECT SPEEDTEST FAILING` |
+| CONNECT | `STALE` | Speedtest stale beyond `max_age_days`, no error (Doctor-derived from `current.json`'s own `age_days`, not `status.json`'s age) | "No speedtest has run in N days (on-demand only, no automatic refresh) — run manually" | `CONNECT SPEEDTEST STALE` |
+| GITHUB | `ERROR` | Empty repo registry | "Populate `~/.config/conky/github-traffic-repos.json`" | `GITHUB REGISTRY EMPTY` |
+| GITHUB | `ERROR` | fetch failed for one or more repos | "GitHub API fetch failing for: `<repos>` — check `gh auth status`" | `GITHUB FETCH FAILING` |
+| GITHUB | `MISSING` | Cache never written (never run) — GITHUB has no `STALE`; see `REFRESH` | "Check `systemctl --user status gtex62-github-traffic.timer`" — GITHUB runs on a systemd timer entirely outside the launcher's `refresh_loop`, so a missing cache means the timer needs attention, not `fetch_github.sh` itself | `GITHUB NEVER RUN` |
+| GITHUB | `REFRESH` | Age of last successful fetch (newest `history_days` key, oldest across registry repos) ≥ 10 days — independent of STATE, so it can sit beside `ERROR` or appear alone (Doctor-derived; AGE shows `N/14`) | "GitHub traffic copy is `N`/14 days behind — run `systemctl --user start gtex62-github-traffic.service` now, then check `systemctl --user status gtex62-github-traffic.timer` (timer not firing) and `gh auth status` (fetches failing — an `ERROR` in the same cell). The API keeps only a rolling 14-day window, so older data is lost" | `GITHUB REFRESH` |
+| MEDIA | `DEGRADED` | `local_dir` unreachable | "local_dir unreachable — check NAS mount" | `MEDIA LOCAL DIR UNREACHABLE` |
+| MEDIA | `OPTIONAL` | `genius_token` unset | Config-completeness, not WARN — informational only ("Genius API not configured — optional") | `MEDIA GENIUS NOT CONFIGURED` |
+| MODEM | `ERROR` | password not configured | "Set `[credentials].password` in the modem profile TOML (not `CHANGE_ME`)" | `MODEM PASSWORD NOT SET` |
+| MODEM | `DEGRADED` | note starts "modem unreachable" | "Check pfSense NAT path to 192.168.100.1 (modem admin UI)" | `MODEM UNREACHABLE` |
+| MODEM | `DEGRADED` | note starts "modem auth failed" | "Check modem credentials in `[credentials].password`" | `MODEM AUTH FAILED` |
+| MODEM | `DEGRADED` | note mentions "header mapping incomplete", "not found", or "has no rows" | "Modem admin UI layout may have changed — check the channel-table note in MODEM's status" — fixed at the source 2026-09-17, the last of MODEM's three silent gaps; triggers on either channel table (`usTable`/`d31dsTable`) coming back empty, distinct from the two conditions above and from a merely-missing `connectivity_state` row (still not elevated — a present-but-empty row is different from a present-but-bad value) | `MODEM HEADER MAPPING` |
+| MODEM | `DEGRADED` | note starts "modem not registered with Comcast" | "Modem not registered with Comcast (`<connectivity_state.status>`) — check DOCSIS sync, not the scraper" — fixed at the source 2026-09-17 (`fetch_modem.py` now elevates `state` itself); SitRep's own DOCSIS header line treats this field as the primary modem-health signal | `MODEM CONN DEGRADED` |
+| MODEM | `DEGRADED` | note starts "no locked upstream channels" | "Modem has no locked upstream channels — check DOCSIS upstream sync" — fixed at the source 2026-09-17; SitRep's own US AVG power average used to silently render this as a plausible `0.0` before the fix | `MODEM NO UPSTREAM LOCK` |
+| MTR | `ERROR` | no `ssh_target` configured | "Set `ssh_target` in the mtr profile TOML" | `MTR NO SSH TARGET` |
+| MTR | `DEGRADED` | SSH gate tripped | "Check SSH alias / sshpass credentials for MTR (Pi5)" | `MTR SSH GATE` |
+| MTR | *(IDLE, not a NOTE)* | `running:false`, trigger inactive | No action — this is idle, not a problem; don't render a WARN for it | *(none)* |
+| MTR | *(RUNNING, not a NOTE)* | `running:true`, overnight capture in progress | No action — the capture is doing its job in response to a real condition; the trigger already fired as designed. The gateway-offline problem itself is surfaced by ALERTS' row and DCM's active state, so MTR doesn't duplicate it | *(none)* |
+| NET | `MISSING` | profile TOML missing or lacks `[cache] ttl_sec` (`state` stays `"ok"`) | "NET profile TOML missing or has no `[cache] ttl_sec` — VLAN/ping meters are running at the 60s fallback cadence, not 1s. Rerun bootstrap if the file is absent; if it exists, add `[cache] ttl_sec` by hand. Then restart the suite." — the canonical, already-documented instance of the TTL-fallback collision (see Provider Table — Layout above). Bootstrap skips a profile that already exists, and `--force` overwrites the whole file, discarding local edits; the launcher reads TTLs once at startup, so the restart is required either way (see `NET FALLBACK TTL`) | `NET FALLBACK TTL` |
+| NET | `STALE` | Missing/not refreshing at all | "NET provider isn't running — check `refresh_loop` is alive" | `NET NOT RUNNING` |
+| NETWORK | `DEGRADED` | note starts "null field(s):" | "NIC detection or public-IP lookup failing — check `primary_interface` config and outbound connectivity" — fixed at the source 2026-09-17; the note names exactly which of `wan_ip`/`dns`/`gateway` came back empty (one, two, or all three) | `NETWORK NULL FIELDS` |
+| ORB | `MISSING` | TTL reads 60s, can't confirm real vs. fallback | "ORB profile TOML missing or has no `[cache] ttl_sec` — cannot confirm the 60s TTL is configured, not a fallback. Rerun bootstrap if the file is absent; if it exists, add `[cache] ttl_sec` by hand. Then restart the suite." (real TTL and fallback value coincide at 60s, so this genuinely cannot be told apart without the flag — matches the previz's own ORB row). Bootstrap skips a profile that already exists, and `--force` overwrites the whole file, discarding local edits; the launcher reads TTLs once at startup, so the restart is required either way (see `ORB FALLBACK TTL`) | `ORB FALLBACK TTL` |
+| PFSENSE | `ERROR` | no `ssh_target` configured | "Set `ssh_target` in the pfsense profile TOML" | `PFSENSE NO SSH TARGET` |
+| PFSENSE | `DEGRADED` | SSH gate tripped/failed | "Check SSH alias / sshpass credentials" (shared wording with AP/MTR's own gates) | `PFSENSE SSH GATE` |
+| PFSENSE | `STALE` | Any one *enabled* sub-cache stale (worst-state-wins on the single row; sub-caches whose flag is off are excluded, and WARN overrides HYBRID) | Name the specific sub-cache (status/router/pfblockerng/ifaces/arp/leases) in DCM's entry, not just "PFSENSE" — a single `degraded`/`STALE` can originate from any one of six independently-gated fetches. Pi-hole is not one of them — see the PIHOLE rows | `PFSENSE SUBCACHE STALE` |
+| PFSENSE | *(HYBRID, not a NOTE)* | 1-3 of the four `[providers.pfsense]` sub-flags enabled, every enabled sub-cache fresh | No action — informational, not a problem; don't render a WARN for it. Same treatment as MTR's IDLE row. Text is a template, not a static line: "pfSense is in hybrid mode using N of 4 sub-flags", where N is the number of `[providers.pfsense]` sub-flags enabled at read time (1-3 in this state; the 4 is the fixed flag count). All four flags off is DISABLED (footer pointer only), not this row | *(none)* |
+| PIHOLE | `ERROR` | no `ssh_target` configured (`fetch_pihole.sh`: "no ssh_target configured") | "Set `ssh_target` in the `[pihole]` section of the pfsense profile TOML, or `[pihole] ssh_target` in `site.toml`" | `PIHOLE NO SSH TARGET` |
+| PIHOLE | `DEGRADED` | SSH gate tripped ("ssh gate tripped") or SSH call failed ("ssh failed") | "Check SSH alias / sshpass credentials for PIHOLE (Pi5)" — never "check PFSENSE row"; PIHOLE's gate (`runtime/pihole`) and cache are independent of pfSense's, same self-containment as AP/MTR | `PIHOLE SSH GATE` |
+| SOLAR | `WAITING` | `state:"waiting"` | "SOLAR is waiting on the WEATHER cache — check the WEATHER row, not SOLAR's own config" — defer entirely, don't render SOLAR-specific remediation. The fully-verified category-4 example (`fetch_solar.sh` polls up to 20s for weather's cache, writes explicit `state:"waiting"` if it never appears) | `SOLAR WAITING` |
+| SYSTEM | `STALE` | Missing/stale at 1s TTL | "SYSTEM provider isn't running — check `refresh_loop` is alive" | `SYSTEM NOT RUNNING` |
+| TIME | `STALE` | Missing/stale at 1s TTL | "TIME provider isn't running — check `refresh_loop` is alive" | `TIME NOT RUNNING` |
+| VPN | `ERROR` | "piactl not found" | "PIA client not installed or not on PATH" | `VPN PIACTL MISSING` |
+| VPN | `DEGRADED` | note mentions "sudo wg dump failed" or "wg not found", `connectionstate:"Connected"` | "WireGuard stats unavailable — check `/etc/sudoers.d/gtex62-core-vpn`" (or confirm the `wg` binary is installed, per which note text matches) — fixed at the source 2026-09-17, the last of the ten silent gaps closed this pass. Gated on `connectionstate == "Connected"`, not on `health == "DEAD"` directly, so an ordinary voluntary disconnect (which also drives `health` to `"DEAD"`) doesn't get misread as a fetch failure. | `VPN WG STATS DEGRADED` |
+| VPN | `DEGRADED` | note starts "tunnel ping failing" | "VPN tunnel ping failing — check tunnel interface routing (transient, or `1.1.1.1` unreachable through the tunnel)" — fixed at the source 2026-09-17 (`fetch_vpn.sh` now elevates `state` itself); a separate failure mode from the sudoers case above, which is deliberately left as-is since `health` already catches it | `VPN TUNNEL PING DEGRADED` |
+| WEATHER | `ERROR` | missing credentials/coordinates | "Set API key and `[location] lat`/`lon` in the weather profile" | `WEATHER CONFIG MISSING` |
+| WEATHER | `DEGRADED` | one of current/forecast failing | "`<FIELD>` fetch failing for WEATHER; serving cached data from `<last_ok>`" (same pattern as AVIATION) | `WEATHER DEGRADED` |
+| WEATHER | `ERROR` | no cache yet | "Check OpenWeather API reachability for WEATHER" | `WEATHER NO CACHE` |
 
 ---
 
@@ -882,8 +905,10 @@ trustworthy on its own — zero exceptions, zero domain-specific reads needed.
   duration group, DCM excludes it as too close to the flicker zone, and whether its blank
   AGE is deliberate or a gap has never been confirmed. Independent of DCM, which simply
   inherits the answer.
-- **DCM active-state details — three things undefined.** (1) What a PROC line contains
-  (a pointer to the remediation procedure, or something else). (2) Ordering and overflow
+- **DCM active-state details — two things undefined.** ~~(1) What a PROC line contains~~ —
+  **resolved:** a PROC line names a procedure in the QRH (`doctor-qrh.md`) by its exact
+  title, e.g. `PROC: NET FALLBACK TTL`; the PROC column in Actions / Remediation maps every
+  row. (2) Ordering and overflow
   when many entries are active at once. (3) Whether a config-completeness alert with no
   row NOTE (e.g. `TZ NOT SET (UNUSED)`) raises an entry, since the takeover trigger is
   "an actionable NOTE present."

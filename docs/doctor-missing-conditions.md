@@ -486,7 +486,9 @@ Missing-condition categories, as confirmed by this pass:
     `fetch_doctor.sh` to independently check `profiles/net/<profile>.toml`'s existence
     and `[cache] ttl_sec` presence, not just read NET's own `state`/age. Remediation:
     "NET profile TOML missing or has no `[cache] ttl_sec` — VLAN/ping meters are running
-    at the 60s fallback cadence, not 1s. Run bootstrap."
+    at the 60s fallback cadence, not 1s. Rerun bootstrap if the file is absent; if it
+    exists, add `[cache] ttl_sec` by hand. Then restart the suite." (Bootstrap skips a
+    profile that already exists; the launcher reads TTLs once at startup.)
 
 ### NETWORK
 - **Resolved — not "varies," a concrete 5s default confirmed live.** `fetch_network.sh`

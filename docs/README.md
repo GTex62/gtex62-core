@@ -62,6 +62,7 @@ same rationale as the SitRep docs above.
 
 - [Doctor Design](doctor-design.md) — suite Doctor vs. core Doctor distinction, state vocabulary, reference implementations (tech-hud, tri-hud)
 - [Doctor Missing Conditions](doctor-missing-conditions.md) — per-provider MISSING (and other non-OK NOTE tag) semantics, verified against real provider scripts
+- [Doctor QRH](../../gtex62-doctor/docs/doctor-qrh.md) — full remediation procedures behind DCM's `PROC:` lines, one per condition (lives in the `gtex62-doctor` repo, beside the suite that renders it)
 
 ## Incident Logs
 
