@@ -66,6 +66,18 @@ Two columns disagreeing about the same row (AGE showing stale while STATE still 
 defeats the point of scanning STATE as the fast path. The one exception is GITHUB, whose
 STATE is hardcoded PRIVATE (see the table).
 
+**STATE's inputs — and what it never reads.** STATE derives from two things: freshness (AGE
+against TTL) and the provider's own reported non-ok state (`error`/`degraded`/`partial`/
+`waiting` — MODEM's WARN / DEGRADED row in the errors previz reads WARN with AGE under TTL).
+It takes no input from a Doctor-derived NOTE flag: `MISSING` (the TTL-fallback flag) and
+`REFRESH` are raised independently and never move STATE. So a NOMINAL row carrying a
+highlighted `MISSING` NOTE is a valid, expected combination, not a contradiction — ORB or
+ASTRO on the fallback, where the real TTL and the fallback are both 60s and AGE stays under
+TTL. It is the same STATE/NOTE divergence GITHUB already has, and the row highlights off the
+NOTE alone (see Highlight rule). The rule above protects against AGE and STATE disagreeing;
+it does not require STATE to mirror a NOTE. NET's fallback row reads WARN in the errors
+previz only because its AGE (47) exceeds the TTL cell's 1, not because of the flag.
+
 **OPTIONAL is narrower than it first looked.** It does not mean "provider toggle is off" —
 that's DISABLED. AP/PFSENSE being off should show DISABLED like VPN, not OPTIONAL.
 OPTIONAL is reserved for a domain that's genuinely present and functioning but not a
@@ -125,9 +137,12 @@ an actionable NOTE present — is DCM's takeover trigger (see DCM — Digital Co
 
 **Why NOTE, not STATE.** For freshness-derived domains WARN and a populated NOTE always
 co-occur, which made this look like a STATE-level rule ("highlight when STATE is WARN").
-For every domain except GITHUB the two wordings behave identically. GITHUB is the case
-that needs the distinction: its STATE is permanently PRIVATE, never WARN, yet it can carry
-a real, time-sensitive NOTE (`REFRESH`) that must highlight independently of STATE.
+For every domain except GITHUB and the TTL-fallback `MISSING` case (see "STATE's inputs")
+the two wordings behave identically. GITHUB is the case that needs the distinction: its
+STATE is permanently PRIVATE, never WARN, yet it can carry a real, time-sensitive NOTE
+(`REFRESH`) that must highlight independently of STATE. The fallback flag on ORB or ASTRO is
+the narrower second instance: STATE reads NOMINAL from AGE against TTL while `MISSING`
+highlights the row.
 
 **Deliberate reversal — don't flip this back without reading why.** An earlier draft did
 the opposite: DISABLED and PRIVATE were highlighted and WARN was not. It was reversed on
@@ -418,7 +433,8 @@ duplicating each other:
   `MISSING` are Doctor-derived, not read from any provider's own state (`STALE` = age
   past TTL with the provider still claiming `state:"ok"`; `MISSING` = the TTL-fallback
   collision flag — see Provider Table — Layout — a row can show `MISSING` even when AGE
-  is well under TTL, exactly ORB's case in the previz). `REFRESH` is GITHUB-only and
+  is well under TTL, exactly ORB's and ASTRO's case, where the real TTL and the fallback are
+  both 60s; no previz frame draws that case — see Open Questions). `REFRESH` is GITHUB-only and
   Doctor-derived too, not mirrored from any GitHub-side JSON state (the fetch script has
   no concept of it). It fires once the age of GITHUB's last successful fetch crosses 10
   days — a 4-day buffer before the real 14-day cliff — independent of the current run's
@@ -828,7 +844,7 @@ trustworthy on its own — zero exceptions, zero domain-specific reads needed.
 | NET | `MISSING` | profile TOML missing or lacks `[cache] ttl_sec` (`state` stays `"ok"`) | "NET profile TOML missing or has no `[cache] ttl_sec` — VLAN/ping meters are running at the 60s fallback cadence, not 1s. Rerun bootstrap if the file is absent; if it exists, add `[cache] ttl_sec` by hand. Then restart the suite." — the canonical, already-documented instance of the TTL-fallback collision (see Provider Table — Layout above). Bootstrap skips a profile that already exists, and `--force` overwrites the whole file, discarding local edits; the launcher reads TTLs once at startup, so the restart is required either way (see `NET FALLBACK TTL`) | `NET FALLBACK TTL` |
 | NET | `STALE` | Missing/not refreshing at all | "NET provider isn't running — check `refresh_loop` is alive" | `NET NOT RUNNING` |
 | NETWORK | `DEGRADED` | note starts "null field(s):" | "NIC detection or public-IP lookup failing — check `primary_interface` config and outbound connectivity" — fixed at the source 2026-09-17; the note names exactly which of `wan_ip`/`dns`/`gateway` came back empty (one, two, or all three) | `NETWORK NULL FIELDS` |
-| ORB | `MISSING` | TTL reads 60s, can't confirm real vs. fallback | "ORB profile TOML missing or has no `[cache] ttl_sec` — cannot confirm the 60s TTL is configured, not a fallback. Rerun bootstrap if the file is absent; if it exists, add `[cache] ttl_sec` by hand. Then restart the suite." (real TTL and fallback value coincide at 60s, so this genuinely cannot be told apart without the flag — matches the previz's own ORB row). Bootstrap skips a profile that already exists, and `--force` overwrites the whole file, discarding local edits; the launcher reads TTLs once at startup, so the restart is required either way (see `ORB FALLBACK TTL`) | `ORB FALLBACK TTL` |
+| ORB | `MISSING` | TTL reads 60s, can't confirm real vs. fallback | "ORB profile TOML missing or has no `[cache] ttl_sec` — cannot confirm the 60s TTL is configured, not a fallback. Rerun bootstrap if the file is absent; if it exists, add `[cache] ttl_sec` by hand. Then restart the suite." (real TTL and fallback value coincide at 60s, so this genuinely cannot be told apart without the flag; AGE sits under TTL either way, and no previz frame draws this row — the errors frame illustrates `MISSING` on NET, where AGE exceeds TTL). Bootstrap skips a profile that already exists, and `--force` overwrites the whole file, discarding local edits; the launcher reads TTLs once at startup, so the restart is required either way (see `ORB FALLBACK TTL`) | `ORB FALLBACK TTL` |
 | PFSENSE | `ERROR` | no `ssh_target` configured | "Set `ssh_target` in the pfsense profile TOML" | `PFSENSE NO SSH TARGET` |
 | PFSENSE | `DEGRADED` | SSH gate tripped/failed | "Check SSH alias / sshpass credentials" (shared wording with AP/MTR's own gates) | `PFSENSE SSH GATE` |
 | PFSENSE | `STALE` | Any one *enabled* sub-cache stale (worst-state-wins on the single row; sub-caches whose flag is off are excluded, and WARN overrides HYBRID) | Name the specific sub-cache (status/router/pfblockerng/ifaces/arp/leases) in DCM's entry, not just "PFSENSE" — a single `degraded`/`STALE` can originate from any one of six independently-gated fetches. Pi-hole is not one of them — see the PIHOLE rows | `PFSENSE SUBCACHE STALE` |
@@ -905,6 +921,16 @@ trustworthy on its own — zero exceptions, zero domain-specific reads needed.
   duration group, DCM excludes it as too close to the flicker zone, and whether its blank
   AGE is deliberate or a gap has never been confirmed. Independent of DCM, which simply
   inherits the answer.
+- **The TTL-fallback flag has no concrete spec — open, narrowed.** The behavior is settled: Doctor
+  derives `MISSING` for NET, ORB and ASTRO by checking each profile's existence and cache-TTL
+  key directly, never from AGE/TTL (`doctor-missing-conditions.md`, NET and ORB entries), and
+  STATE stays derived independently of it (see "STATE's inputs"). What is not specified
+  anywhere is the flag itself: whether `doctor.json` needs a dedicated real-vs-fallback field,
+  what it is called, and where that is specified. The name is also unsettled — the scaffold
+  plan's `fetch_doctor.sh` writes `shared/doctor/{profile}/status.json`, not `doctor.json`. A
+  related unknown: which TTL a flagged row reports, since NET's previz row shows the intended
+  1, which is what makes its AGE of 47 read WARN. `providers/doctor/` does not exist yet, so
+  there is nothing to check this against.
 - **DCM active-state details — two things undefined.** ~~(1) What a PROC line contains~~ —
   **resolved:** a PROC line names a procedure in the QRH (`doctor-qrh.md`) by its exact
   title, e.g. `PROC: NET FALLBACK TTL`; the PROC column in Actions / Remediation maps every
@@ -955,7 +981,10 @@ Core-side:
   `providers/alerts/fetch_alerts.sh`: reads every other domain's cache file/mtime, checks
   enable state (`core.toml [providers]` flag, or a profile-gated domain's own
   `state:"disabled"` — see Disabled Domains), surfaces any `degraded`/`state` field a provider
-  already exposes (aviation's pattern). Writes `shared/doctor/{profile}/status.json`.
+  already exposes (aviation's pattern), and derives the TTL-fallback flag for NET, ORB and
+  ASTRO by checking each profile's existence and cache-TTL key directly, not from AGE/TTL
+  (see Provider Table — Layout; its schema is an open question). Writes
+  `shared/doctor/{profile}/status.json`.
 - `examples/runtime/suites/doctor.toml.example` — `required` list closer to the full
   provider list than a curated subset (including `pihole`, which the launcher now
   suite-gates like vpn/ap/modem/alerts/mtr), since Doctor's entire purpose is reporting on all
