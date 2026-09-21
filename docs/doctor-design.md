@@ -68,15 +68,16 @@ STATE is hardcoded PRIVATE (see the table).
 
 **STATE's inputs — and what it never reads.** STATE derives from two things: freshness (AGE
 against TTL) and the provider's own reported non-ok state (`error`/`degraded`/`partial`/
-`waiting` — MODEM's WARN / DEGRADED row in the errors previz reads WARN with AGE under TTL).
+`waiting` — a MODEM row whose provider reports `degraded` reads WARN even with AGE under TTL).
 It takes no input from a Doctor-derived NOTE flag: `MISSING` (the TTL-fallback flag) and
 `REFRESH` are raised independently and never move STATE. So a NOMINAL row carrying a
 highlighted `MISSING` NOTE is a valid, expected combination, not a contradiction — ORB or
 ASTRO on the fallback, where the real TTL and the fallback are both 60s and AGE stays under
 TTL. It is the same STATE/NOTE divergence GITHUB already has, and the row highlights off the
 NOTE alone (see Highlight rule). The rule above protects against AGE and STATE disagreeing;
-it does not require STATE to mirror a NOTE. NET's fallback row reads WARN in the errors
-previz only because its AGE (47) exceeds the TTL cell's 1, not because of the flag.
+it does not require STATE to mirror a NOTE. NET on the fallback reads WARN for a different
+reason: its AGE, climbing toward 60, exceeds the 1s TTL the row reports — not the flag (which
+TTL a flagged row reports is an open question).
 
 **OPTIONAL is narrower than it first looked.** It does not mean "provider toggle is off" —
 that's DISABLED. AP/PFSENSE being off should show DISABLED like VPN, not OPTIONAL.
@@ -119,8 +120,7 @@ sub-flag's leftover cache file must not drag the row to WARN.
 Row highlight (see the STATE table above) marks **triggered/transient conditions only,
 never category, and it is keyed on the NOTE column, not on STATE.** A row is highlighted
 whenever its NOTE cell carries an actionable tag, regardless of what STATE shows — a
-highlight represents an event, not a resting condition. Confirmed against three previz
-frames (errors, normal, shipped), all consistent with this rule. The same condition —
+highlight represents an event, not a resting condition. The same condition —
 an actionable NOTE present — is DCM's takeover trigger (see DCM — Digital Core Monitor).
 
 - **Highlighted: any row whose NOTE carries an actionable tag** (`ERROR`, `DEGRADED`,
@@ -182,8 +182,8 @@ itself switches representation depending on the domain's TTL:
   can appear.** Blank (or near-zero) describes NET refreshing at its real 1s TTL. When the
   TTL-fallback condition holds (see TTL-fallback collision, below) NET is no longer
   refreshing at 1s but roughly every 60s, so its AGE no longer flickers between 0 and 1 —
-  it becomes a populated value that climbs toward 60 before each refresh resets it, as on
-  the flagged NET row in the errors previz (AGE 47). Two different operating states, one
+  it becomes a populated value that climbs toward 60 before each refresh resets it (an AGE
+  of 47, say). Two different operating states, one
   column; the climbing AGE is how the fallback is confirmed when the TTL cell still reads
   `1` (see `NET FALLBACK TTL` in `doctor-qrh.md`).
   **Implementation constraint:** NET's blank AGE must be conditional on the fallback flag
@@ -287,7 +287,7 @@ profile TOMLs:
 ## Disabled Domains
 
 **Settled: inline, not pulled out.** Originally planned as a separate section below the
-table; the previz instead shows disabled domains (e.g. VPN) inline, alphabetically in
+table; instead disabled domains (e.g. VPN) appear inline, alphabetically in
 place, STATE = DISABLED unhighlighted (see State Vocabulary — Highlight rule), TTL still shown for reference. Simpler
 to scan as one continuous alphabetical list than splitting attention between a table and
 a separate call-out.
@@ -359,6 +359,15 @@ flag names alone:**
   `profiles/mtr/pi5.toml.example` (added 2026-09-19 — previously no MTR profile example
   shipped at all, and `fetch_mtr.sh` treats a missing profile file as disabled, so a fresh
   bootstrap could not enable MTR from `core.toml` alone) ships `enabled = false`.
+- **MEDIA** ships disabled: `media = false` in `core.toml.example`, matching the launcher's own
+  `MEDIA_ENABLED="${MEDIA_ENABLED:-false}"` fallback. It is gated by that flag alone — its config is
+  global (`site.toml [media.lyrics]`), not a profile TOML. The reason, per
+  `media-event-driven-design.md`: once a player runs, each track triggers online lookups
+  (lrclib, lyrics.ovh) that send listening metadata to third parties, and a hit writes a file
+  into the real NAS lyrics library. That holds regardless of polling or events, so neither the
+  idle fast-path already shipped nor the event-driven redesign changes the default. Polling
+  cost is not the reason: that doc measures polling and finds its main cost while a track
+  plays, not idle.
 - **SYSTEM** ships enabled: `profiles/system/local.toml.example` (also added 2026-09-19,
   previously missing) has `enabled = true` — universal infrastructure, needed by every
   suite. Absence was harmless (`fetch_system.sh` only honors `enabled` when the profile
@@ -434,7 +443,7 @@ duplicating each other:
   past TTL with the provider still claiming `state:"ok"`; `MISSING` = the TTL-fallback
   collision flag — see Provider Table — Layout — a row can show `MISSING` even when AGE
   is well under TTL, exactly ORB's and ASTRO's case, where the real TTL and the fallback are
-  both 60s; no previz frame draws that case — see Open Questions). `REFRESH` is GITHUB-only and
+  both 60s; see "STATE's inputs"). `REFRESH` is GITHUB-only and
   Doctor-derived too, not mirrored from any GitHub-side JSON state (the fetch script has
   no concept of it). It fires once the age of GITHUB's last successful fetch crosses 10
   days — a 4-day buffer before the real 14-day cliff — independent of the current run's
@@ -564,13 +573,13 @@ condition 2 removes four:
 There is no fixed numeric cutoff beyond that observed boundary: 5s is confirmed too close,
 and the smallest eligible launcher default is VPN's 10s.
 
-**Final eligible set, confirmed via previz — eleven domains:** AIR, ALERTS, AP, ASTRO,
+**Final eligible set — eleven domains:** AIR, ALERTS, AP, ASTRO,
 AVIATION, MODEM, ORB, PIHOLE, SOLAR, VPN, WEATHER. Any future provider is admitted or
 excluded by the rule above with no edit here; a polling provider in the 30-60s range that
 `airgradient-provider-design.md` proposes for AirGradient would qualify automatically.
 
 NETWORK's exclusion inherits whatever the PROVIDERS table's eventual answer is for its AGE,
-which has been blank in every PROVIDERS previz reviewed — the one unresolved AGE-blank
+which the design treats as blank — the one unresolved AGE-blank
 case (see Open Questions), independent of DCM. NET, SYSTEM and TIME are blank by the 1s
 reasoning above and are not part of that question.
 
@@ -584,17 +593,17 @@ whose STATE is not DISABLED.
 
 The row's width is therefore itself informational — fewer gauges means more eligible
 domains are disabled. Only eligible domains count toward it: of the eleven, four (AP,
-MODEM, PIHOLE, VPN) are DISABLED in the shipped-defaults previz frame, leaving seven
-gauges — confirmed against that frame. MTR's, PFSENSE's and MEDIA's DISABLED rows in the
-same frame are excluded from the count entirely, since they were never gauge-eligible to
-begin with.
+MODEM, PIHOLE, VPN) are DISABLED under the shipped defaults, leaving seven gauges. MTR,
+PFSENSE and MEDIA are DISABLED under the shipped defaults too (`core.toml.example` sets
+`mtr = false`, all four `[providers.pfsense]` sub-flags false, and `media = false` — see
+Disabled Domains for why MEDIA ships off), but none was ever gauge-eligible, so their DISABLED
+rows are excluded from the count entirely.
 
 ### Layout
 
 Gauges are equally spaced across whatever is present, **re-flowing to fill the full panel
-width** — not fixed positional slots with gaps left for absent domains. Confirmed by direct
-previz comparison: two draft layouts side by side, and the re-flowed version, matching the
-PROVIDERS table's own row set, was clearly correct.
+width** — not fixed positional slots with gaps left for absent domains. Re-flowing keeps the gauge
+row matching the PROVIDERS table's own row set.
 
 For the real build, spacing is computed across the full panel width *including the panel
 edges themselves*, not merely evenly between the first and last visible gauge. Otherwise a
@@ -606,8 +615,9 @@ middle with dead margin on both sides rather than genuinely filling the panel.
 Codes are three letters, using a standard abbreviation where one already exists (AVN for
 AVIATION) rather than an arbitrary truncation. **Two codes are deliberately shorter than
 three letters: AP and WX.** Both are already unambiguous on their own — they are not
-truncations — and read cleanly alongside the three-letter codes in previz without looking
-like an inconsistency. The panel's legend states this explicitly so it reads as a
+truncations. The design assumes they will also read cleanly alongside the three-letter
+codes without looking like an inconsistency; that is unconfirmed (see Open Questions) until
+the actual DCM panel is built. The panel's legend states this explicitly so it reads as a
 deliberate exception, not a gap.
 
 | Code | Domain | Note |
@@ -643,12 +653,13 @@ for it — it is flagged here as a known future possibility only.
 
 ### Gauge-row capacity
 
-The current design fits comfortably beyond the eleven eligible: an earlier full-panel
-previz rendered all fifteen candidate domains (before the eligibility exclusions were
-finalized) legibly with two-letter codes at that count. No overflow or widening logic is
-needed now. If a future addition ever pushes the eligible, enabled count meaningfully past
-fifteen, that is a threshold to revisit then, not something to design against
-speculatively today.
+**Unconfirmed design assumption — see Open Questions.** The design assumes the gauge row
+fits comfortably beyond the eleven eligible domains, legibly with two-letter codes, up to the
+fifteen candidates that existed before the eligibility exclusions were finalized. That was
+never verified in text; check it once the actual DCM panel is built. No overflow or widening
+logic is designed in the meantime. If a future addition ever pushes the eligible, enabled
+count meaningfully past fifteen, that is a threshold to revisit then, not something to design
+against speculatively today.
 
 ### Color
 
@@ -844,7 +855,7 @@ trustworthy on its own — zero exceptions, zero domain-specific reads needed.
 | NET | `MISSING` | profile TOML missing or lacks `[cache] ttl_sec` (`state` stays `"ok"`) | "NET profile TOML missing or has no `[cache] ttl_sec` — VLAN/ping meters are running at the 60s fallback cadence, not 1s. Rerun bootstrap if the file is absent; if it exists, add `[cache] ttl_sec` by hand. Then restart the suite." — the canonical, already-documented instance of the TTL-fallback collision (see Provider Table — Layout above). Bootstrap skips a profile that already exists, and `--force` overwrites the whole file, discarding local edits; the launcher reads TTLs once at startup, so the restart is required either way (see `NET FALLBACK TTL`) | `NET FALLBACK TTL` |
 | NET | `STALE` | Missing/not refreshing at all | "NET provider isn't running — check `refresh_loop` is alive" | `NET NOT RUNNING` |
 | NETWORK | `DEGRADED` | note starts "null field(s):" | "NIC detection or public-IP lookup failing — check `primary_interface` config and outbound connectivity" — fixed at the source 2026-09-17; the note names exactly which of `wan_ip`/`dns`/`gateway` came back empty (one, two, or all three) | `NETWORK NULL FIELDS` |
-| ORB | `MISSING` | TTL reads 60s, can't confirm real vs. fallback | "ORB profile TOML missing or has no `[cache] ttl_sec` — cannot confirm the 60s TTL is configured, not a fallback. Rerun bootstrap if the file is absent; if it exists, add `[cache] ttl_sec` by hand. Then restart the suite." (real TTL and fallback value coincide at 60s, so this genuinely cannot be told apart without the flag; AGE sits under TTL either way, and no previz frame draws this row — the errors frame illustrates `MISSING` on NET, where AGE exceeds TTL). Bootstrap skips a profile that already exists, and `--force` overwrites the whole file, discarding local edits; the launcher reads TTLs once at startup, so the restart is required either way (see `ORB FALLBACK TTL`) | `ORB FALLBACK TTL` |
+| ORB | `MISSING` | TTL reads 60s, can't confirm real vs. fallback | "ORB profile TOML missing or has no `[cache] ttl_sec` — cannot confirm the 60s TTL is configured, not a fallback. Rerun bootstrap if the file is absent; if it exists, add `[cache] ttl_sec` by hand. Then restart the suite." (real TTL and fallback value coincide at 60s, so this genuinely cannot be told apart without the flag; AGE sits under TTL either way, so STATE stays NOMINAL beside the highlighted NOTE — see "STATE's inputs"). Bootstrap skips a profile that already exists, and `--force` overwrites the whole file, discarding local edits; the launcher reads TTLs once at startup, so the restart is required either way (see `ORB FALLBACK TTL`) | `ORB FALLBACK TTL` |
 | PFSENSE | `ERROR` | no `ssh_target` configured | "Set `ssh_target` in the pfsense profile TOML" | `PFSENSE NO SSH TARGET` |
 | PFSENSE | `DEGRADED` | SSH gate tripped/failed | "Check SSH alias / sshpass credentials" (shared wording with AP/MTR's own gates) | `PFSENSE SSH GATE` |
 | PFSENSE | `STALE` | Any one *enabled* sub-cache stale (worst-state-wins on the single row; sub-caches whose flag is off are excluded, and WARN overrides HYBRID) | Name the specific sub-cache (status/router/pfblockerng/ifaces/arp/leases) in DCM's entry, not just "PFSENSE" — a single `degraded`/`STALE` can originate from any one of six independently-gated fetches. Pi-hole is not one of them — see the PIHOLE rows | `PFSENSE SUBCACHE STALE` |
@@ -914,7 +925,7 @@ trustworthy on its own — zero exceptions, zero domain-specific reads needed.
   cache. Read from the code, not reproduced by uninstalling the package. `core-launcher-design.md` already
   lists `requests` (`media`) among the Doctor-only per-domain tool checks, so the fix is
   a dependency check or a graceful failure path in the provider. Not this round.
-- **NETWORK's AGE is blank in every PROVIDERS previz reviewed — permanent by design, or a
+- **NETWORK's AGE is treated as blank — permanent by design, or a
   gap?** The sole unresolved case among the blank AGEs. NET, SYSTEM and TIME are blank
   by the 1s fast-track reasoning in the AGE column section and are not part of this
   question. NETWORK (5s TTL) sits just above that line: the AGE column lists it in the
@@ -928,8 +939,9 @@ trustworthy on its own — zero exceptions, zero domain-specific reads needed.
   anywhere is the flag itself: whether `doctor.json` needs a dedicated real-vs-fallback field,
   what it is called, and where that is specified. The name is also unsettled — the scaffold
   plan's `fetch_doctor.sh` writes `shared/doctor/{profile}/status.json`, not `doctor.json`. A
-  related unknown: which TTL a flagged row reports, since NET's previz row shows the intended
-  1, which is what makes its AGE of 47 read WARN. `providers/doctor/` does not exist yet, so
+  related unknown: which TTL a flagged row reports — the intended one (NET's 1s) or the effective
+  fallback (60s). It decides NET's STATE: against 1s the fallback's climbing AGE reads WARN;
+  against 60s it would read NOMINAL beside `MISSING`, like ORB and ASTRO. `providers/doctor/` does not exist yet, so
   there is nothing to check this against.
 - **DCM active-state details — two things undefined.** ~~(1) What a PROC line contains~~ —
   **resolved:** a PROC line names a procedure in the QRH (`doctor-qrh.md`) by its exact
@@ -938,7 +950,15 @@ trustworthy on its own — zero exceptions, zero domain-specific reads needed.
   when many entries are active at once. (3) Whether a config-completeness alert with no
   row NOTE (e.g. `TZ NOT SET (UNUSED)`) raises an entry, since the takeover trigger is
   "an actionable NOTE present."
-- **Panels beyond the PROVIDERS table** — providers previz is settled (alphabetical,
+- **DCM gauge-row capacity — unconfirmed.** Whether the gauge row fits fifteen domains
+  legibly with two-letter codes (and so whether any overflow or widening logic is ever
+  needed) has no source in text: it was an assumption, never independently checked. Verify it
+  against the real panel once it exists; until then, do not treat fifteen as an established
+  limit.
+- **AP / WX two-letter codes — unconfirmed.** The design assumes AP and WX read cleanly beside
+  the three-letter codes and do not look like an inconsistency. That was never verified in
+  text; confirm it against the real panel once it is built.
+- **Panels beyond the PROVIDERS table** — the provider table's layout is settled (alphabetical,
   flat, DCM in the left column — see DCM). Still to sketch: config-completeness detail,
   media detail, and whatever else groups outside the provider table itself.
 - **`gtex62-clean-suite-e`'s VLAN-flow widget has the same shape of bug the vpn/ap/
