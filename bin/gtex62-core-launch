@@ -165,6 +165,18 @@ fi
 if [[ "$PIHOLE_ENABLED" == "true" ]] && ! suite_has_domain "$SUITE_TOML" "pihole"; then
   PIHOLE_ENABLED="false"
 fi
+# Doctor health provider (providers/doctor/fetch_doctor.sh). The
+# [doctor] enabled toggle predates the implementation — it sat in
+# core.toml as an inert placeholder until fetch_doctor.sh existed and is
+# load-bearing now, same pattern as the vpn/ap/modem/alerts flip before
+# SitRep. Scoped to suites that declare "doctor" in [domains] (only
+# gtex62-doctor), so no other suite starts a health-reporting loop it
+# has no consumer for.
+DOCTOR_ENABLED="$(parse_toml_section_value "$CORE_TOML" doctor enabled || true)"
+DOCTOR_ENABLED="${DOCTOR_ENABLED:-false}"
+if [[ "$DOCTOR_ENABLED" == "true" ]] && ! suite_has_domain "$SUITE_TOML" "doctor"; then
+  DOCTOR_ENABLED="false"
+fi
 # Lyrics library provider (providers/media/fetch_lyrics.sh). See
 # docs/lyrics-library-design.md. local_dir/config is global (site.toml
 # [media.lyrics]), not per-profile — MEDIA_PROFILE below only scopes the
@@ -192,6 +204,7 @@ MODEM_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles modem || true)"
 ALERTS_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles alerts || true)"
 MTR_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles mtr || true)"
 MEDIA_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles media || true)"
+DOCTOR_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles doctor || true)"
 WEATHER_PROFILE="${WEATHER_PROFILE:-home}"
 AIR_PROFILE="${AIR_PROFILE:-home}"
 SOLAR_PROFILE="${SOLAR_PROFILE:-home}"
@@ -211,6 +224,7 @@ MODEM_PROFILE="${MODEM_PROFILE:-local}"
 ALERTS_PROFILE="${ALERTS_PROFILE:-main_router}"
 MTR_PROFILE="${MTR_PROFILE:-pi5}"
 MEDIA_PROFILE="${MEDIA_PROFILE:-local}"
+DOCTOR_PROFILE="${DOCTOR_PROFILE:-local}"
 
 WEATHER_PROFILE_TOML="$CONFIG_ROOT/profiles/weather/${WEATHER_PROFILE}.toml"
 AIR_PROFILE_TOML="$CONFIG_ROOT/profiles/air/${AIR_PROFILE}.toml"
@@ -289,6 +303,13 @@ MTR_TTL="${MTR_TTL:-15}"
 NET_TTL="${NET_TTL:-60}"
 ORB_TTL="${ORB_TTL:-60}"
 MEDIA_TTL="${MEDIA_TTL:-5}"
+# No profiles/doctor/{profile}.toml ships — fetch_doctor.sh is pure
+# computation over already-cached files (same shape as alerts), so this
+# lookup normally falls through to the 5s default; kept as a real lookup so
+# a future profile just works.
+DOCTOR_PROFILE_TOML="$CONFIG_ROOT/profiles/doctor/${DOCTOR_PROFILE}.toml"
+DOCTOR_TTL="$(parse_toml_value "$DOCTOR_PROFILE_TOML" cache_ttl_sec || true)"
+DOCTOR_TTL="${DOCTOR_TTL:-5}"
 AVIATION_TTL="$AVIATION_METAR_TTL"
 if (( AVIATION_TAF_TTL < AVIATION_TTL )); then
   AVIATION_TTL="$AVIATION_TAF_TTL"
@@ -327,6 +348,7 @@ mkdir -p \
   "$CACHE_ROOT/shared/net/$NET_PROFILE" \
   "$CACHE_ROOT/shared/orb/$ORB_PROFILE" \
   "$CACHE_ROOT/shared/media/$MEDIA_PROFILE" \
+  "$CACHE_ROOT/shared/doctor/$DOCTOR_PROFILE" \
   "$LOCKS_DIR" \
   "$PIDS_DIR" \
   "$STAMPS_DIR" \
@@ -356,6 +378,7 @@ MTR_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-mtr-refresh.pid"
 NET_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-net-refresh.pid"
 ORB_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-orb-refresh.pid"
 MEDIA_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-media-refresh.pid"
+DOCTOR_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-doctor-refresh.pid"
 LAUNCHER_PID_FILE="$PIDS_DIR/${SUITE_ID}-launcher.pid"
 WEATHER_STAMP="$STAMPS_DIR/weather-${WEATHER_PROFILE}.stamp"
 AIR_STAMP="$STAMPS_DIR/air-${AIR_PROFILE}.stamp"
@@ -380,6 +403,7 @@ MTR_STAMP="$STAMPS_DIR/mtr-${MTR_PROFILE}.stamp"
 NET_STAMP="$STAMPS_DIR/net-${NET_PROFILE}.stamp"
 ORB_STAMP="$STAMPS_DIR/orb-${ORB_PROFILE}.stamp"
 MEDIA_STAMP="$STAMPS_DIR/media-${MEDIA_PROFILE}.stamp"
+DOCTOR_STAMP="$STAMPS_DIR/doctor-${DOCTOR_PROFILE}.stamp"
 
 echo $$ > "$LAUNCHER_PID_FILE"
 LOOP_PIDS=()
@@ -451,6 +475,7 @@ cleanup_pidfile "$MTR_LOOP_PID_FILE"
 cleanup_pidfile "$NET_LOOP_PID_FILE"
 cleanup_pidfile "$ORB_LOOP_PID_FILE"
 cleanup_pidfile "$MEDIA_LOOP_PID_FILE"
+cleanup_pidfile "$DOCTOR_LOOP_PID_FILE"
 
 run_locked() {
   local name="$1"
@@ -663,6 +688,9 @@ initial_refresh "orb-${ORB_PROFILE}" "$ORB_STAMP" "$CORE_DIR/providers/orb/fetch
 if [[ "$MEDIA_ENABLED" == "true" ]]; then
   initial_refresh "media-${MEDIA_PROFILE}" "$MEDIA_STAMP" "$CORE_DIR/providers/media/fetch_lyrics.sh" "$MEDIA_PROFILE"
 fi
+if [[ "$DOCTOR_ENABLED" == "true" ]]; then
+  initial_refresh "doctor-${DOCTOR_PROFILE}" "$DOCTOR_STAMP" "$CORE_DIR/providers/doctor/fetch_doctor.sh" "$DOCTOR_PROFILE"
+fi
 
 refresh_loop "weather-${WEATHER_PROFILE}" "$WEATHER_TTL" "$WEATHER_STAMP" "$WEATHER_LOOP_PID_FILE" "$CORE_DIR/providers/weather/fetch_openweather.sh" "$WEATHER_PROFILE"
 refresh_loop "air-${AIR_PROFILE}" "$AIR_TTL" "$AIR_STAMP" "$AIR_LOOP_PID_FILE" "$CORE_DIR/providers/air/fetch_air.sh" "$AIR_PROFILE"
@@ -707,6 +735,9 @@ refresh_loop "net-${NET_PROFILE}" "$NET_TTL" "$NET_STAMP" "$NET_LOOP_PID_FILE" "
 refresh_loop "orb-${ORB_PROFILE}" "$ORB_TTL" "$ORB_STAMP" "$ORB_LOOP_PID_FILE" "$CORE_DIR/providers/orb/fetch_orb.sh" "$ORB_PROFILE"
 if [[ "$MEDIA_ENABLED" == "true" ]]; then
   refresh_loop "media-${MEDIA_PROFILE}" "$MEDIA_TTL" "$MEDIA_STAMP" "$MEDIA_LOOP_PID_FILE" "$CORE_DIR/providers/media/fetch_lyrics.sh" "$MEDIA_PROFILE"
+fi
+if [[ "$DOCTOR_ENABLED" == "true" ]]; then
+  refresh_loop "doctor-${DOCTOR_PROFILE}" "$DOCTOR_TTL" "$DOCTOR_STAMP" "$DOCTOR_LOOP_PID_FILE" "$CORE_DIR/providers/doctor/fetch_doctor.sh" "$DOCTOR_PROFILE"
 fi
 
 # Wait for all conky processes; exit when the primary one exits

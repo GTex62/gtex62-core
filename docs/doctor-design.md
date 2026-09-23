@@ -7,11 +7,14 @@ replacing it. Split out as its own repo rather than a shared "suite doctor" patt
 because suites are pure display — they have nothing of their own to diagnose that isn't
 already core state.
 
-**Status (2026-09-19): design only.** `gtex62-doctor` has no commits yet and no
-implementation beyond the scaffold. Everything below — including DCM and the
-config-completeness alerts — specifies what will be built, not behavior that
-exists today. The config-completeness detail is still to be sketched (see Open
-Questions).
+**Status (2026-09-23): provider built, suite content in progress.** The core-side
+provider exists: `providers/doctor/fetch_doctor.sh` writes the `status.json` this doc
+specifies (schema in that script's header comment), and its launcher wiring,
+`[doctor]` toggle and `suites/doctor.toml.example` are in place. The `gtex62-doctor` suite
+has its chassis and launcher; box content (RUNTIME, CONFIG, PROVIDERS, DCM) is being
+built against that schema. DCM and the config-completeness alerts below still specify
+what the suite will render, not behavior that exists today. See Resolved Decisions for
+what the provider pass settled, and Open Questions for what remains.
 
 Reference implementations: `gtex62-tech-hud`'s Doctor script (`TECH HUD DOCTOR`),
 `gtex62-tri-hud`'s Doctor script (`TRI HUD DOCTOR`, built after tech-hud's and closer to
@@ -76,8 +79,10 @@ ASTRO on the fallback, where the real TTL and the fallback are both 60s and AGE 
 TTL. It is the same STATE/NOTE divergence GITHUB already has, and the row highlights off the
 NOTE alone (see Highlight rule). The rule above protects against AGE and STATE disagreeing;
 it does not require STATE to mirror a NOTE. NET on the fallback reads WARN for a different
-reason: its AGE, climbing toward 60, exceeds the 1s TTL the row reports — not the flag (which
-TTL a flagged row reports is an open question).
+reason: its AGE, climbing toward 60, exceeds the 1s TTL the row reports — not the flag. A
+flagged row reports its *intended* `ttl_sec` (NET's 1), never the launcher's effective
+fallback, with `ttl_fallback:true` alongside it; reporting the effective 60s would make NET's
+fallback read NOMINAL and defeat the point of flagging it.
 
 **OPTIONAL is narrower than it first looked.** It does not mean "provider toggle is off" —
 that's DISABLED. AP/PFSENSE being off should show DISABLED like VPN, not OPTIONAL.
@@ -98,8 +103,10 @@ above either. What changes is the *remediation*, not the state: see Config-Compl
 Alerts.
 
 **MTR needs its own word**, not OPTIONAL or DISABLED — it's trigger-armed, not off and not
-merely optional. IDLE / ARMED / RUNNING (or similar) rather than borrowing a state that
-means something else.
+merely optional. Settled: `idle` (`running:false`, trigger inactive), `armed` (trigger active,
+capture not yet confirmed running — transitional) and `running` (overnight capture in
+progress) rather than borrowing a state that means something else. None carries a NOTE or
+highlights a row.
 
 **HYBRID is for domains with multiple independent `core.toml` sub-flags** — written
 generally, not hardcoded to one domain, though PFSENSE is currently its only user: four
@@ -177,7 +184,9 @@ itself switches representation depending on the domain's TTL:
   than a clock-time diff at these scales. **NET, SYSTEM and TIME (1s TTL) show a blank AGE
   by design:** at a 1s TTL the value would only flicker between 0 and 1 on each redraw —
   the same fast-track reasoning that excludes them from DCM's gauges (see Gauge
-  eligibility). NETWORK's blank AGE is a different, still-open case (see Open Questions).
+  eligibility). NETWORK's AGE is **not** blank — settled: it is a real duration (5s TTL, so the value stays
+readable), `fast_track` false. Its DCM gauge exclusion is a separate matter (see Gauge
+eligibility).
   **NET's blank is the normal-operation state, and it is not a contradiction that its AGE
   can appear.** Blank (or near-zero) describes NET refreshing at its real 1s TTL. When the
   TTL-fallback condition holds (see TTL-fallback collision, below) NET is no longer
@@ -240,9 +249,24 @@ the "fast-track meters appear frozen" case `architecture.md`'s Bootstrap Gap sec
 this project's own `CLAUDE.md` already call out by name. ORB and ASTRO have the same
 underlying risk but a far less visible consequence (ORB's real TTL happens to equal the
 60s fallback; ASTRO has no `[cache]` section at all today, same effect). Doctor cannot
-trust a TTL number at face value for any of these three without an explicit flag in
-`doctor.json` distinguishing "profile confirmed present" from "running on fallback" — see
-`doctor-missing-conditions.md` for the full verification.
+trust a TTL number at face value for any of these three without an explicit flag —
+`ttl_fallback` in `status.json` — distinguishing "profile confirmed present" from "running
+on fallback"; see `doctor-missing-conditions.md` for the full verification.
+
+**The flag is general, not NET/ORB/ASTRO only.** `fetch_doctor.sh` evaluates `ttl_fallback`
+for every launcher-loop domain whose profile TOML carries a TTL key: `true` when that key is
+absent from a present file — the shape where the launcher's awk parse returns empty and its
+bash default takes over. Verified against the shipped examples and the live profiles: on this
+host ASTRO, NETWORK and SOLAR are flagged; SYSTEM and TIME are not (their `[cache]
+refresh_sec` is present), and CALENDAR is not (the key it is evaluated on, `[events]
+cache_ttl_sec`, is present). A domain whose fetch script explicitly checks for its profile
+reports a missing *file* as its own `state:"error"`, `note:"missing profile toml"` (PROC:
+PROFILE TOML MISSING) — a different failure mode, never conflated with the flag. Only NET
+and ORB never check, so for them a missing file also sets it. `ttl_fallback` is `null` (not
+evaluated) for ALERTS (no profile ships), AP (TTL in `site.toml [ap]`), MEDIA (`site.toml`),
+CONNECT (on-demand), GITHUB (systemd timer), and PFSENSE's router/pfblockerng/ifaces
+sub-caches (their keys are not in the shipped example either). Domains without a
+procedure of their own use PROC: FALLBACK TTL.
 
 **Media domain detail.** Beyond state/age, media's row is a snapshot of library/config
 state, drawing from fields already defined elsewhere — no new collection needed except
@@ -280,7 +304,11 @@ profile TOMLs:
   the way every other domain does. Its STATE is likewise hardcoded PRIVATE (see State Vocabulary) — one underlying fact,
   that GITHUB is structurally special-cased in Doctor, not two. It also has a NOTE condition no other domain has —
   `REFRESH`, a 14-day data-loss deadline (see NOTE Column) — which PRIVATE STATE does not
-  suppress.
+  suppress. **Special-case handling — settled:** `fetch_doctor.sh` reads GITHUB's own cache
+  directly (`shared/github/{profile}/status.json` and `current.json`) rather than through the
+  launcher/TTL loop, with `ttl_sec` null and `ttl_label` `"TIMER"`. Its NOTEs are raised only
+  where the profile file exists and is enabled, so a fresh install (which ships `enabled =
+  false`) stays silent instead of highlighting `MISSING` forever.
 
 ---
 
@@ -578,10 +606,9 @@ AVIATION, MODEM, ORB, PIHOLE, SOLAR, VPN, WEATHER. Any future provider is admitt
 excluded by the rule above with no edit here; a polling provider in the 30-60s range that
 `airgradient-provider-design.md` proposes for AirGradient would qualify automatically.
 
-NETWORK's exclusion inherits whatever the PROVIDERS table's eventual answer is for its AGE,
-which the design treats as blank — the one unresolved AGE-blank
-case (see Open Questions), independent of DCM. NET, SYSTEM and TIME are blank by the 1s
-reasoning above and are not part of that question.
+NETWORK's exclusion stands on its own: its AGE is a real duration in the PROVIDERS table (see
+the AGE column), but at 5s it is too close to the flicker zone for a gauge. NET, SYSTEM and
+TIME are blank by the 1s reasoning above.
 
 ### Disabled domains get no gauge
 
@@ -684,6 +711,9 @@ NOTE column.
 | Config var present but placeholder (`LAT=`, `LON=-`) | "Edit `<file>`, set `<var>`" |
 | pfSense/AP SSH gate stuck | "Check SSH alias / sshpass credentials" |
 | Domain disabled | No per-domain text — the footer pointer, `TO ENABLE PROVIDERS, SEE README § Provider Toggles` (see Disabled Domains above) |
+| Dual-gated domain enabled in `core.toml`, cache missing/stale, absent from the launching suite's `[domains]` | "`<DOMAIN>` is enabled in `core.toml` but not listed in `[domains]` of `suites/doctor.toml` — add it, or the launcher never starts it." — PROC: `DOMAIN NOT LISTED` |
+| Profile TOML lacks the key the launcher parses its TTL from (any domain without its own row below) | "`<DOMAIN>` profile TOML has no `<key>` — running on the launcher's default cadence, not the configured one." — PROC: `FALLBACK TTL` |
+| Provider reports `error`/`degraded`/`partial`/`waiting` and its `note` matches no known condition | "`<DOMAIN>` reports `<TAG>`: `<note, verbatim>`" — PROC: `UNRECOGNIZED NOTE` (the generic fallback entry, so DCM never has a null PROC) |
 
 **Fifth category — "silent" gaps. Fully historical as of 2026-09-17: zero exceptions
 remain.** This category existed because some domains noticed a partial failure well
@@ -859,6 +889,7 @@ trustworthy on its own — zero exceptions, zero domain-specific reads needed.
 | PFSENSE | `ERROR` | no `ssh_target` configured | "Set `ssh_target` in the pfsense profile TOML" | `PFSENSE NO SSH TARGET` |
 | PFSENSE | `DEGRADED` | SSH gate tripped/failed | "Check SSH alias / sshpass credentials" (shared wording with AP/MTR's own gates) | `PFSENSE SSH GATE` |
 | PFSENSE | `STALE` | Any one *enabled* sub-cache stale (worst-state-wins on the single row; sub-caches whose flag is off are excluded, and WARN overrides HYBRID) | Name the specific sub-cache (status/router/pfblockerng/ifaces/arp/leases) in DCM's entry, not just "PFSENSE" — a single `degraded`/`STALE` can originate from any one of six independently-gated fetches. Pi-hole is not one of them — see the PIHOLE rows | `PFSENSE SUBCACHE STALE` |
+| PFSENSE | `DEGRADED` | An *enabled*, fresh router/pfblockerng/ifaces sub-cache reporting its own non-ok state (independent of the HYBRID rollup; each has its own SSH gate) | Name the sub-cache and its own note, e.g. "`router`: ssh gate tripped" | `PFSENSE SUBCACHE DEGRADED` |
 | PFSENSE | *(HYBRID, not a NOTE)* | 1-3 of the four `[providers.pfsense]` sub-flags enabled, every enabled sub-cache fresh | No action — informational, not a problem; don't render a WARN for it. Same treatment as MTR's IDLE row. Text is a template, not a static line: "pfSense is in hybrid mode using N of 4 sub-flags", where N is the number of `[providers.pfsense]` sub-flags enabled at read time (1-3 in this state; the 4 is the fixed flag count). All four flags off is DISABLED (footer pointer only), not this row | *(none)* |
 | PIHOLE | `ERROR` | no `ssh_target` configured (`fetch_pihole.sh`: "no ssh_target configured") | "Set `ssh_target` in the `[pihole]` section of the pfsense profile TOML, or `[pihole] ssh_target` in `site.toml`" | `PIHOLE NO SSH TARGET` |
 | PIHOLE | `DEGRADED` | SSH gate tripped ("ssh gate tripped") or SSH call failed ("ssh failed") | "Check SSH alias / sshpass credentials for PIHOLE (Pi5)" — never "check PFSENSE row"; PIHOLE's gate (`runtime/pihole`) and cache are independent of pfSense's, same self-containment as AP/MTR | `PIHOLE SSH GATE` |
@@ -878,43 +909,12 @@ trustworthy on its own — zero exceptions, zero domain-specific reads needed.
 
 - **MEDIA's remediation entries** — provisional; needs the same script-level
   verification pass the other 20 domains already got (see `doctor-missing-conditions.md`).
-- ~~PFSENSE's nested enable path~~ — **resolved by the footer change.** The footer is a
-  fixed pointer to README § Provider Toggles (see Disabled Domains), not a file path, so
-  the top-level vs. `[providers.pfsense]` distinction no longer needs a per-row note.
 - **ORB has no disable mechanism — open item, not fixed.** No `core.toml` flag, and
   `fetch_orb.sh`/`fetch_orb.py` never read a profile `enabled` key, so ORB always runs.
   Doctor cannot show it as DISABLED and there is nothing to point a user at. Needs a
   decision: a profile `enabled` key like the other eleven profile-gated domains (the
   consistent fix — ORB is universal infrastructure, not opt-in), or accept that it is
   unconditionally on. Until then README § Provider Toggles lists it as the one gap.
-- **GITHUB's special-case loop handling** (mechanics only — GITHUB's STATE is already
-  decided, hardcoded PRIVATE) — Doctor's provider-table loop needs explicit
-  logic for a systemd-timer-driven domain outside the normal `refresh_loop`/TTL read, not
-  yet designed.
-- ~~Silent-gap field lookup table~~ — **resolved, not just answered.** All ten confirmed
-  silent-gap conditions were closed at the source instead of needing a Doctor-side
-  lookup table; see the Fifth Category note in Actions/Remediation above.
-- ~~MTR's RUNNING highlight treatment~~ — **resolved.** RUNNING carries no actionable
-  NOTE and does not highlight under the NOTE-keyed rule (see Highlight rule). It is the
-  overnight capture correctly doing its job in response to a real condition — the trigger
-  already fired as designed, so there is no action for the row itself. The underlying
-  gateway-offline problem is already surfaced by ALERTS' own row and DCM's active state, so
-  MTR doesn't duplicate that signal.
-- ~~GITHUB: `REFRESH` vs. `STALE` precedence, GITHUB's AGE format, and what "last
-  successful run" reads from~~ — **resolved.** `STALE` is dropped for GITHUB entirely, so
-  there is no precedence question and no `STALE` threshold to define (see NOTE Column).
-  `REFRESH` is driven by the age of the newest `history_days` key, which advances only on
-  a real successful pull — closing the earlier gap where an alive-but-failing timer kept
-  file timestamps fresh while history was being lost. GITHUB's AGE is in the timestamp
-  group as a date-level `YYYY-MM-DD` (no script change), switching to `N/14` once
-  `REFRESH` is active (see AGE column).
-- ~~PRIVATE vs. DISABLED for GITHUB~~ — **resolved as a design decision, not a derivation
-  problem.** GITHUB's STATE is hardcoded PRIVATE, never computed from its `enabled` key,
-  `status.json` or any live signal: it is a fixed fact about which domain this is, since no
-  user besides the maintainer can meaningfully enable it. GITHUB was never a real member
-  of the OPTIONAL / ship-disabled-defaults group, so it was deleted from both rather than
-  reworded. This is the same underlying fact as the loop special-case below, not a second
-  question.
 - **`fetch_lyrics.py`'s `requests` import is unguarded — recorded, not blocking.** The
   import sits at module top level, outside the script's try/except, so a fresh install
   missing `requests` would fail with a traceback and no `status.json` update on every
@@ -925,31 +925,12 @@ trustworthy on its own — zero exceptions, zero domain-specific reads needed.
   cache. Read from the code, not reproduced by uninstalling the package. `core-launcher-design.md` already
   lists `requests` (`media`) among the Doctor-only per-domain tool checks, so the fix is
   a dependency check or a graceful failure path in the provider. Not this round.
-- **NETWORK's AGE is treated as blank — permanent by design, or a
-  gap?** The sole unresolved case among the blank AGEs. NET, SYSTEM and TIME are blank
-  by the 1s fast-track reasoning in the AGE column section and are not part of this
-  question. NETWORK (5s TTL) sits just above that line: the AGE column lists it in the
-  duration group, DCM excludes it as too close to the flicker zone, and whether its blank
-  AGE is deliberate or a gap has never been confirmed. Independent of DCM, which simply
-  inherits the answer.
-- **The TTL-fallback flag has no concrete spec — open, narrowed.** The behavior is settled: Doctor
-  derives `MISSING` for NET, ORB and ASTRO by checking each profile's existence and cache-TTL
-  key directly, never from AGE/TTL (`doctor-missing-conditions.md`, NET and ORB entries), and
-  STATE stays derived independently of it (see "STATE's inputs"). What is not specified
-  anywhere is the flag itself: whether `doctor.json` needs a dedicated real-vs-fallback field,
-  what it is called, and where that is specified. The name is also unsettled — the scaffold
-  plan's `fetch_doctor.sh` writes `shared/doctor/{profile}/status.json`, not `doctor.json`. A
-  related unknown: which TTL a flagged row reports — the intended one (NET's 1s) or the effective
-  fallback (60s). It decides NET's STATE: against 1s the fallback's climbing AGE reads WARN;
-  against 60s it would read NOMINAL beside `MISSING`, like ORB and ASTRO. `providers/doctor/` does not exist yet, so
-  there is nothing to check this against.
-- **DCM active-state details — two things undefined.** ~~(1) What a PROC line contains~~ —
-  **resolved:** a PROC line names a procedure in the QRH (`doctor-qrh.md`) by its exact
-  title, e.g. `PROC: NET FALLBACK TTL`; the PROC column in Actions / Remediation maps every
-  row. (2) Ordering and overflow
-  when many entries are active at once. (3) Whether a config-completeness alert with no
-  row NOTE (e.g. `TZ NOT SET (UNUSED)`) raises an entry, since the takeover trigger is
-  "an actionable NOTE present."
+- **DCM active-state details — two things undefined.** (1) Ordering and overflow when many
+  entries are active at once (`status.json` emits `entries` alphabetical by domain, unranked).
+  (2) Whether a config-completeness alert with no row NOTE (e.g. `TZ NOT SET (UNUSED)`) raises
+  an entry, since the takeover trigger is "an actionable NOTE present" (`status.json` carries
+  these separately in `config_alerts`). The PROC-line question is resolved — see Resolved
+  Decisions.
 - **DCM gauge-row capacity — unconfirmed.** Whether the gauge row fits fifteen domains
   legibly with two-letter codes (and so whether any overflow or widening logic is ever
   needed) has no source in text: it was an assumption, never independently checked. Verify it
@@ -980,6 +961,114 @@ trustworthy on its own — zero exceptions, zero domain-specific reads needed.
   **not fixed in this pass** — `gtex62-clean-suite-e` is a separate repo and a separate
   task; needs its own confirmation before touching it.
 
+- **SOLAR's shipped example has no `[cache]` section**, so `ttl_fallback` is `true` for SOLAR
+  on every install, fresh bootstrap included, with no example file to restore from (the
+  remediation is to add `[cache] refresh_sec` by hand — see PROC: FALLBACK TTL). Decision
+  needed: ship `refresh_sec` in `profiles/solar/home.toml.example` (then only an incomplete
+  install flags), or exempt SOLAR.
+- **`profiles/time/local.toml` is not strict TOML** (`America/Chicago = ...` — a bare key
+  containing `/`). The launcher's awk parse tolerates it; a strict parser rejects the file.
+  `fetch_doctor.sh` falls back to a lenient line reader so it sees the same keys the
+  launcher does, but any other strict-TOML consumer of that profile would fail.
+- **PIHOLE and PFSENSE intended TTLs differ from the launcher defaults.** PIHOLE reports 60
+  (the shipped example) while the launcher's fallback is 300; PFSENSE's shipped example sets
+  root `cache_ttl_sec = 1` while the launcher default is 5 (the live profile: 30). Doctor
+  reports the shipped-example value as "intended"; confirm that is the value to show.
+
+---
+
+## Resolved Decisions
+
+Closed items, moved out of Open Questions. The `status.json` schema they refer to is
+documented in the header comment of `providers/doctor/fetch_doctor.sh`.
+
+**Settled by the `fetch_doctor.sh` pass (2026-09-23):**
+
+- **The TTL-fallback flag now has a concrete spec.** `ttl_fallback` (true/false/null) is a
+  separate boolean beside `ttl_sec`/`age_sec`; a flagged row reports its *intended*
+  `ttl_sec`, never the effective fallback. It never feeds STATE and is evaluated for every
+  launcher-loop domain with a TTL key in its profile, not only NET/ORB/ASTRO (see
+  Provider Table — Layout). The file is `shared/doctor/{profile}/status.json`.
+- **NETWORK's AGE is not blank.** It is a real duration (see the AGE column); it is excluded
+  from DCM gauges on the flicker-zone reasoning alone. `fast_track` is `true` only for NET,
+  SYSTEM and TIME.
+- **GITHUB's loop special-casing is settled** — read directly from its cache files, STATE
+  hardcoded PRIVATE, NOTEs raised only for an applicable (existing, enabled) profile; AGE is
+  the oldest of the registry repos' newest `history_days` dates, switching to `N/14` once
+  `REFRESH` fires (10 days).
+- **HYBRID precedence is implemented as specified:** zero enabled flags → DISABLED; 1-3
+  enabled and healthy → HYBRID; WARN always overrides; a disabled sub-flag's leftover cache
+  is ignored. arp and leases only rewrite inside a status fetch that finds them past their own
+  TTL, so their staleness limit is their TTL plus one status cycle.
+- **MTR states:** `idle` / `armed` / `running` (see State Vocabulary).
+- **Staleness slack:** a row goes WARN when age exceeds `ttl_sec` + 3s, not strictly `ttl_sec`
+  — a refresh cycle is the interval plus the fetch's own runtime, so a healthy 1s cache is
+  routinely 1-2s old at read time.
+- **CALENDAR's TTL stays 86400s** (`[events] cache_ttl_sec`) though the launcher loop
+  rewrites its cache every 300s: a dead calendar loop is only caught after 24 hours, an
+  accepted consequence of calendar data's real freshness requirement.
+- **TTL cell labels** — `ON DEMAND` (CONNECT), `TIMER` (GITHUB), `WRITE` (MEDIA), `TRIGGER`
+  (MTR), `VARIES` (PFSENSE) — are emitted as `ttl_label` display hints, approved as
+  implemented.
+- **Every condition has a QRH procedure, so no DCM entry has a null PROC.** Added: DOMAIN NOT
+  LISTED, PFSENSE SUBCACHE DEGRADED, UNRECOGNIZED NOTE (the generic fallback entry), and FALLBACK
+  TTL (the generic form of the per-domain fallback procedures).
+- **A PROC line names a QRH procedure by its exact title** (e.g. `PROC: NET FALLBACK TTL`);
+  the PROC column in Actions / Remediation maps every row.
+- **`fetch_doctor.sh` emits `proc` and `detail`, never remediation prose.** The suite maps a
+  procedure title to DCM's fixed action line; `detail` carries only the dynamic part (a
+  sub-cache name, a day count, a repo list, the provider's note).
+- **`doctor.toml.example` and the `[doctor]` flip are done:** the toggle gates
+  `fetch_doctor.sh` only for a suite that lists `"doctor"` in `[domains]`.
+
+**Resolved earlier, moved here from Open Questions:**
+
+- PFSENSE's nested enable path — **resolved by the footer change.** The footer is a
+  fixed pointer to README § Provider Toggles (see Disabled Domains), not a file path, so
+  the top-level vs. `[providers.pfsense]` distinction no longer needs a per-row note.
+- Silent-gap field lookup table — **resolved, not just answered.** All ten confirmed
+  silent-gap conditions were closed at the source instead of needing a Doctor-side
+  lookup table; see the Fifth Category note in Actions/Remediation above.
+- MTR's RUNNING highlight treatment — **resolved.** RUNNING carries no actionable
+  NOTE and does not highlight under the NOTE-keyed rule (see Highlight rule). It is the
+  overnight capture correctly doing its job in response to a real condition — the trigger
+  already fired as designed, so there is no action for the row itself. The underlying
+  gateway-offline problem is already surfaced by ALERTS' own row and DCM's active state, so
+  MTR doesn't duplicate that signal.
+- GITHUB: `REFRESH` vs. `STALE` precedence, GITHUB's AGE format, and what "last
+  successful run" reads from — **resolved.** `STALE` is dropped for GITHUB entirely, so
+  there is no precedence question and no `STALE` threshold to define (see NOTE Column).
+  `REFRESH` is driven by the age of the newest `history_days` key, which advances only on
+  a real successful pull — closing the earlier gap where an alive-but-failing timer kept
+  file timestamps fresh while history was being lost. GITHUB's AGE is in the timestamp
+  group as a date-level `YYYY-MM-DD` (no script change), switching to `N/14` once
+  `REFRESH` is active (see AGE column).
+- PRIVATE vs. DISABLED for GITHUB — **resolved as a design decision, not a derivation
+  problem.** GITHUB's STATE is hardcoded PRIVATE, never computed from its `enabled` key,
+  `status.json` or any live signal: it is a fixed fact about which domain this is, since no
+  user besides the maintainer can meaningfully enable it. GITHUB was never a real member
+  of the OPTIONAL / ship-disabled-defaults group, so it was deleted from both rather than
+  reworded. This is the same underlying fact as the loop special-case below, not a second
+  question.
+- **NETWORK's AGE is treated as blank — permanent by design, or a
+  gap?** The sole unresolved case among the blank AGEs. NET, SYSTEM and TIME are blank
+  by the 1s fast-track reasoning in the AGE column section and are not part of this
+  question. NETWORK (5s TTL) sits just above that line: the AGE column lists it in the
+  duration group, DCM excludes it as too close to the flicker zone, and whether its blank
+  AGE is deliberate or a gap has never been confirmed. Independent of DCM, which simply
+  inherits the answer.
+- **The TTL-fallback flag has no concrete spec — open, narrowed.** The behavior is settled: Doctor
+  derives `MISSING` for NET, ORB and ASTRO by checking each profile's existence and cache-TTL
+  key directly, never from AGE/TTL (`doctor-missing-conditions.md`, NET and ORB entries), and
+  STATE stays derived independently of it (see "STATE's inputs"). What is not specified
+  anywhere is the flag itself: whether `doctor.json` needs a dedicated real-vs-fallback field,
+  what it is called, and where that is specified. The name is also unsettled — the scaffold
+  plan's `fetch_doctor.sh` writes `shared/doctor/{profile}/status.json`, not `doctor.json`. A
+  related unknown: which TTL a flagged row reports — the intended one (NET's 1s) or the effective
+  fallback (60s). It decides NET's STATE: against 1s the fallback's climbing AGE reads WARN;
+  against 60s it would read NOMINAL beside `MISSING`, like ORB and ASTRO. `providers/doctor/` does not exist yet, so
+  there is nothing to check this against.
+
 ---
 
 ## Repo / Scaffold Plan
@@ -995,23 +1084,22 @@ Same sequence as SitRep's build:
   it exists purely to surface core's own health — no mode submenu, palette/wallpaper
   submenus once the core-launcher consolidation lands, same as SitRep.
 
-Core-side:
+Core-side (built 2026-09-23):
 
 - `providers/doctor/fetch_doctor.sh <profile>` — no SSH/gate, same shape as
   `providers/alerts/fetch_alerts.sh`: reads every other domain's cache file/mtime, checks
   enable state (`core.toml [providers]` flag, or a profile-gated domain's own
   `state:"disabled"` — see Disabled Domains), surfaces any `degraded`/`state` field a provider
-  already exposes (aviation's pattern), and derives the TTL-fallback flag for NET, ORB and
-  ASTRO by checking each profile's existence and cache-TTL key directly, not from AGE/TTL
-  (see Provider Table — Layout; its schema is an open question). Writes
-  `shared/doctor/{profile}/status.json`.
+  already exposes (aviation's pattern), and derives the `ttl_fallback` flag from each profile's
+  cache-TTL key rather than from AGE/TTL (see Provider Table — Layout). Writes
+  `shared/doctor/{profile}/status.json`; schema in the script's header comment.
 - `examples/runtime/suites/doctor.toml.example` — `required` list closer to the full
-  provider list than a curated subset (including `pihole`, which the launcher now
-  suite-gates like vpn/ap/modem/alerts/mtr), since Doctor's entire purpose is reporting on all
-  of them.
-- Flip `[doctor] enabled = true` from inert placeholder to load-bearing once
-  `fetch_doctor.sh` exists, with a code comment noting the toggle predates the
-  implementation — same pattern as the vpn/ap/modem/alerts flip before SitRep.
+  provider list than a curated subset (including `pihole`, which the launcher suite-gates like
+  vpn/ap/modem/alerts/mtr, and `doctor` itself, which gates the provider), since Doctor's entire
+  purpose is reporting on all of them.
+- `[doctor] enabled = true` flipped from inert placeholder to load-bearing, with a code comment
+  in `bin/gtex62-core-launch` noting the toggle predates the implementation — same pattern as
+  the vpn/ap/modem/alerts flip before SitRep.
 
 ---
 

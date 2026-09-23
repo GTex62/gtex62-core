@@ -1,0 +1,65 @@
+suite_id = "doctor"
+name = "gtex62-doctor"
+suite_repo = "__SUITE_REPO__"
+suite_manifest = "__SUITE_REPO__/suite.toml"
+enabled = true
+
+# Doctor reports on every provider domain, so it names a profile for each
+# one (values match gtex62-core-launch's own per-domain defaults).
+[profiles]
+weather = "home"
+air = "home"
+aviation = "home"
+astro = "home"
+solar = "home"
+calendar = "local"
+system = "local"
+time = "local"
+network = "local"
+connectivity = "default"
+net = "local"
+orb = "home"
+pfsense = "main_router"
+ap = "main_router"
+alerts = "main_router"
+vpn = "local"
+modem = "local"
+mtr = "pi5"
+media = "local"
+doctor = "local"
+
+# Closer to the full provider list than a curated subset — Doctor's whole
+# purpose is reporting on all of them. Listing vpn/ap/modem/alerts/mtr/pihole
+# here also lets gtex62-core-launch's suite_has_domain() gate keep those
+# providers running when Doctor is the launched suite and they are enabled
+# in core.toml [providers]. "doctor" itself gates providers/doctor/
+# fetch_doctor.sh (core.toml [doctor] enabled).
+[domains]
+required = [
+  "doctor",
+  "air",
+  "alerts",
+  "ap",
+  "astro",
+  "aviation",
+  "calendar",
+  "connectivity",
+  "github",
+  "media",
+  "modem",
+  "mtr",
+  "net",
+  "network",
+  "orb",
+  "pfsense",
+  "pihole",
+  "solar",
+  "system",
+  "time",
+  "vpn",
+  "weather",
+]
+optional = []
+
+[suite_cache]
+namespaces = ["doctor"]

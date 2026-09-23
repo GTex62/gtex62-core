@@ -13,6 +13,11 @@ profiles_dir = "profiles"
 overrides_dir = "overrides"
 state_dir = "state"
 
+# Health provider (providers/doctor/fetch_doctor.sh) — writes
+# shared/doctor/{profile}/status.json for gtex62-doctor. This toggle predates
+# the implementation (it was an inert placeholder) and is load-bearing now.
+# Only a suite that lists "doctor" in its [domains] (gtex62-doctor) starts
+# it; every other suite ignores the flag.
 [doctor]
 enabled = true
 

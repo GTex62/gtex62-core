@@ -18,6 +18,29 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
+## Unreleased — 2026-09-23
+
+New `doctor` provider for `gtex62-doctor`. Additive: nothing existing changes behavior, and
+the launcher only starts it for a suite that lists `"doctor"` in its `[domains]`.
+
+- **`providers/doctor/fetch_doctor.sh`.** Reads every other domain's cache and mtime,
+  `core.toml`'s `[providers]` flags, each profile TOML and `site.toml`, and writes
+  `shared/doctor/{profile}/status.json` (schema in the script's header comment). Emits
+  per-row STATE/TTL/AGE/NOTE, a `ttl_fallback` flag (a profile lacking the key the launcher
+  parses its TTL from), QRH `proc` titles plus `detail` for every actionable condition,
+  and the RUNTIME/CONFIG panel data. Pure computation over already-cached files — no SSH,
+  no gate, same shape as `fetch_alerts.sh`.
+- **Launcher wiring (`bin/gtex62-core-launch`).** `[doctor] enabled` is now load-bearing (it
+  was an inert placeholder), gated on the launching suite listing `"doctor"` in `[domains]`.
+  `DOCTOR_TTL` defaults to 5s; no `profiles/doctor/*.toml` ships.
+- **`examples/runtime/suites/doctor.toml.example`** — a profile for every domain, and a
+  `required` list covering all of them plus `doctor`.
+- **Docs.** `doctor-design.md` records the settled decisions and the remaining open
+  questions; the four QRH procedures the provider needs (DOMAIN NOT LISTED, FALLBACK TTL,
+  PFSENSE SUBCACHE DEGRADED, UNRECOGNIZED NOTE) live in `gtex62-doctor/docs/doctor-qrh.md`.
+
+---
+
 ## 0.8.1 — 2026-09-20
 
 Two MEDIA changes: an idle-cost fast-path, and a fix for lyrics going blank when the library
