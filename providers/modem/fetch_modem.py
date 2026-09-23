@@ -721,7 +721,10 @@ def main():
 
     if STATUS_JSON.exists():
         age = time.time() - STATUS_JSON.stat().st_mtime
-        if age < cache_ttl:
+        # Skip only when comfortably fresh (< 80% of TTL): loop ticks land one TTL apart and
+        # this file's mtime trails the tick by the scrape's runtime, so a strict `age < ttl`
+        # skips every other tick (real cadence 1.5-2x TTL).
+        if age < cache_ttl * 0.8:
             return 0
 
     if not password or password.strip().upper() == "CHANGE_ME":

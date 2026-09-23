@@ -18,6 +18,22 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
+## Unreleased — 2026-09-23 (provider cadence fix)
+
+Providers with an in-script "skip if the cache is fresh" check (AP, Pi-hole, router,
+pfBlockerNG, pfSense status, VPN, MTR, MODEM) were refreshing at 1.5-2x their configured TTL.
+`refresh_loop` ticks land exactly one TTL apart, but the cache file's mtime trails the tick by
+the fetch's own runtime, so a strict `age < TTL` read every tick-old cache as still fresh and
+skipped every other tick. Observed on AP (TTL 120): a rewrite every 181s, and with two suites'
+launchers running at once the phases interleaved into the same 1.5x pattern.
+
+- The skip check now applies only when the cache is under 80% of its TTL (`age < TTL * 4/5`).
+  A second launcher's tick, which lands well inside that window, still skips, so duplicate
+  fetches stay deduplicated. Verified live: AP now rewrites every 120s, Pi-hole and router
+  every 60s.
+- Left alone: `fetch_pfsense_ifaces.sh` (1s TTL, sub-second polling) and the arp/leases/history
+  riders inside `fetch_pfsense.sh`.
+
 ## Unreleased — 2026-09-23
 
 New `doctor` provider for `gtex62-doctor`. Additive: nothing existing changes behavior, and

@@ -156,7 +156,11 @@ if [[ -f "$ROUTER_JSON" ]]; then
   now_ts="$(date +%s)"
   file_ts="$(stat -c %Y "$ROUTER_JSON" 2>/dev/null || echo 0)"
   age=$(( now_ts - file_ts ))
-  if [[ "$age" -lt "$CACHE_TTL" ]]; then
+  # Skip only when comfortably fresh (< 80% of TTL). refresh_loop ticks land exactly one TTL
+  # apart and this file's mtime trails the tick by the fetch's own runtime, so a strict
+  # `age < TTL` always reads a tick-old cache as still fresh and skips every other tick,
+  # stretching the real cadence to 1.5-2x TTL.
+  if [[ "$age" -lt $(( CACHE_TTL * 4 / 5 )) ]]; then
     exit 0
   fi
 fi
