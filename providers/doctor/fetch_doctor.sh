@@ -67,7 +67,7 @@
 #   age_ts        ISO-8601 Z | "YYYY-MM-DD" | null   for timestamp/date kinds
 #   age_ratio     "N/14" | null                       GITHUB REFRESH only
 #   note          primary NOTE tag | null   ERROR DEGRADED PARTIAL WAITING
-#                 STALE MISSING REFRESH OPTIONAL
+#                 STALE MISSING REFRESH
 #   notes         all NOTE tags on the row, priority order
 #   highlight     bool — an actionable tag is present (row highlight; also
 #                 DCM's takeover trigger)
@@ -281,8 +281,10 @@ def core_flag(dotted):
 DUAL_GATED = {"vpn", "ap", "modem", "alerts", "mtr", "pihole"}
 FLAG_ONLY = {"media"}
 
-PRIORITY = ["ERROR", "DEGRADED", "PARTIAL", "WAITING", "STALE", "MISSING", "REFRESH", "OPTIONAL"]
-INFORMATIONAL_TAGS = {"OPTIONAL"}
+PRIORITY = ["ERROR", "DEGRADED", "PARTIAL", "WAITING", "STALE", "MISSING", "REFRESH"]
+# No informational NOTE exists today (MEDIA's unset Genius token used to be one; it now
+# lives only in the MEDIA detail snapshot). The mechanism stays for `info`.
+INFORMATIONAL_TAGS = set()
 PROVIDER_BAD = {"error": "ERROR", "degraded": "DEGRADED", "partial": "PARTIAL", "waiting": "WAITING"}
 
 
@@ -720,8 +722,6 @@ def do_media():
         if reach is False:
             row.provider_state = "degraded"   # keeps STATE (WARN) beside the DEGRADED NOTE
             row.cond("DEGRADED", "MEDIA LOCAL DIR UNREACHABLE", "local_dir unreachable")
-        if not genius_set:
-            row.cond("OPTIONAL", "MEDIA GENIUS NOT CONFIGURED", "Genius API not configured — optional")
         generic_stale(row, "media", "PROVIDER STALE")
     MEDIA_DETAIL.update({
         "lyrics_file_count": count,

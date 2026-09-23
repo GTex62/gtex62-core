@@ -133,8 +133,8 @@ an actionable NOTE present — is DCM's takeover trigger (see DCM — Digital Co
 - **Highlighted: any row whose NOTE carries an actionable tag** (`ERROR`, `DEGRADED`,
   `PARTIAL`, `WAITING`, `STALE`, `MISSING`, `REFRESH` — see NOTE Column). Each is
   something that actively changed: a threshold crossed, a fetch failed, a condition
-  activated. An informational entry is not actionable and does not highlight — MEDIA's
-  `OPTIONAL` genius-token note is the example.
+  activated. No informational NOTE exists today: a condition that is merely informational
+  (MEDIA's unset Genius token was one) is not shown in the NOTE column.
 - **STATE alone never highlights.** NOMINAL, DISABLED, PRIVATE, HYBRID, IDLE and RUNNING
   are what a row simply *is* — working, administratively off, structurally
   not-applicable, hybrid-but-healthy, armed-and-waiting, capturing-as-designed — a condition a row settles into and stays in,
@@ -279,8 +279,9 @@ the file count:
 | Sites checked, in order | `[media.lyrics]` `providers_noapi` (`lrclib`, `lyrics_ovh`) + `providers_api` (`genius`) |
 | Paid/API site configured | `genius_token` set vs. empty — presence only, never the token itself |
 
-`genius_token` presence is a config-completeness check, not a runtime health check —
-belongs with DCM (see below), not the live table. **Not independently
+`genius_token` presence is a config-completeness check, not a runtime health check. It is
+reported only in `status.json`'s MEDIA detail snapshot (`genius_configured`), not as a NOTE —
+decided 2026-09-23: it flagged permanently for a feature that is inert today. **Not independently
 re-verified against `fetch_lyrics.sh`/`fetch_lyrics.py` yet** — treat as provisional
 until it gets the same script-level pass the other domains got.
 
@@ -548,7 +549,7 @@ never a blend, never gauges and entries side by side:
   is exactly the old Alert Banner behavior. The takeover trigger is **identical to the
   Highlight rule's** — an actionable NOTE present (see Highlight rule — actionable NOTE
   only, and NOTE Column vs. DCM) — so DCM goes active on precisely the conditions that
-  highlight a row in the PROVIDERS table. Informational entries (MEDIA's `OPTIONAL` note)
+  highlight a row in the PROVIDERS table. Informational conditions (none exist today)
   and states that are not NOTEs (HYBRID, MTR's IDLE/RUNNING) don't trigger it.
 
 **The takeover applies to the panel body only.** The header's one-line summary — `NO
@@ -881,7 +882,6 @@ trustworthy on its own — zero exceptions, zero domain-specific reads needed.
 | GITHUB | `MISSING` | Cache never written (never run) — GITHUB has no `STALE`; see `REFRESH` | "Check `systemctl --user status gtex62-github-traffic.timer`" — GITHUB runs on a systemd timer entirely outside the launcher's `refresh_loop`, so a missing cache means the timer needs attention, not `fetch_github.sh` itself | `GITHUB NEVER RUN` |
 | GITHUB | `REFRESH` | Age of last successful fetch (newest `history_days` key, oldest across registry repos) ≥ 10 days — independent of STATE, so it can sit beside `ERROR` or appear alone (Doctor-derived; AGE shows `N/14`) | "GitHub traffic copy is `N`/14 days behind — run `systemctl --user start gtex62-github-traffic.service` now, then check `systemctl --user status gtex62-github-traffic.timer` (timer not firing) and `gh auth status` (fetches failing — an `ERROR` in the same cell). The API keeps only a rolling 14-day window, so older data is lost" | `GITHUB REFRESH` |
 | MEDIA | `DEGRADED` | `local_dir` unreachable | "local_dir unreachable — check NAS mount" | `MEDIA LOCAL DIR UNREACHABLE` |
-| MEDIA | `OPTIONAL` | `genius_token` unset | Config-completeness, not WARN — informational only ("Genius API not configured — optional") | `MEDIA GENIUS NOT CONFIGURED` |
 | MODEM | `ERROR` | password not configured | "Set `[credentials].password` in the modem profile TOML (not `CHANGE_ME`)" | `MODEM PASSWORD NOT SET` |
 | MODEM | `DEGRADED` | note starts "modem unreachable" | "Check pfSense NAT path to 192.168.100.1 (modem admin UI)" | `MODEM UNREACHABLE` |
 | MODEM | `DEGRADED` | note starts "modem auth failed" | "Check modem credentials in `[credentials].password`" | `MODEM AUTH FAILED` |
@@ -1032,6 +1032,10 @@ documented in the header comment of `providers/doctor/fetch_doctor.sh`.
   single `stat` and recomputes duration ages against the clock, so resets and motion show
   immediately. The one consequence: for up to a loop an AGE past its TTL can display before the
   row's STATE follows.
+- **MEDIA's unset Genius token no longer shows an `OPTIONAL` NOTE.** It sat in the NOTE
+  column of every healthy install for a feature that is inert today. The fact stays in the
+  MEDIA detail snapshot (`genius_configured`) for the future media-detail panel; raising it
+  once the Genius lookup is implemented and enabled is a possible later refinement.
 - **TTL cell labels** — `ON DEMAND` (CONNECT), `TIMER` (GITHUB), `WRITE` (MEDIA), `TRIGGER`
   (MTR), `VARIES` (PFSENSE) — are emitted as `ttl_label` display hints, approved as
   implemented.
