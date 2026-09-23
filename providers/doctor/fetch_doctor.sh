@@ -36,8 +36,8 @@
 #   "config_alerts": [ {"id","text"} ... ],         # config-completeness
 #   "media":   { ... }                              # MEDIA detail snapshot
 # }
-# F = {"state":"set"|"blank","value":masked-or-null}. API keys never carry a
-# value; lat/lon are masked after the first decimal digit ("32.1XXXXX").
+# F = {"state":"set"|"blank","value":string-or-null}. API keys never carry a
+# value (presence only); timezone, lat and lon carry their full values.
 #
 # ROW
 #   state         "nominal" | "warn" | "disabled" | "private" | "hybrid" |
@@ -1074,22 +1074,13 @@ for key in sorted(ROWS):
         (INFO if tag in INFORMATIONAL_TAGS else ENTRIES).append(item)
 
 # --------------------------------------------------- runtime / config panels
-def mask_coord(v):
-    """Keep sign, integer part and the first decimal digit: 32.1XXXXX"""
-    s = str(v).strip()
-    if "." not in s:
-        return s
-    head, tail = s.split(".", 1)
-    return f"{head}.{tail[:1]}{'X' * max(0, len(tail) - 1)}"
-
-
-def field(value, mask=False, secret=False):
+def field(value, secret=False):
     s = "" if value is None else str(value).strip()
     if not s or s.upper().startswith("YOUR_"):
         return {"state": "blank", "value": None}
     if secret:
         return {"state": "set", "value": None}
-    return {"state": "set", "value": mask_coord(s) if mask else s}
+    return {"state": "set", "value": s}
 
 
 _, wx_pt = profile_toml("weather", prof("weather"))
@@ -1099,8 +1090,8 @@ openwx = dig(wx_pt, "credentials.owm_api_key") or dig(SITE, "credentials.openwea
 airnow = dig(air_pt, "airnow.api_key") or dig(SITE, "credentials.airnow_api_key")
 CONFIG = {
     "timezone": field(tz),
-    "lat": field(dig(SITE, "location.home.lat"), mask=True),
-    "lon": field(dig(SITE, "location.home.lon"), mask=True),
+    "lat": field(dig(SITE, "location.home.lat")),
+    "lon": field(dig(SITE, "location.home.lon")),
     "openwx_api": field(openwx, secret=True),
     "airnow_api": field(airnow, secret=True),
 }
