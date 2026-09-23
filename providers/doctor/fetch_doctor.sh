@@ -59,7 +59,10 @@
 #                 own error (PROFILE TOML MISSING) — never as ttl_fallback.
 #   fast_track    bool — NET/SYSTEM/TIME (1s class); AGE display is blank
 #                 for these, NET's only while ttl_fallback is false
-#   age_sec       number | null    freshness age (now - cache mtime)
+#   age_sec       number | null    freshness age (now - cache mtime), as of this run
+#   cache_file    path | null      the file whose mtime age_sec measures. The suite
+#                 re-reads its mtime every second so AGE and the DCM gauges tick
+#                 live between doctor runs; STATE/NOTE stay on the doctor loop.
 #   age_kind      "duration" | "timestamp" | "date" | "ratio"
 #   age_ts        ISO-8601 Z | "YYYY-MM-DD" | null   for timestamp/date kinds
 #   age_ratio     "N/14" | null                       GITHUB REFRESH only
@@ -303,6 +306,7 @@ class Row:
         self.extra = {}
         self.stale = False
         self.present = False
+        self.cache_file = None
 
     def cond(self, tag, proc=None, detail=None):
         self.conds.append((tag, proc, detail))
@@ -310,6 +314,7 @@ class Row:
     def freshness(self, path, ttl):
         """Set age/stale/present from one cache file's mtime against ttl."""
         self.ttl_sec = ttl
+        self.cache_file = path
         m = mtime(path)
         self.present = m is not None
         if m is not None:
@@ -352,6 +357,7 @@ class Row:
             "ttl_fallback": self.ttl_fallback,
             "fast_track": self.fast_track,
             "age_sec": self.age_sec,
+            "cache_file": self.cache_file,
             "age_kind": self.age_kind,
             "age_ts": self.age_ts,
             "age_ratio": self.age_ratio,
@@ -593,14 +599,29 @@ def do_connect():
     row.ttl_label = "ON DEMAND"
     row.age_kind = "timestamp"
     row.take_provider(doc)
-    age_s = st.get("age_seconds")
-    if isinstance(age_s, (int, float)):
+    # current.json is written only when the speedtest script runs, so its
+    # age_seconds is frozen at that moment. Anchor on when the test actually
+    # ran (the speedtest's own timestamp; failing that, current.json's mtime
+    # minus the frozen age) and measure age against now.
+    run_epoch = None
+    raw_ts = (st.get("raw") or {}).get("timestamp") if isinstance(st.get("raw"), dict) else None
+    if isinstance(raw_ts, str):
+        try:
+            run_epoch = datetime.strptime(raw_ts[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc).timestamp()
+        except ValueError:
+            run_epoch = None
+    if run_epoch is None and isinstance(st.get("age_seconds"), (int, float)):
+        cur_m = mtime(status_path("connectivity", p, "current.json"))
+        if cur_m is not None:
+            run_epoch = cur_m - st["age_seconds"]
+    age_s = (NOW - run_epoch) if run_epoch is not None else None
+    if age_s is not None:
         row.age_sec = round(float(age_s), 1)
-        row.age_ts = iso(NOW - age_s)
+        row.age_ts = iso(run_epoch)
     if profile_gated_disabled(row, doc, pt if exists else None):
         return finish(row, "connect")
     add_generic_provider_conds(row, doc, [("speedtest failing", "CONNECT SPEEDTEST FAILING")])
-    if st.get("state") != "disabled" and isinstance(age_s, (int, float)) and age_s > ttl:
+    if st.get("state") != "disabled" and age_s is not None and age_s > ttl:
         row.stale = True
         if row.provider_state not in PROVIDER_BAD:
             days = int(age_s // 86400)

@@ -1027,6 +1027,11 @@ documented in the header comment of `providers/doctor/fetch_doctor.sh`.
   longer raises FALLBACK TTL for it (it previously did, with no example file to restore from).
   The live astro, network and solar profiles were given their `[cache] refresh_sec` keys the same
   day, clearing the three flags on this host.
+- **AGE and the DCM gauges tick at 1s** while STATE/NOTE stay on the 5s doctor loop. The
+  provider emits each row's `cache_file`; the suite re-reads those mtimes once a second with a
+  single `stat` and recomputes duration ages against the clock, so resets and motion show
+  immediately. The one consequence: for up to a loop an AGE past its TTL can display before the
+  row's STATE follows.
 - **TTL cell labels** — `ON DEMAND` (CONNECT), `TIMER` (GITHUB), `WRITE` (MEDIA), `TRIGGER`
   (MTR), `VARIES` (PFSENSE) — are emitted as `ttl_label` display hints, approved as
   implemented.
