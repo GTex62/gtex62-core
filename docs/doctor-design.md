@@ -562,6 +562,16 @@ including domains that never get a gauge (NET, GITHUB's `REFRESH`, and so on). G
 eligibility only shapes the idle state. Entry text is the fixed remediation from Actions /
 Remediation, not generated prose.
 
+### Active-state overflow — scrolling
+
+When more entries are active than the panel holds, the entry list scrolls, by the same
+mechanism as SitRep's alert banner: the window start is a pure function of wall-clock time
+(`floor(os.time() / interval) % total`, 3s by default), wrapping circularly, so it needs no
+persisted animation state and never pads. The unit is one whole entry block — the domain bar
+and its condition, action and PROC lines — so the window always advances by a complete
+procedure, never mid-procedure. There is no count suffix. Entry ordering is still the
+provider's alphabetical, unranked order (see Open Questions).
+
 ### Gauge mechanics
 
 Each gauge is a vertical bar with **the domain's own TTL printed as its top label.** This is
@@ -644,8 +654,8 @@ AVIATION) rather than an arbitrary truncation. **Two codes are deliberately shor
 three letters: AP and WX.** Both are already unambiguous on their own — they are not
 truncations. The design assumes they will also read cleanly alongside the three-letter
 codes without looking like an inconsistency; that is unconfirmed (see Open Questions) until
-the actual DCM panel is built. The panel's legend states this explicitly so it reads as a
-deliberate exception, not a gap.
+the actual DCM panel is built. No on-panel legend explains the exception — settled: none is
+needed.
 
 | Code | Domain | Note |
 | --- | --- | --- |
@@ -925,8 +935,9 @@ trustworthy on its own — zero exceptions, zero domain-specific reads needed.
   cache. Read from the code, not reproduced by uninstalling the package. `core-launcher-design.md` already
   lists `requests` (`media`) among the Doctor-only per-domain tool checks, so the fix is
   a dependency check or a graceful failure path in the provider. Not this round.
-- **DCM active-state details — two things undefined.** (1) Ordering and overflow when many
-  entries are active at once (`status.json` emits `entries` alphabetical by domain, unranked).
+- **DCM active-state details — two things undefined.** (1) Ordering of entries when several
+  are active (`status.json` emits `entries` alphabetical by domain, unranked; overflow is
+  resolved — the list scrolls, see Active-state overflow).
   (2) Whether a config-completeness alert with no row NOTE (e.g. `TZ NOT SET (UNUSED)`) raises
   an entry, since the takeover trigger is "an actionable NOTE present" (`status.json` carries
   these separately in `config_alerts`). The PROC-line question is resolved — see Resolved
@@ -1007,6 +1018,13 @@ documented in the header comment of `providers/doctor/fetch_doctor.sh`.
 - **CALENDAR's TTL stays 86400s** (`[events] cache_ttl_sec`) though the launcher loop
   rewrites its cache every 300s: a dead calendar loop is only caught after 24 hours, an
   accepted consequence of calendar data's real freshness requirement.
+- **DCM overflow scrolls** (see Active-state overflow) instead of showing a "+N MORE" count,
+  advancing one whole entry block at a time.
+- **No gauge legend.** The AP/WX two-letter exception is not stated on the panel.
+- **Doctor's own liveness:** the suite compares `status.json`'s own write time
+  (`generated_epoch`) with the clock; older than 30s (6x the provider's 5s loop) the DOC header
+  line reads `DOCTOR STALE - <N>S` instead of the alert summary, so a dead doctor loop is not
+  mistaken for a healthy widget.
 - **TTL cell labels** — `ON DEMAND` (CONNECT), `TIMER` (GITHUB), `WRITE` (MEDIA), `TRIGGER`
   (MTR), `VARIES` (PFSENSE) — are emitted as `ttl_label` display hints, approved as
   implemented.
