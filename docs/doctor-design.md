@@ -1012,9 +1012,12 @@ documented in the header comment of `providers/doctor/fetch_doctor.sh`.
   is ignored. arp and leases only rewrite inside a status fetch that finds them past their own
   TTL, so their staleness limit is their TTL plus one status cycle.
 - **MTR states:** `idle` / `armed` / `running` (see State Vocabulary).
-- **Staleness slack:** a row goes WARN when age exceeds `ttl_sec` + 3s, not strictly `ttl_sec`
-  — a refresh cycle is the interval plus the fetch's own runtime, so a healthy 1s cache is
-  routinely 1-2s old at read time.
+- **Staleness slack:** a row goes WARN when age exceeds `ttl_sec` + 5s, not strictly `ttl_sec`.
+  A cache's age peaks just before its next rewrite at one cadence interval plus the
+  difference in fetch runtime between two consecutive runs, plus whole-second mtime
+  granularity — measured at 120-121s for AP's 120s TTL once the providers' own skip-check
+  bug was fixed (see CHANGELOG, "provider cadence fix"). 5s covers that jitter with room
+  for a slow SSH round.
 - **CALENDAR's TTL stays 86400s** (`[events] cache_ttl_sec`) though the launcher loop
   rewrites its cache every 300s: a dead calendar loop is only caught after 24 hours, an
   accepted consequence of calendar data's real freshness requirement.

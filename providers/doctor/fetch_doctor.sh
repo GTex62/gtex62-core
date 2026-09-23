@@ -99,10 +99,13 @@ NOW = time.time()
 NOW_EPOCH = int(NOW)
 HOME = os.path.expanduser("~")
 
-# A refresh_loop cycle is `interval` plus the fetch's own runtime, so a
-# healthy 1s-TTL cache is routinely 1-2s old at read time. STATE flips to
-# WARN only once age exceeds ttl + this slack.
-STALE_GRACE_SEC = 3
+# A row goes WARN only once age exceeds ttl + this slack. A cache's age peaks
+# just before its next rewrite at one cadence interval plus the difference in
+# fetch runtime between two consecutive runs (SSH and scrape times vary), plus
+# whole-second mtime granularity. Measured after the skip-margin fix: AP peaks at
+# 120-121s on a 120s TTL, Pi-hole/router at 60s. 5s covers that jitter with room
+# for a slow SSH round, and only delays a dead 1s loop's WARN by a few seconds.
+STALE_GRACE_SEC = 5
 GITHUB_REFRESH_DAYS = 10   # NOTE `REFRESH` line (4-day buffer before the cliff)
 GITHUB_WINDOW_DAYS = 14
 
