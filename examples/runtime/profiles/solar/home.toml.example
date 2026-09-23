@@ -8,3 +8,6 @@ weather_profile = "home"
 # lat =
 # lon =
 # timezone =
+
+[cache]
+refresh_sec = 300

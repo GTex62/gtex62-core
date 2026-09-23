@@ -972,11 +972,6 @@ trustworthy on its own — zero exceptions, zero domain-specific reads needed.
   **not fixed in this pass** — `gtex62-clean-suite-e` is a separate repo and a separate
   task; needs its own confirmation before touching it.
 
-- **SOLAR's shipped example has no `[cache]` section**, so `ttl_fallback` is `true` for SOLAR
-  on every install, fresh bootstrap included, with no example file to restore from (the
-  remediation is to add `[cache] refresh_sec` by hand — see PROC: FALLBACK TTL). Decision
-  needed: ship `refresh_sec` in `profiles/solar/home.toml.example` (then only an incomplete
-  install flags), or exempt SOLAR.
 - **`profiles/time/local.toml` is not strict TOML** (`America/Chicago = ...` — a bare key
   containing `/`). The launcher's awk parse tolerates it; a strict parser rejects the file.
   `fetch_doctor.sh` falls back to a lenient line reader so it sees the same keys the
@@ -1028,6 +1023,10 @@ documented in the header comment of `providers/doctor/fetch_doctor.sh`.
   (`generated_epoch`) with the clock; older than 30s (6x the provider's 5s loop) the DOC header
   line reads `DOCTOR STALE - <N>S` instead of the alert summary, so a dead doctor loop is not
   mistaken for a healthy widget.
+- **SOLAR's shipped example now ships `[cache] refresh_sec = 300`,** so a fresh bootstrap no
+  longer raises FALLBACK TTL for it (it previously did, with no example file to restore from).
+  The live astro, network and solar profiles were given their `[cache] refresh_sec` keys the same
+  day, clearing the three flags on this host.
 - **TTL cell labels** — `ON DEMAND` (CONNECT), `TIMER` (GITHUB), `WRITE` (MEDIA), `TRIGGER`
   (MTR), `VARIES` (PFSENSE) — are emitted as `ttl_label` display hints, approved as
   implemented.
