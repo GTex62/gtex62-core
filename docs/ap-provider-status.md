@@ -26,7 +26,9 @@ Implements:
 - Site-TOML resolution for AP IPs/labels/cache TTL (`[ap]` section, parallel
   to `[pihole]`) via the same `parse_root_value`/`parse_section_value` awk
   helpers used by `fetch_pihole.sh`
-- Cache TTL check before SSH (skips poll if cache is fresh)
+- Cache TTL check before SSH (skips poll if cache is fresh — "fresh" means under 80% of
+  `cache_ttl_sec` since core 0.9.0; a strict `age < TTL` skipped every other loop tick and ran
+  the real cadence at 1.5-2x the TTL, 181s on a 120s TTL)
 - **One SSH session per AP** (was 3 sessions/AP = 9 connections total across
   the legacy `ap_status_all_clients.sh` for 3 APs) — batches
   `show version` + `show cpu status` + `show wireless-hal station info` into

@@ -96,7 +96,9 @@ weather_profile = "home"
 refresh_sec = 60
 ```
 
-The installed profile omits the `[cache]` block entirely (launcher default 60s applies).
+The installed profile used to omit the `[cache]` block entirely (launcher default 60s
+applied); the live profile now carries `[cache] refresh_sec = 60`, and Doctor flags a profile
+without it as `MISSING` / `ASTRO FALLBACK TTL`.
 `source = "ephem"` is recorded but never branched on — the script always uses pyephem
 regardless of this value, the same recorded-but-unused-config pattern as `air`'s
 `baseline_provider`/`overlay_provider` (see

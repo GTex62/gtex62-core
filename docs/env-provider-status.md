@@ -191,6 +191,10 @@ before a raw file has gone stale skips that source's HTTP call and reuses the ca
 file. All three raw sources share one TTL; there's no way to give AirNow and OpenWeather
 independent cadences.
 
+`current.json` and `status.json` are written to a temp file under `$CACHE_ROOT/tmp` and
+`mv`'d into place (core 0.9.0). Before that a direct `jq … > file` left them empty for the
+~10-20 ms `jq` took, which OSA's once-a-minute ENV read could catch and hold for a minute.
+
 A missing/empty response for a source deletes its temp file rather than caching a bad
 response (`jq -e` shape check gates the `mv`); if *all three* raw files are absent (fresh
 install, or all three failed), `status.json` is written `"error"` / `"air fetch failed;
@@ -252,9 +256,10 @@ weather_profile = "home"
 # lat / lon / timezone — defaults come from site.toml [location.home]
 ```
 
-The installed `profiles/solar/home.toml` (and the installable
-`examples/runtime/profiles/solar/home.toml.example`) have **no `[cache]` section at
-all** — see Known Quirks for what that means for the refresh interval.
+The installable `examples/runtime/profiles/solar/home.toml.example` ships
+`[cache] refresh_sec = 300` (added with core 0.9.0; earlier copies, including older installed
+`profiles/solar/home.toml` files, have no `[cache]` section at all, so the launcher's 300s
+default applied). Doctor flags a solar profile without the key as `MISSING` / `FALLBACK TTL`.
 
 Suite TOML binding:
 
@@ -303,7 +308,9 @@ solar = "home"
 
 Launcher schedules a loop every `SOLAR_TTL` seconds, read from `[cache] refresh_sec`
 (**not** `ttl_sec`), default **300**. Every cycle does a live Open-Meteo call when
-lat/lon resolve — there is no internal staleness check to skip it, unlike `air`.
+lat/lon resolve — there is no internal staleness check to skip it, unlike `air`. As with
+`air`, `current.json` and `status.json` are written temp-file-then-`mv` (core 0.9.0), so a
+reader never catches either empty.
 
 ---
 
@@ -318,9 +325,11 @@ lat/lon resolve — there is no internal staleness check to skip it, unlike `air
   `[cache] ttl_sec`; `solar` reads `[cache] refresh_sec`. Copying an `air`-style
   `ttl_sec = N` into a solar profile silently does nothing — the launcher falls back to
   300s regardless.
-- **The installable solar template has no `[cache]` section**, so there's no
-  discoverable example of the `refresh_sec` key anywhere in `examples/runtime/`. Anyone
-  wanting a faster/slower solar cadence has to know the key name and add it manually.
+- **Resolved in core 0.9.0 — the installable solar template used to have no `[cache]`
+  section**, so there was no discoverable example of the `refresh_sec` key anywhere in
+  `examples/runtime/`. The example now ships `[cache] refresh_sec = 300`; profiles installed
+  before that still lack it (harmless — same 300s default — but Doctor flags them until the key
+  is added by hand, since bootstrap never overwrites an existing profile).
 - **`solar`'s `status.json.provider` is hardcoded to `"weather-derived"`**, ignoring the
   profile's actual `source` value — `write_status()` in `fetch_solar.sh` passes the
   literal string, not `$SOURCE`. `current.json.provider` uses the real `$SOURCE` value

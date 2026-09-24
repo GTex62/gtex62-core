@@ -198,7 +198,9 @@ starts.
 Launcher schedules a loop every `SYSTEM_TTL` seconds, read from `[cache] refresh_sec`,
 default **1s** — this is one of the fast-track domains alongside `net`/`time` (see
 [Architecture](architecture.md)'s TTL table). No internal staleness gate; every cycle
-re-reads `/proc` and re-shells to `sensors`/`nvidia-smi` from scratch.
+re-reads `/proc` and re-shells to `sensors`/`nvidia-smi` from scratch. `current.json` and
+`storage.json` were already written temp-file-then-rename; core 0.9.0 made `write_status`'s
+`status.json` write the same way.
 
 ---
 

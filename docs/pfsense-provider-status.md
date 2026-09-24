@@ -35,7 +35,11 @@ the SSH-sustainability investigation and verification detail.
 The core pfSense provider exists and is structurally correct. It implements:
 
 - Profile/site TOML resolution chain for SSH target and interface names
-- Cache TTL check before SSH (skips poll if cache is fresh)
+- Cache TTL check before SSH (skips poll if cache is fresh — "fresh" means under 80% of
+  the TTL since core 0.9.0; a strict `age < TTL` skipped every other loop tick and ran the
+  real cadence at 1.5-2x the TTL. The same margin applies to `fetch_pihole.sh`,
+  `fetch_router.sh` and `fetch_pfblockerng.sh`; `fetch_pfsense_ifaces.sh` (1s TTL) and the
+  arp/leases/history riders are unchanged)
 - Single batched SSH session collecting interfaces, CPU%, MEM%, and gateway
 - Gate integration (allow check, trip on failure, reset on success)
 - Atomic JSON write via Python + `os.replace()`

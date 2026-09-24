@@ -29,6 +29,8 @@ check. Implements:
 - Profile/site TOML resolution chain for lat/lon, units, language, API key
   (`profiles/weather/{profile}.toml`, falling back to `site.toml`'s
   `[location.home]`/`[credentials]` sections)
+- `current.json`, `forecast_daily.json` and `status.json` are written temp-file-then-`mv`
+  (core 0.9.0) — see the Sep 24, 2026 entry under Session History
 - Independent TTL check before each of two HTTP calls (current and forecast each have
   their own `is_fresh` check against their own raw cache file, though both currently
   share one `cache_ttl_sec` value — see Known Constraints)
@@ -338,3 +340,13 @@ not from prior prose. The Aug 31, 2026 fix itself does have a live CHANGELOG.md 
   the fix, and live verification (three cases: both-fresh `"ok"`, one-field-failing
   `"degraded"`, cold-start `"error"`). This doc's status.json schema, State Field Values
   table, and Remaining Work were updated in the same pass to match.
+- **Sep 24, 2026 — Output files written atomically.** OSA's WXR FORECAST table went blank
+  for roughly a minute while Doctor showed WEATHER's cache about 30s old. Cause: the script
+  wrote `current.json`, `forecast_daily.json` and `status.json` with a direct `jq … > file`,
+  which empties each file for the ~10-20 ms `jq` takes, and WXR decodes once a minute and
+  holds the result. Measured on a copy of the live cache (network skipped), polling the files
+  every millisecond during a rewrite: 222 empty samples across 5 runs before, 0 after. All
+  three writes now go to a temp file under `$CACHE_ROOT/tmp` and `mv -f` into place, as the
+  raw files already did; a `jq` that dies mid-write leaves the old file intact (previously it
+  emptied it — 1172 -> 11 bytes in the fault-injection run). Shipped in core 0.9.0 alongside the
+  same change in the other providers that wrote directly.

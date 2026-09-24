@@ -190,6 +190,14 @@ just config with nothing behind it yet.
 
 ## Known Quirks / History
 
+### Sep 24, 2026 — `current.json` / `status.json` written atomically
+
+Both were written with a direct `jq … > file`, which leaves the file empty for the ~10-20 ms
+`jq` runs. OSA's WXR module decodes its inputs once a minute and holds the result, so a read that
+landed in that window blanked the panel until the next minute (seen first on the forecast table,
+which has the same writer pattern in `weather`). Core 0.9.0 writes both to a temp file under
+`$CACHE_ROOT/tmp` and `mv`'s them into place; a `jq` failure now leaves the old file.
+
 ### Aug 31, 2026 — TAF stuck-data incident (root cause + fix)
 
 **Symptom:** `taf_raw.txt` had been frozen at issue time `140251Z` for **18 days**, while
