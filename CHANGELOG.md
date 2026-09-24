@@ -29,6 +29,14 @@ otherwise read STALE/MISSING. Window: TTL + 30s, capped at 60s; launch time is t
 a domain absent from the suite's `[domains]` are never graced; after the window the normal NOTE
 and PROC fire. See `docs/doctor-design.md`, State Vocabulary.
 
+### Doctor: `fast_track` derived from TTL
+
+`fetch_doctor.sh` sets `fast_track` for any duration row whose TTL is under
+`FAST_TRACK_TTL_SEC` (10s), replacing the hardcoded NET/SYSTEM/TIME list. Today that is NET,
+SYSTEM, TIME and NETWORK, so NETWORK's AGE is now blank like the others (it would only flicker
+through 0..TTL). The suite reads the flag for both the blank AGE and DCM gauge eligibility rather
+than keeping its own threshold, so `gtex62-doctor` requires this change. See `docs/doctor-design.md`.
+
 ### Weather-family refresh cadence
 
 `fetch_openweather.sh`, `fetch_air.sh` and `fetch_aviation.sh` have their own per-file
