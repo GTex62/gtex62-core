@@ -20,6 +20,15 @@ this file and has not been backfilled — see each domain's own
 
 ## Unreleased — 2026-09-24
 
+### Doctor: cold-start grace (STARTING)
+
+`fetch_doctor.sh` reports a domain as `state:"starting"` (no NOTE, no highlight, no entry) for a
+short window after launcher start when its cache predates the launch or is absent and would
+otherwise read STALE/MISSING. Window: TTL + 30s, capped at 60s; launch time is the mtime of
+`runtime/pids/<suite>-launcher.pid`. A provider's own non-ok state, the TTL-fallback `MISSING`, and
+a domain absent from the suite's `[domains]` are never graced; after the window the normal NOTE
+and PROC fire. See `docs/doctor-design.md`, State Vocabulary.
+
 ### Weather-family refresh cadence
 
 `fetch_openweather.sh`, `fetch_air.sh` and `fetch_aviation.sh` have their own per-file

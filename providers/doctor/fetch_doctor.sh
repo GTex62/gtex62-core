@@ -41,10 +41,14 @@
 #
 # ROW
 #   state         "nominal" | "warn" | "disabled" | "private" | "hybrid" |
-#                 "idle" | "armed" | "running" | "optional"
+#                 "idle" | "armed" | "running" | "optional" | "starting"
 #                 Derived ONLY from ttl_sec vs age_sec (plus the provider's
 #                 own non-ok state) — never from ttl_fallback, MISSING or
 #                 REFRESH (doctor-design.md, "STATE's inputs").
+#                 "starting" = cold-start grace (see COLD_START_*): the cache
+#                 predates this launch and would otherwise read STALE/MISSING;
+#                 no NOTE, no highlight, no entry. Never applies to a provider's
+#                 own non-ok state.
 #   enabled       bool — false for DISABLED rows
 #   ttl_sec       int | null       INTENDED ttl (a flagged NET reports 1,
 #                                  never the launcher's effective 60)
@@ -114,6 +118,15 @@ STALE_GRACE_SEC = 5
 # flicker through 0..TTL, so the suite blanks it and gives it no DCM gauge. One rule for
 # both — the suite reads `fast_track`, it does not keep its own threshold.
 FAST_TRACK_TTL_SEC = 10
+# Cold-start grace. Right after the launcher starts, every cache on disk is left
+# over from the last session and reads past its TTL until that domain's first
+# fetch lands. For a window after launch a domain whose cache predates the launch
+# (or is absent) reads STARTING instead of STALE/MISSING; after it, the normal NOTE
+# and PROC fire. Window = the domain's TTL plus one slow round (an SSH or modem
+# scrape), capped. Launch time is the mtime of the launcher's pid file, written
+# before any initial_refresh; a dead launcher leaves an old file, so no grace.
+COLD_START_SLOW_ROUND_SEC = 30
+COLD_START_CAP_SEC = 60
 GITHUB_REFRESH_DAYS = 10   # NOTE `REFRESH` line (4-day buffer before the cliff)
 GITHUB_WINDOW_DAYS = 14
 
@@ -272,6 +285,22 @@ def prof(name):
     return dig(SUITE, f"profiles.{name}") or PROFILE_DEFAULTS[name]
 
 
+try:
+    LAUNCH_EPOCH = os.path.getmtime(os.path.join(
+        CACHE_ROOT, "runtime", "pids", f"{SUITE_ID}-launcher.pid"))
+except OSError:
+    LAUNCH_EPOCH = None
+
+
+def cold_start_grace(m, ttl):
+    """True while a cache (mtime m, None if absent) that predates this launch may
+    still be waiting on its first fetch of the session."""
+    if LAUNCH_EPOCH is None or (m is not None and m >= LAUNCH_EPOCH):
+        return False
+    window = min(COLD_START_CAP_SEC, (ttl or 0) + COLD_START_SLOW_ROUND_SEC)
+    return NOW - LAUNCH_EPOCH <= window
+
+
 SUITE_DOMAINS = None
 if suite_ok:
     SUITE_DOMAINS = set(dig(SUITE, "domains.required", []) or []) | set(
@@ -311,8 +340,10 @@ class Row:
         self.conds = []               # (tag, proc, detail)
         self.extra = {}
         self.stale = False
+        self.starting = False         # cold-start grace: would be STALE/MISSING
         self.present = False
         self.cache_file = None
+        self.cache_mtime = None
 
     def cond(self, tag, proc=None, detail=None):
         self.conds.append((tag, proc, detail))
@@ -323,6 +354,7 @@ class Row:
         self.cache_file = path
         m = mtime(path)
         self.present = m is not None
+        self.cache_mtime = m
         if m is not None:
             self.age_sec = round(max(0.0, NOW - m), 1)
             if ttl is not None and self.age_sec > ttl + STALE_GRACE_SEC:
@@ -354,6 +386,8 @@ class Row:
         bad_provider = self.provider_state in PROVIDER_BAD
         if self.enabled and state != "private" and (self.stale or bad_provider):
             state = "warn"
+        elif self.enabled and self.starting:
+            state = "starting"
 
         row = {
             "state": state,
@@ -437,10 +471,18 @@ def generic_stale(row, key, proc, never_tag="STALE", detail=None):
     """Missing cache or stale-with-provider-ok -> STALE/MISSING NOTE."""
     if not row.enabled:
         return
+    not_listed = row.extra.get("flags", {}).get("in_suite_domains") is False
     if not row.present:
-        row.cond(never_tag, proc, detail)
+        if not not_listed and cold_start_grace(None, row.ttl_sec):
+            row.starting = True
+        else:
+            row.cond(never_tag, proc, detail)
     elif row.stale and row.provider_state not in PROVIDER_BAD and row.ttl_fallback is not True:
-        row.cond("STALE", proc, detail)
+        if not not_listed and cold_start_grace(row.cache_mtime, row.ttl_sec):
+            row.stale = False
+            row.starting = True
+        else:
+            row.cond("STALE", proc, detail)
 
 
 def finish(row, key):
@@ -908,6 +950,7 @@ def do_pfsense():
     status_ttl = specs[0][2]
     newest = None
     stale_names, bad_names = [], []
+    all_cold = True
     main_doc = None
     for name, fname, ttl, en in plan:
         path = os.path.join(d, fname)
@@ -929,6 +972,7 @@ def do_pfsense():
         limit = ttl + (status_ttl if name in rider_names else 0) + STALE_GRACE_SEC
         if m is None or age > limit:
             stale_names.append(name)
+            all_cold = all_cold and cold_start_grace(m, ttl)
         elif sstate in PROVIDER_BAD:
             bad_names.append((name, sstate, (doc or {}).get("note")))
     row.extra["subcaches"] = subs
@@ -945,7 +989,9 @@ def do_pfsense():
             ("ssh gate tripped", "PFSENSE SSH GATE"),
             ("ssh failed", "PFSENSE SSH GATE"),
         ])
-    if stale_names:
+    if stale_names and all_cold:
+        row.starting = True
+    elif stale_names:
         row.stale = True
         row.cond("STALE", "PFSENSE SUBCACHE STALE", ", ".join(stale_names))
     # An enabled, fresh sub-cache reporting its own non-ok state, independent

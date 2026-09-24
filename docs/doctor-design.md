@@ -57,6 +57,7 @@ design":
 | PRIVATE | unhighlighted | GITHUB's state — maintainer-only and hardcoded: never computed from its `enabled` key, `status.json` or any live signal, a fixed fact about which domain this is. No one but the maintainer can meaningfully enable it (`gthb_format.py`, which it depends on, lives outside both repos in a private directory), so it is structurally not-applicable to any other install, not a setting someone turned off. PRIVATE does not mean nothing to watch — GITHUB can still carry a `REFRESH` NOTE (see NOTE Column) that highlights independently of STATE |
 | HYBRID | purple | One or more, but not all, of a multi-sub-flag domain's sub-caches are enabled — informational, not a problem |
 | OPTIONAL | blue | Present and working, but not required (tri-hud's pfSense-enabled row is the model) |
+| STARTING | unhighlighted | Cold-start grace: the launcher started moments ago and this domain's cache predates that launch (or does not exist yet), so it would read STALE/MISSING. Not verified fresh, not a problem either. **Triggered by** the launcher having started within the domain's window — its TTL plus one slow round (30s), capped at 60s — and the cache's mtime being older than the launch (or absent). **Ends** when the domain's first fetch of the session lands (the cache is newer than the launch: NOMINAL) or the window closes (STALE/MISSING with the normal NOTE and PROC). No NOTE, no highlight, no DCM entry, no gauge |
 
 **The STATE column says NOMINAL, not OK**, for suite-family visual consistency with
 OSA/SitRep, which deliberately avoid "OK" for the same reason. "OK" survives only where
@@ -83,6 +84,21 @@ reason: its AGE, climbing toward 60, exceeds the 1s TTL the row reports — not 
 flagged row reports its *intended* `ttl_sec` (NET's 1), never the launcher's effective
 fallback, with `ttl_fallback:true` alongside it; reporting the effective 60s would make NET's
 fallback read NOMINAL and defeat the point of flagging it.
+
+**STARTING is not NOMINAL, on purpose.** NOMINAL means present, fresh and within TTL — literally
+true, not "true enough that no one needs to act." A cache that is hours old is not fresh just
+because the cause is benign, and calling it NOMINAL would make scanning STATE untrustworthy, the
+same reasoning that keeps `ttl_fallback` out of STATE. STARTING is the honest word for "not yet
+verified, not a problem" and sits in the same unhighlighted category as DISABLED and PRIVATE — and
+gets its own word for the same reason MTR did. **Only the Doctor-derived STALE/MISSING-from-cache-age
+condition is eligible.** A provider's own `error`/`degraded`/`partial`/`waiting` is never suppressed
+(AVIATION's METAR failure kept showing through the cold start this was diagnosed against), nor is the
+`MISSING` TTL-fallback flag, which is not a cache-age condition. A domain enabled in `core.toml` but
+absent from the launching suite's `[domains]` gets no grace either: no first fetch is coming, so
+`DOMAIN NOT LISTED` fires at once. Launch time is the mtime of the launcher's pid file
+(`runtime/pids/<suite>-launcher.pid`), written before any `initial_refresh`; a dead launcher leaves
+an old file, so nothing is graced. A row whose cache was written after the launch is never graced —
+a domain whose loop dies mid-session escalates normally.
 
 **OPTIONAL is narrower than it first looked.** It does not mean "provider toggle is off" —
 that's DISABLED. AP/PFSENSE being off should show DISABLED like VPN, not OPTIONAL.
@@ -135,7 +151,7 @@ an actionable NOTE present — is DCM's takeover trigger (see DCM — Digital Co
   something that actively changed: a threshold crossed, a fetch failed, a condition
   activated. No informational NOTE exists today: a condition that is merely informational
   (MEDIA's unset Genius token was one) is not shown in the NOTE column.
-- **STATE alone never highlights.** NOMINAL, DISABLED, PRIVATE, HYBRID, IDLE and RUNNING
+- **STATE alone never highlights.** NOMINAL, DISABLED, PRIVATE, STARTING, HYBRID, IDLE and RUNNING
   are what a row simply *is* — working, administratively off, structurally
   not-applicable, hybrid-but-healthy, armed-and-waiting, capturing-as-designed — a condition a row settles into and stays in,
   regardless of whether the underlying fact is "working" or "off by design." OPTIONAL
@@ -991,6 +1007,21 @@ trustworthy on its own — zero exceptions, zero domain-specific reads needed.
 
 Closed items, moved out of Open Questions. The `status.json` schema they refer to is
 documented in the header comment of `providers/doctor/fetch_doctor.sh`.
+
+**Standalone cold start (2026-09-24).** Launching Doctor alone (no SitRep or OSA) showed a handful
+of temporary STALE rows, MODEM among them, that all cleared within seconds. Diagnosed first, in
+order: `doctor.toml.example`'s `[domains] required` already lists every domain, including the six
+dual-gated ones (there is no separate `[domains]` list to have drifted from `required`), and its
+`[profiles]` ids match SitRep's and OSA's, so neither a missing loop nor an empty profile was the
+cause. The cause was the caches left over from the previous session: past TTL until each domain's first
+fetch of the new session lands, MODEM last because its first fetch is a modem scrape. That is a
+transient, not a misconfiguration, so the "check `[domains]`" procedure would have been wrong advice,
+and a "wait" QRH procedure would still have triggered DCM's takeover flash. Resolved with a provider-side
+grace instead: **STARTING** (State Vocabulary), no new NOTE tag, no new procedure. Verified by cold-
+launching Doctor alone: 13 domains STARTING at 3s, all but one NOMINAL by 6s; with one provider's script
+made unrunnable its row stayed STARTING for the 60s window, then went WARN/STALE with the normal DCM entry.
+The DCM gauge row skips STARTING domains (their AGE is last session's, so a gauge would sit pegged at
+the bottom).
 
 **Settled by the `fetch_doctor.sh` pass (2026-09-23):**
 
