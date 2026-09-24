@@ -57,7 +57,8 @@
 #                 the domain on its bash-default cadence. A domain whose fetch
 #                 script checks for its profile reports a missing FILE as its
 #                 own error (PROFILE TOML MISSING) — never as ttl_fallback.
-#   fast_track    bool — NET/SYSTEM/TIME (1s class); AGE display is blank
+#   fast_track    bool — a duration row whose TTL is under FAST_TRACK_TTL_SEC (10s):
+#                 NET, SYSTEM, TIME, NETWORK today. AGE display is blank
 #                 for these, NET's only while ttl_fallback is false
 #   age_sec       number | null    freshness age (now - cache mtime), as of this run
 #   cache_file    path | null      the file whose mtime age_sec measures. The suite
@@ -109,6 +110,10 @@ HOME = os.path.expanduser("~")
 # 120-121s on a 120s TTL, Pi-hole/router at 60s. 5s covers that jitter with room
 # for a slow SSH round, and only delays a dead 1s loop's WARN by a few seconds.
 STALE_GRACE_SEC = 5
+# A duration row with a TTL under this many seconds is "fast track": its AGE would only
+# flicker through 0..TTL, so the suite blanks it and gives it no DCM gauge. One rule for
+# both — the suite reads `fast_track`, it does not keep its own threshold.
+FAST_TRACK_TTL_SEC = 10
 GITHUB_REFRESH_DAYS = 10   # NOTE `REFRESH` line (4-day buffer before the cliff)
 GITHUB_WINDOW_DAYS = 14
 
@@ -297,7 +302,6 @@ class Row:
         self.ttl_sec = None
         self.ttl_label = None
         self.ttl_fallback = None
-        self.fast_track = False
         self.age_sec = None
         self.age_kind = "duration"
         self.age_ts = None
@@ -357,7 +361,8 @@ class Row:
             "ttl_sec": self.ttl_sec,
             "ttl_label": self.ttl_label,
             "ttl_fallback": self.ttl_fallback,
-            "fast_track": self.fast_track,
+            "fast_track": (self.age_kind == "duration" and isinstance(self.ttl_sec, (int, float))
+                           and self.ttl_sec < FAST_TRACK_TTL_SEC),
             "age_sec": self.age_sec,
             "cache_file": self.cache_file,
             "age_kind": self.age_kind,
@@ -835,7 +840,6 @@ def do_mtr():
 def do_net():
     p = prof("net")
     row = Row("net")
-    row.fast_track = True
     exists, pt = profile_toml("net", p)
     ttl, row.ttl_fallback = ttl_key(pt, exists, "cache.ttl_sec", 1, "net")
     path = status_path("net", p)
@@ -1000,7 +1004,6 @@ def do_solar():
 def do_fast(key, ttl_default, proc):
     p = prof(key)
     row = Row(key)
-    row.fast_track = True
     exists, pt = profile_toml(key, p)
     ttl, row.ttl_fallback = ttl_key(pt, exists, "cache.refresh_sec", ttl_default, key)
     path = status_path(key, p)

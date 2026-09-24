@@ -181,12 +181,13 @@ itself switches representation depending on the domain's TTL:
   time, system, vpn, orb, alerts, astro, ap, pihole (60s in the shipped pfsense profile,
   300s script fallback), weather, solar, modem, aviation, air,
   network (5s default — resolved below, no longer "varies"). A duration reads faster
-  than a clock-time diff at these scales. **NET, SYSTEM and TIME (1s TTL) show a blank AGE
-  by design:** at a 1s TTL the value would only flicker between 0 and 1 on each redraw —
-  the same fast-track reasoning that excludes them from DCM's gauges (see Gauge
-  eligibility). NETWORK's AGE is **not** blank — settled: it is a real duration (5s TTL, so the value stays
-readable), `fast_track` false. Its DCM gauge exclusion is a separate matter (see Gauge
-eligibility).
+  than a clock-time diff at these scales. **A duration row whose TTL is under 10s shows a blank AGE by
+  design (`fast_track`, today NET, SYSTEM, TIME and NETWORK):** the value would only cycle
+  through 0..TTL on every redraw, which the live one-second AGE tick turns into visible
+  flicker. The rule is the general threshold, not a list of domains, and it is the same one
+  that excludes those rows from DCM's gauges (see Gauge eligibility) — the provider decides it
+  once and the suite reads the `fast_track` flag. VPN (10s TTL) is not under the line and keeps
+  its AGE.
   **NET's blank is the normal-operation state, and it is not a contradiction that its AGE
   can appear.** Blank (or near-zero) describes NET refreshing at its real 1s TTL. When the
   TTL-fallback condition holds (see TTL-fallback collision, below) NET is no longer
@@ -607,7 +608,10 @@ condition 2 removes four:
 | Excluded | TTL | Why |
 | --- | --- | --- |
 | NET, SYSTEM, TIME | 1s | At Conky's own cadence there is no visible range; the marker would just flicker or jump between redraws, reading as noise or a broken widget rather than data |
-| NETWORK | 5s | Confirmed too close to the flicker zone for reliable per-refresh motion |
+| NETWORK | 5s | Under the 10s fast-track line: too close to the flicker zone for reliable per-refresh motion |
+
+The 10s line is the same threshold that blanks the AGE cell (`fast_track`, decided once in the
+provider), so the two cannot drift apart.
 
 There is no fixed numeric cutoff beyond that observed boundary: 5s is confirmed too close,
 and the smallest eligible launcher default is VPN's 10s.
@@ -995,9 +999,13 @@ documented in the header comment of `providers/doctor/fetch_doctor.sh`.
   `ttl_sec`, never the effective fallback. It never feeds STATE and is evaluated for every
   launcher-loop domain with a TTL key in its profile, not only NET/ORB/ASTRO (see
   Provider Table — Layout). The file is `shared/doctor/{profile}/status.json`.
-- **NETWORK's AGE is not blank.** It is a real duration (see the AGE column); it is excluded
-  from DCM gauges on the flicker-zone reasoning alone. `fast_track` is `true` only for NET,
-  SYSTEM and TIME.
+- **NETWORK's AGE is blank, by a general fast-track rule (revised 2026-09-24).** Any duration
+  row with a TTL under 10s is `fast_track`: AGE blank, no DCM gauge, one threshold decided in
+  the provider (`FAST_TRACK_TTL_SEC`), replacing the hardcoded NET/SYSTEM/TIME list. Today that is
+  NET, SYSTEM, TIME and NETWORK; VPN (10s) keeps its AGE. This reverses the earlier "NETWORK's
+  AGE is not blank" decision, which was right when the cell only updated every 5s doctor run; the
+  live one-second AGE tick turned its 0..5 cycle into flicker. NET's exception is unchanged: its
+  AGE shows when `ttl_fallback` is set.
 - **GITHUB's loop special-casing is settled** — read directly from its cache files, STATE
   hardcoded PRIVATE, NOTEs raised only for an applicable (existing, enabled) profile; AGE is
   the oldest of the registry repos' newest `history_days` dates, switching to `N/14` once
@@ -1079,31 +1087,6 @@ documented in the header comment of `providers/doctor/fetch_doctor.sh`.
   of the OPTIONAL / ship-disabled-defaults group, so it was deleted from both rather than
   reworded. This is the same underlying fact as the loop special-case below, not a second
   question.
-- **NETWORK's AGE is treated as blank — permanent by design, or a
-  gap?** The sole unresolved case among the blank AGEs. NET, SYSTEM and TIME are blank
-  by the 1s fast-track reasoning in the AGE column section and are not part of this
-  question. NETWORK (5s TTL) sits just above that line: the AGE column lists it in the
-  duration group, DCM excludes it as too close to the flicker zone, and whether its blank
-  AGE is deliberate or a gap has never been confirmed. Independent of DCM, which simply
-  inherits the answer.
-- **The TTL-fallback flag has no concrete spec — open, narrowed.** The behavior is settled: Doctor
-  derives `MISSING` for NET, ORB and ASTRO by checking each profile's existence and cache-TTL
-  key directly, never from AGE/TTL (`doctor-missing-conditions.md`, NET and ORB entries), and
-  STATE stays derived independently of it (see "STATE's inputs"). What is not specified
-  anywhere is the flag itself: whether `doctor.json` needs a dedicated real-vs-fallback field,
-  what it is called, and where that is specified. The name is also unsettled — the scaffold
-  plan's `fetch_doctor.sh` writes `shared/doctor/{profile}/status.json`, not `doctor.json`. A
-  related unknown: which TTL a flagged row reports — the intended one (NET's 1s) or the effective
-  fallback (60s). It decides NET's STATE: against 1s the fallback's climbing AGE reads WARN;
-  against 60s it would read NOMINAL beside `MISSING`, like ORB and ASTRO. `providers/doctor/` does not exist yet, so
-  there is nothing to check this against.
-
----
-
-## Repo / Scaffold Plan
-
-Same sequence as SitRep's build:
-
 - New repo `gtex62-doctor`, directory structure copied wholesale from `gtex62-sitrep`
   (`lua/suite/`, `lua/ui/frame.lua`, `theme/`, `scripts/`, `docs/`, `CLAUDE.md`).
 - `palette.lua` copied wholesale from OSA/SitRep — same catalog, single dense panel.
