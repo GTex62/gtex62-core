@@ -18,7 +18,11 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
-## Unreleased — 2026-09-24
+## 0.9.1 — 2026-09-24
+
+Doctor refinements and one provider cadence fix, on top of 0.9.0. Patch bump: no new domain and
+nothing to migrate in an existing live config. `gtex62-doctor` v0.1.0 requires this release: it
+reads the `STARTING` state and the `fast_track` flag added here.
 
 ### Doctor: cold-start grace (STARTING)
 
