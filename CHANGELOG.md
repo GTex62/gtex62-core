@@ -18,7 +18,54 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
-## Unreleased — 2026-09-24 (atomic cache writes)
+## 0.9.0 — 2026-09-24
+
+Adds the `doctor` provider for `gtex62-doctor` and two provider-behavior fixes found while
+building it. Minor bump: a new domain, a new `status.json` schema and a launcher toggle that is now
+load-bearing. Nothing to migrate in an existing live config. To use the Doctor suite, rerun
+`gtex62-core-bootstrap-runtime` (or the suite's `start-conky.sh`) so `suites/doctor.toml` is
+installed. **0.8.1 was never tagged; its changes ship in this release.**
+
+### `doctor` provider
+
+Additive: nothing existing changes behavior, and
+the launcher only starts it for a suite that lists `"doctor"` in its `[domains]`.
+
+- **`providers/doctor/fetch_doctor.sh`.** Reads every other domain's cache and mtime,
+  `core.toml`'s `[providers]` flags, each profile TOML and `site.toml`, and writes
+  `shared/doctor/{profile}/status.json` (schema in the script's header comment). Emits
+  per-row STATE/TTL/AGE/NOTE, a `ttl_fallback` flag (a profile lacking the key the launcher
+  parses its TTL from), QRH `proc` titles plus `detail` for every actionable condition,
+  and the RUNTIME/CONFIG panel data. Pure computation over already-cached files — no SSH,
+  no gate, same shape as `fetch_alerts.sh`.
+- **Launcher wiring (`bin/gtex62-core-launch`).** `[doctor] enabled` is now load-bearing (it
+  was an inert placeholder), gated on the launching suite listing `"doctor"` in `[domains]`.
+  `DOCTOR_TTL` defaults to 5s; no `profiles/doctor/*.toml` ships.
+- **`examples/runtime/suites/doctor.toml.example`** — a profile for every domain, and a
+  `required` list covering all of them plus `doctor`.
+- **`profiles/solar/home.toml.example` now ships `[cache] refresh_sec = 300`.** It had no cache key, so
+  a fresh bootstrap made Doctor flag SOLAR's TTL as running on the launcher default.
+- **Docs.** `doctor-design.md` records the settled decisions and the remaining open
+  questions; the four QRH procedures the provider needs (DOMAIN NOT LISTED, FALLBACK TTL,
+  PFSENSE SUBCACHE DEGRADED, UNRECOGNIZED NOTE) live in `gtex62-doctor/docs/doctor-qrh.md`.
+
+### Provider refresh cadence fix
+
+Providers with an in-script "skip if the cache is fresh" check (AP, Pi-hole, router,
+pfBlockerNG, pfSense status, VPN, MTR, MODEM) were refreshing at 1.5-2x their configured TTL.
+`refresh_loop` ticks land exactly one TTL apart, but the cache file's mtime trails the tick by
+the fetch's own runtime, so a strict `age < TTL` read every tick-old cache as still fresh and
+skipped every other tick. Observed on AP (TTL 120): a rewrite every 181s, and with two suites'
+launchers running at once the phases interleaved into the same 1.5x pattern.
+
+- The skip check now applies only when the cache is under 80% of its TTL (`age < TTL * 4/5`).
+  A second launcher's tick, which lands well inside that window, still skips, so duplicate
+  fetches stay deduplicated. Verified live: AP now rewrites every 120s, Pi-hole and router
+  every 60s.
+- Left alone: `fetch_pfsense_ifaces.sh` (1s TTL, sub-second polling) and the arp/leases/history
+  riders inside `fetch_pfsense.sh`.
+
+### Atomic cache writes
 
 Providers wrote several cache files with a direct `jq ... > file`, which empties the file for
 the ~10-20 ms `jq` takes to run. OSA's WXR and env modules decode their inputs once a minute, so
@@ -37,43 +84,6 @@ a read landing in that window blanked a panel (the WXR forecast table) until the
 - Not changed: the pfSense, VPN and AP error/disabled/gate-stub writes (rare, not on a hot read
   path).
 - A `jq` failure now leaves its `$CACHE_ROOT/tmp/<provider>_<profile>_<file>.json.<pid>` behind.
-
-## Unreleased — 2026-09-23 (provider cadence fix)
-
-Providers with an in-script "skip if the cache is fresh" check (AP, Pi-hole, router,
-pfBlockerNG, pfSense status, VPN, MTR, MODEM) were refreshing at 1.5-2x their configured TTL.
-`refresh_loop` ticks land exactly one TTL apart, but the cache file's mtime trails the tick by
-the fetch's own runtime, so a strict `age < TTL` read every tick-old cache as still fresh and
-skipped every other tick. Observed on AP (TTL 120): a rewrite every 181s, and with two suites'
-launchers running at once the phases interleaved into the same 1.5x pattern.
-
-- The skip check now applies only when the cache is under 80% of its TTL (`age < TTL * 4/5`).
-  A second launcher's tick, which lands well inside that window, still skips, so duplicate
-  fetches stay deduplicated. Verified live: AP now rewrites every 120s, Pi-hole and router
-  every 60s.
-- Left alone: `fetch_pfsense_ifaces.sh` (1s TTL, sub-second polling) and the arp/leases/history
-  riders inside `fetch_pfsense.sh`.
-
-## Unreleased — 2026-09-23
-
-New `doctor` provider for `gtex62-doctor`. Additive: nothing existing changes behavior, and
-the launcher only starts it for a suite that lists `"doctor"` in its `[domains]`.
-
-- **`providers/doctor/fetch_doctor.sh`.** Reads every other domain's cache and mtime,
-  `core.toml`'s `[providers]` flags, each profile TOML and `site.toml`, and writes
-  `shared/doctor/{profile}/status.json` (schema in the script's header comment). Emits
-  per-row STATE/TTL/AGE/NOTE, a `ttl_fallback` flag (a profile lacking the key the launcher
-  parses its TTL from), QRH `proc` titles plus `detail` for every actionable condition,
-  and the RUNTIME/CONFIG panel data. Pure computation over already-cached files — no SSH,
-  no gate, same shape as `fetch_alerts.sh`.
-- **Launcher wiring (`bin/gtex62-core-launch`).** `[doctor] enabled` is now load-bearing (it
-  was an inert placeholder), gated on the launching suite listing `"doctor"` in `[domains]`.
-  `DOCTOR_TTL` defaults to 5s; no `profiles/doctor/*.toml` ships.
-- **`examples/runtime/suites/doctor.toml.example`** — a profile for every domain, and a
-  `required` list covering all of them plus `doctor`.
-- **Docs.** `doctor-design.md` records the settled decisions and the remaining open
-  questions; the four QRH procedures the provider needs (DOMAIN NOT LISTED, FALLBACK TTL,
-  PFSENSE SUBCACHE DEGRADED, UNRECOGNIZED NOTE) live in `gtex62-doctor/docs/doctor-qrh.md`.
 
 ---
 
