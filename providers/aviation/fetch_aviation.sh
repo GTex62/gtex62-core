@@ -124,7 +124,10 @@ is_fresh() {
   [[ -f "$path" ]] || return 1
   local mtime
   mtime="$(stat -c %Y "$path" 2>/dev/null || echo 0)"
-  [[ $(( $(date +%s) - mtime )) -lt $ttl ]]
+  # Fresh = under 80% of the TTL, not strictly under it: refresh_loop ticks land one TTL apart
+  # and this file's mtime is set slightly after the check, so a strict `age < TTL` can read a
+  # tick-old cache as fresh and skip every other tick (real cadence up to 2x TTL).
+  [[ $(( $(date +%s) - mtime )) -lt $(( ttl * 4 / 5 )) ]]
 }
 
 # Tags each error line with which call produced it and when, so fetch.log

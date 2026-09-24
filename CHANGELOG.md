@@ -18,6 +18,20 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
+## Unreleased — 2026-09-24
+
+### Weather-family refresh cadence
+
+`fetch_openweather.sh`, `fetch_air.sh` and `fetch_aviation.sh` have their own per-file
+`is_fresh` skip check, the same strict `age < TTL` shape fixed in 0.9.0 for AP, Pi-hole, router,
+pfBlockerNG, pfSense status, VPN, MTR and MODEM. It skips or fetches depending on sub-second
+phase (roughly 30-50% of single-launcher start times would skip every other tick, up to 2x the
+TTL), hidden in practice because OSA, SitRep and Doctor land on different phases. Fresh now means
+under 80% of the TTL. Verified on the live raw files: weather 290-300s on a 300s TTL, aviation
+598-601s on 600s, air 900s on 900s, with no skipped ticks.
+
+---
+
 ## 0.9.0 — 2026-09-24
 
 Adds the `doctor` provider for `gtex62-doctor` and two provider-behavior fixes found while

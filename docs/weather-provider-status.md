@@ -350,3 +350,14 @@ not from prior prose. The Aug 31, 2026 fix itself does have a live CHANGELOG.md 
   raw files already did; a `jq` that dies mid-write leaves the old file intact (previously it
   emptied it — 1172 -> 11 bytes in the fault-injection run). Shipped in core 0.9.0 alongside the
   same change in the other providers that wrote directly.
+- **Sep 24, 2026 — Skip check margin: fresh = under 80% of the TTL.** Found while auditing
+  which providers share the strict `age < TTL` skip-if-fresh pattern that had been stretching
+  AP's real cadence to 181s on a 120s TTL. `is_fresh` here has the same shape: `refresh_loop`
+  ticks land one TTL apart and `raw_*.json` gets its mtime a fetch-duration after the check, so
+  whether a tick reads the cache as still fresh depends on sub-second phase — roughly 30-50% of
+  launcher start times would skip every other tick and run the cadence at up to 2x TTL. It wasn't
+  visible because three launchers (OSA, SitRep, Doctor) land on different phases and at least one
+  is lucky; a single-suite run on an unlucky phase would have shown it. `is_fresh` now treats
+  the cache as fresh only under `TTL * 4 / 5` (same margin as AP/pfSense; a fetch up to 20%
+  early is harmless here). Verified on the live raw files after the change: 5 rewrites of
+  `raw_current.json` at 300s and 5 of `raw_forecast.json` at 290-300s against a 300s TTL.

@@ -188,7 +188,10 @@ Inside the script, `AIR_TTL` does double duty — it also gates each raw-source 
 independently via `is_fresh` (mtime of `raw_openweather.json` / `raw_airnow_data.json` /
 `raw_airnow_observation.json` against the same TTL), so a launcher cycle that fires
 before a raw file has gone stale skips that source's HTTP call and reuses the cached raw
-file. All three raw sources share one TTL; there's no way to give AirNow and OpenWeather
+file. "Fresh" means under 80% of `AIR_TTL` (core 0.9.0+): a strict `age < TTL` read a tick-old
+cache as still fresh depending on sub-second phase, which could skip every other tick and run the
+real cadence at up to 2x (15 minutes of AQI data stretching to 30). The live raw file was
+verified rewriting every 900s afterwards. All three raw sources share one TTL; there's no way to give AirNow and OpenWeather
 independent cadences.
 
 `current.json` and `status.json` are written to a temp file under `$CACHE_ROOT/tmp` and

@@ -190,6 +190,16 @@ just config with nothing behind it yet.
 
 ## Known Quirks / History
 
+### Sep 24, 2026 — Skip check margin: fresh = under 80% of the TTL
+
+`is_fresh` (per-file, `metar_ttl_sec`/`taf_ttl_sec`) used a strict `age < TTL`, the same shape
+that stretched AP's real cadence to 181s on a 120s TTL. `refresh_loop` ticks land one TTL apart
+and the raw file's mtime is set a fetch-duration after the check, so whether a tick sees the
+cache as still fresh depends on sub-second phase (roughly 30-50% of launcher start times would
+skip every other tick, doubling the cadence). Three launchers at different phases hid it. Fresh now
+means under `ttl * 4 / 5`. Verified on the live files afterwards: METAR and TAF rewrites at
+598-601s on a 600s TTL, consistently.
+
 ### Sep 24, 2026 — `current.json` / `status.json` written atomically
 
 Both were written with a direct `jq … > file`, which leaves the file empty for the ~10-20 ms
