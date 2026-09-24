@@ -182,7 +182,8 @@ write_status() {
       started_at:(if $started_at=="" then null else $started_at end),
       started_at_epoch:$started_epoch,
       last_confirmed_at_epoch:$last_confirmed_epoch
-    }' > "$MTR_JSON"
+    }' > "$TMP_DIR/mtr_${MTR_PROFILE_ID}_mtr_state.json.$$"
+  mv -f "$TMP_DIR/mtr_${MTR_PROFILE_ID}_mtr_state.json.$$" "$MTR_JSON"
 }
 
 # -------------------------------------------------------------------------

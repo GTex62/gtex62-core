@@ -59,7 +59,8 @@ write_status() {
     --arg profile "$PROFILE_ID" \
     --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg note "$note" \
-    '{state:$state, profile:$profile, generated_at:$generated_at, note:$note}' > "$STATUS_JSON"
+    '{state:$state, profile:$profile, generated_at:$generated_at, note:$note}' > "$TMP_DIR/aviation_${PROFILE_ID}_status.json.$$"
+  mv -f "$TMP_DIR/aviation_${PROFILE_ID}_status.json.$$" "$STATUS_JSON"
 }
 
 # Per-field state/last_ok/age_seconds, astro-schema's recommended shape.
@@ -205,7 +206,8 @@ jq -n \
   --rawfile metar "$RAW_METAR" \
   --rawfile taf "$RAW_TAF" \
   --rawfile station_model_raw "$RAW_STATION_MODEL" \
-  '{generated_at:$generated_at, stations:{metar:$metar_station, taf:$taf_station, station_model:$station_model}, metar_raw:$metar, taf_raw:$taf, station_model_raw:$station_model_raw}' > "$CURRENT_JSON"
+  '{generated_at:$generated_at, stations:{metar:$metar_station, taf:$taf_station, station_model:$station_model}, metar_raw:$metar, taf_raw:$taf, station_model_raw:$station_model_raw}' > "$TMP_DIR/aviation_${PROFILE_ID}_current.json.$$"
+mv -f "$TMP_DIR/aviation_${PROFILE_ID}_current.json.$$" "$CURRENT_JSON"
 
 # Envelope state: "error" only in the total-failure case above (unchanged).
 # "degraded" is new — one field failing while the other is fine, matching
@@ -238,4 +240,5 @@ jq -n \
   --arg note "$NOTE" \
   --argjson metar "$METAR_FIELD_JSON" \
   --argjson taf "$TAF_FIELD_JSON" \
-  '{state:$state, profile:$profile, generated_at:$generated_at, note:$note, metar:$metar, taf:$taf}' > "$STATUS_JSON"
+  '{state:$state, profile:$profile, generated_at:$generated_at, note:$note, metar:$metar, taf:$taf}' > "$TMP_DIR/aviation_${PROFILE_ID}_status.json.$$"
+mv -f "$TMP_DIR/aviation_${PROFILE_ID}_status.json.$$" "$STATUS_JSON"

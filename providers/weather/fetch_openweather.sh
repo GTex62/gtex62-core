@@ -65,7 +65,8 @@ write_status() {
     --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg provider_updated_at "$provider_ts" \
     --arg note "$note" \
-    '{state:$state, profile:$profile, provider:$provider, generated_at:$generated_at, provider_updated_at:$provider_updated_at, note:$note}' > "$STATUS_JSON"
+    '{state:$state, profile:$profile, provider:$provider, generated_at:$generated_at, provider_updated_at:$provider_updated_at, note:$note}' > "$TMP_DIR/weather_${PROFILE_ID}_status.json.$$"
+  mv -f "$TMP_DIR/weather_${PROFILE_ID}_status.json.$$" "$STATUS_JSON"
 }
 
 # Per-field state/last_ok/age_seconds, same convention as
@@ -208,7 +209,8 @@ jq -n \
     icon: ($c.weather[0].icon // empty),
     description: ($c.weather[0].description // "")
   }
-  ' > "$CURRENT_JSON"
+  ' > "$TMP_DIR/weather_${PROFILE_ID}_current.json.$$"
+mv -f "$TMP_DIR/weather_${PROFILE_ID}_current.json.$$" "$CURRENT_JSON"
 
 jq -n \
   --slurpfile fc "$RAW_FORECAST" \
@@ -278,7 +280,8 @@ jq -n \
       | .[:6]
     )
   }
-  ' > "$FORECAST_JSON"
+  ' > "$TMP_DIR/weather_${PROFILE_ID}_forecast_daily.json.$$"
+mv -f "$TMP_DIR/weather_${PROFILE_ID}_forecast_daily.json.$$" "$FORECAST_JSON"
 
 PROVIDER_TS="$(jq -r '.provider_updated_at // empty' "$CURRENT_JSON" 2>/dev/null || true)"
 
@@ -315,4 +318,5 @@ jq -n \
   --arg note "$NOTE" \
   --argjson current "$CURRENT_FIELD_JSON" \
   --argjson forecast "$FORECAST_FIELD_JSON" \
-  '{state:$state, profile:$profile, provider:$provider, generated_at:$generated_at, provider_updated_at:$provider_updated_at, note:$note, current:$current, forecast:$forecast}' > "$STATUS_JSON"
+  '{state:$state, profile:$profile, provider:$provider, generated_at:$generated_at, provider_updated_at:$provider_updated_at, note:$note, current:$current, forecast:$forecast}' > "$TMP_DIR/weather_${PROFILE_ID}_status.json.$$"
+mv -f "$TMP_DIR/weather_${PROFILE_ID}_status.json.$$" "$STATUS_JSON"

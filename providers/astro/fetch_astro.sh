@@ -57,7 +57,8 @@ write_status() {
     --arg collector "astro" \
     --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg note "$2" \
-    '{state:$state, profile:$profile, collector:$collector, generated_at:$generated_at, note:$note}' > "$STATUS_JSON"
+    '{state:$state, profile:$profile, collector:$collector, generated_at:$generated_at, note:$note}' > "$TMP_DIR/astro_${PROFILE_ID}_status.json.$$"
+  mv -f "$TMP_DIR/astro_${PROFILE_ID}_status.json.$$" "$STATUS_JSON"
 }
 
 if [[ ! -f "$PROFILE_TOML" ]]; then

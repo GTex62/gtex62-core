@@ -18,6 +18,26 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
+## Unreleased — 2026-09-24 (atomic cache writes)
+
+Providers wrote several cache files with a direct `jq ... > file`, which empties the file for
+the ~10-20 ms `jq` takes to run. OSA's WXR and env modules decode their inputs once a minute, so
+a read landing in that window blanked a panel (the WXR forecast table) until the next minute.
+
+- WEATHER (`current.json`, `forecast_daily.json`, `status.json`), AVIATION (`current.json`,
+  `status.json`), AIR (`current.json`, `status.json`) and SOLAR (`current.json`, `status.json`)
+  now write to a temp file under `$CACHE_ROOT/tmp` and `mv -f` it into place, as their raw files
+  already did. So do the `write_status` writers in MTR, NET, ASTRO, CALENDAR, CONNECT, NETWORK,
+  SYSTEM and TIME (19 sites, 12 scripts). The `jq` and the `mv` are separate statements, so a
+  failing `jq` still aborts under `set -e` and leaves the old file.
+- Verified against an isolated copy of the live cache: polling the weather files during a
+  rewrite saw 222 empty samples before and 0 after, and a `jq` that dies mid-write left the old
+  file intact (it emptied it before) for the weather forecast, TIME's status and SOLAR's
+  if-wrapped write.
+- Not changed: the pfSense, VPN and AP error/disabled/gate-stub writes (rare, not on a hot read
+  path).
+- A `jq` failure now leaves its `$CACHE_ROOT/tmp/<provider>_<profile>_<file>.json.<pid>` behind.
+
 ## Unreleased — 2026-09-23 (provider cadence fix)
 
 Providers with an in-script "skip if the cache is fresh" check (AP, Pi-hole, router,

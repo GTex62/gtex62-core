@@ -57,7 +57,8 @@ write_status() {
     --arg profile "$PROFILE_ID" \
     --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg note "$note" \
-    '{state:$state,profile:$profile,generated_at:$generated_at,note:$note}' > "$STATUS_JSON"
+    '{state:$state,profile:$profile,generated_at:$generated_at,note:$note}' > "$TMP_DIR/net_${PROFILE_ID}_status.json.$$"
+  mv -f "$TMP_DIR/net_${PROFILE_ID}_status.json.$$" "$STATUS_JSON"
 }
 
 ENABLED="$(parse_toml_value "$PROFILE_TOML" enabled || true)"

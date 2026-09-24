@@ -62,7 +62,8 @@ write_status() {
     --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg provider_updated_at "$provider_ts" \
     --arg note "$note" \
-    '{state:$state, profile:$profile, provider:$provider, generated_at:$generated_at, provider_updated_at:$provider_updated_at, note:$note}' > "$STATUS_JSON"
+    '{state:$state, profile:$profile, provider:$provider, generated_at:$generated_at, provider_updated_at:$provider_updated_at, note:$note}' > "$TMP_DIR/solar_${PROFILE_ID}_status.json.$$"
+  mv -f "$TMP_DIR/solar_${PROFILE_ID}_status.json.$$" "$STATUS_JSON"
 }
 
 if [[ ! -f "$PROFILE_TOML" ]]; then
@@ -205,11 +206,13 @@ if ! jq -n \
       uv_source: (if $om_uv then "open-meteo" else "synthetic" end)
     }
   }
-  ' > "$CURRENT_JSON"; then
+  ' > "$TMP_DIR/solar_${PROFILE_ID}_current.json.$$"; then
+  rm -f "$TMP_DIR/solar_${PROFILE_ID}_current.json.$$"
   echo "$(date -Is) solar derive failed for profile ${PROFILE_ID}" >> "$LOG_FILE"
   write_status "error" "" "solar derive failed"
   exit 0
 fi
+mv -f "$TMP_DIR/solar_${PROFILE_ID}_current.json.$$" "$CURRENT_JSON"
 
 PROVIDER_TS="$(jq -r '.provider_updated_at // empty' "$CURRENT_JSON" 2>/dev/null || true)"
 write_status "ok" "$PROVIDER_TS" ""
