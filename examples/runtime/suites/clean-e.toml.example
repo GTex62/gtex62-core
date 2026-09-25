@@ -1,0 +1,38 @@
+suite_id = "clean-e"
+name = "gtex62-clean-suite-e"
+suite_repo = "__SUITE_REPO__"
+suite_manifest = "__SUITE_REPO__/suite.toml"
+enabled = true
+
+[profiles]
+system = "local"
+time = "local"
+calendar = "local"
+net = "local"
+pfsense = "main_router"
+connectivity = "default"
+weather = "home"
+aviation = "home"
+astro = "home"
+network = "local"
+media = "local"
+
+# Mirrors the [data] domains list in the suite's own suite.toml. None of these
+# are dual-gated, so this list documents the suite's consumers rather than
+# gating anything; add vpn/ap/modem/alerts/mtr/pihole here only if the suite
+# ever draws them (today that is SitRep's job).
+[domains]
+required = [
+  "system",
+  "weather",
+  "astro",
+  "aviation",
+  "network",
+  "connectivity",
+  "pfsense",
+  "media",
+]
+optional = []
+
+[suite_cache]
+namespaces = ["msc", "tme"]
