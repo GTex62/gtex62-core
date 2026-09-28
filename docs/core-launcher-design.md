@@ -554,14 +554,42 @@ round), plus clean-suite-e as a main and legacy pass-through.
    override falling back to the prompt, an out-of-range choice): old/gawk, new/gawk and
    new/mawk are identical in every case, including the exported variable and the cached
    choice, and old/mawk reproduces the bug (0 menu rows).
-3. **Build `bin/gtex62-conkystart`, first version:** the directory scan; selection with
-   the one-main rule; hash grouping from `palette_catalog`, with per-syntax palette-name
-   extractors (prototype validated — see Palette); override handoff; wallpaper
-   once; main-first launch; legacy pass-through. Ship a `--dry-run` that prints each
-   planned front-door invocation and its environment without running anything — a
-   first-class feature, because every front door `pkill`s its suite's live windows and
-   the only safe way to test them so far has been restricted-environment harnesses. Test
-   matrix: the five required cases under Suite Selection.
+3. **Build `bin/gtex62-conkystart`, first version** — **built 2026-09-27; live acceptance
+   pending.** One bash file needing only bash, POSIX awk and coreutils; sourcing it defines
+   the functions without running anything. It does the directory scan, selection under the
+   one-main rule, hash grouping from `palette_catalog` with the per-syntax extractors,
+   override handoff, one wallpaper prompt, main-first launch and legacy pass-through.
+   `--dry-run` does every prompt and prints each planned front-door invocation and its
+   environment, starting nothing — a first-class feature, because every front door
+   `pkill`s its suite's live windows. `--conky-root DIR` (or `GTEX62_CONKY_ROOT`) points it
+   at another tree, which is what makes it testable. A front door that fails doesn't stop
+   the rest: the launcher names it and exits 1. The remembered last choice (`runtime/
+   <suite_id>-palette` / `-wallpaper`) is the prompt default, else the manifest default.
+
+   **Tests** live in `tests/conkystart/` (`run-tests.sh`, `fixture.sh`) and run under both
+   gawk and mawk: 76 checks each, against a synthetic tree whose fake front doors only log
+   what they receive, so nothing can `pkill`. The fixture covers every case listed under
+   Suite Selection plus grouping, hash sensitivity, unlistable catalogs, remembered
+   choices, environment hygiene, dry run and error paths. **Mutation check:** the launcher
+   was deliberately broken 25 ways (two mains allowed, stale overrides leaking, grouping
+   by name or by nothing, companions first, legacy given overrides, dry run launching,
+   swallowed failures, and so on) and the tests caught all 25. One initially survived —
+   nothing distinguished suites sharing a catalog's exact bytes but declaring different
+   syntaxes — so a fixture pair for that case was added.
+
+   **Real tree, `--dry-run`, scripted input** (against the eight suites in
+   `~/.config/conky`, under both awks): OSA + SitRep + Doctor gives one 63-name prompt and
+   the same override for all three; clean-suite-e + SitRep gives two prompts (2 names, then
+   63); OSA + clean-suite-e is refused; LCARS and tri-hud plan through `launch-lcars.sh` /
+   `launch-tri-hud.sh` and tech-hud through `start-conky.sh`, none with overrides. This
+   layer caught a bug the fixture could not: globbing `*/` sorts with the trailing slash, so
+   `gtex62-clean-suite-e` listed before `gtex62-clean-suite`, which also made numbered
+   selection pick the wrong suite. The fixture had no name that prefixes another; one was
+   added (the test failed first), and discovery now sorts plain names.
+
+   **Remaining: live acceptance** — a real launch of OSA + SitRep + Doctor (one palette
+   prompt, all three up with the same palette), then clean-suite-e + Doctor (Doctor
+   survives), then one legacy pass-through.
 4. **Cutover** (the maintainer's own actions): repoint the `~/.bash_aliases` entry,
    retire `conkystart_legacy` and the old untracked script. The planned paragraph in
    core's README still says bootstrap installs the launcher; correct it when this lands.

@@ -315,11 +315,13 @@ Suite `start-conky.sh` scripts should prepare suite-specific environment
 values, optionally apply wallpaper/theme choices, and then hand off to the core
 launcher.
 
-Consolidated suite dispatcher (planned — see `docs/core-launcher-design.md`):
-`bin/gtex62-conkystart` will live in this repo, so a `git pull` updates it and
-bootstrap has nothing to copy. It will replace today's untracked personal
-`~/.local/bin/conkystart`. Bootstrap does not create a symlink for it. Anyone who wants
-to invoke it by name instead of full path can add one themselves:
+Suite launcher (see `docs/core-launcher-design.md`): `bin/gtex62-conkystart` lists the
+installed suites, asks for one main suite plus any companions, prompts once per shared
+palette catalog and once for the wallpaper, then starts each suite through its own
+front door. `--dry-run` does the prompts and prints the plan without starting anything.
+It lives in this repo, so a `git pull` updates it and bootstrap has nothing to copy. Bootstrap
+does not create a symlink for it. Anyone who wants to invoke it by name instead of full
+path can add one themselves:
 
 ```bash
 ln -s ~/.config/conky/gtex62-core/bin/gtex62-conkystart ~/.local/bin/conkystart
@@ -413,7 +415,8 @@ gtex62-core/
 ├── examples/     # runtime templates copied into ~/.config/gtex62-core
 ├── lua/          # common Lua helpers
 ├── providers/    # shared provider scripts by domain
-└── scripts/      # shared setup helpers (font install, palette generation)
+├── scripts/      # shared setup helpers (font install, palette generation)
+└── tests/        # launcher tests (tests/conkystart/run-tests.sh)
 ```
 
 ## Docs
