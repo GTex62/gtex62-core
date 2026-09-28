@@ -182,15 +182,35 @@ Near-total but loud, or silent but partial, belongs in Doctor.
   `sshpass` (the AP scraper only), `ephem` (`astro`, `orb`), `requests` (`media`), and
   Python 3.11+ (`modem`, `media`, the AP script).
 
-### 1. Suite Selection (multi-select)
+### 1. Suite Selection (one main suite, plus companions)
 
-The dispatcher lists installed suite dirs, same directory-presence scan as today's
-`is_suite_dir` — unchanged. Selection becomes **multi-select**: space/comma-separated
-numbers, plain-terminal `read -rp`, no new dependency. This replaces `conkystart`'s
-current hardcoded single `COMBO_LABEL` ("osa + sitrep") menu entry, which doesn't
-scale — every additional suite multiplies the number of possible fixed-label combos
-combinatorially, recreating the exact per-suite special-casing problem this document
-exists to eliminate.
+The dispatcher lists installed suite dirs — the same directory-presence scan as today's
+`is_suite_dir`, unchanged. Selection is **at most one main suite plus any number of
+companions**, entered as space- or comma-separated numbers at a plain-terminal
+`read -rp` prompt, no new dependency.
+
+This is the model the front doors already enforce, not a new restriction: OSA's and
+clean-suite-e's `start-conky.sh` each stop every other running suite when they launch,
+except companions ("Only one main suite may run at a time"). A flat any-combination
+multi-select would let a user pick pairs that destroy each other, since the second
+launch kills the first. Companion status is declared data — `[launch] companion = true`
+in the suite's `suite.toml` (see Front-Door Contract); a suite with no such key, or no
+manifest at all, is a main suite. Today that makes SitRep and Doctor companions and OSA
+and clean-suite-e mains.
+
+This replaces `conkystart`'s hardcoded `COMBO_LABEL` ("osa + sitrep"), which doesn't
+scale — every new suite multiplies the fixed labels — and is exactly the per-suite
+special-casing this document exists to eliminate. The menu tags companions, and a
+selection containing more than one main suite is refused with a message naming them,
+then re-prompted.
+
+**Legacy suites are opaque pass-through.** They have no `suite.toml` (LCARS, tri-hud,
+tech-hud and clean-suite all checked 2026-09-27), so they are mains. Selecting one
+launches it through its own script, with the same precedence as today's `conkystart`
+(`launch-lcars.sh` / `launch-tri-hud.sh` / `start-conky.sh`), with no palette grouping,
+no mode prompt, and no override handoff; it keeps its own prompts. This is consistent
+with "frozen, not migrated" (see Wallpaper): the consolidated launcher can reach legacy
+suites but never changes them.
 
 **Legacy-suite menu handling needs no code.** The directory scan already naturally
 includes or excludes a suite based on what's installed under `~/.config/conky/`. There
@@ -198,25 +218,30 @@ is no "hide legacy suites" flag or toggle, and none is needed — a user (includ
 maintainer) who wants a legacy suite gone from their own menu just moves or removes its
 directory. Stated explicitly here so this isn't rebuilt as a feature later.
 
-**Required test case:** a legacy suite with no palette catalog and no `tone_modes`
-(Group E below — tech-hud today) selected solo, or alongside core-native suites in a
-multi-select, must fall through the same conditional Mode/Palette logic gracefully —
-same handling as any other Group E member, no special-casing.
+**Required test cases:**
 
-### 2. Mode (conditional, per suite)
+- A legacy main alone: launches through its own script, untouched by grouping.
+- A legacy main plus companions: the main launches first (see Launch), companions after.
+- Two mains selected: refused before anything launches.
+- OSA + SitRep + Doctor: one palette prompt (all Group A), one wallpaper prompt.
+- clean-suite-e as main + SitRep: two palette prompts (Group B, Group A).
 
-Prompted once per selected suite whose theme-core file defines `tone_modes`; skipped
-per suite that doesn't. Detected, not hardcoded per suite — core checks for the
-table's presence rather than special-casing suite names. Same conditional logic as
-before, now applied across however many suites are in the current selection instead
-of assumed to be exactly one.
+### 2. Mode (deferred until a converted suite needs it)
 
-- **Present today:** LCARS, tri-hud (both use the tone-ladder palette shape with
-  `tone0`–`tone4` + `energy`, where mode is a role-inversion function over that ladder —
-  not a separate palette, see `lyrics-library-design.md`-style precedent of documenting
-  the actual mechanism rather than assuming from naming)
+Mode is a role-inversion function over the tone-ladder palette (`tone0`–`tone4` +
+`energy`, `tone_modes`), and only LCARS and tri-hud have it — both legacy, reached by
+pass-through with their own mode prompts. No core-native suite has a mode step, so
+**the first build has none**: nothing would exercise it. It arrives with `lcars-e` /
+`tri-hud-e`, when those exist.
+
+When it does: prompted once per selected suite whose theme-core file defines
+`tone_modes`, skipped otherwise — detected from the file, never from suite names. The
+detection mechanism is still open (see Open Items).
+
+- **Present today (legacy, pass-through):** LCARS, tri-hud — both use the tone-ladder
+  palette shape; mode is an inversion function over that ladder, not a separate palette.
 - **Absent:** OSA, SitRep, Doctor, clean-suite-e, tech-hud — flat/simple palette shapes
-  with no tone ladder to invert. No mode prompt; go straight to palette.
+  with no tone ladder to invert.
 
 ### 3. Palette (once per distinct catalog group present)
 
@@ -233,9 +258,17 @@ false-positive combo. Confirmed groups today:
 | ----- | ------ | ------- |
 | A | OSA, SitRep, Doctor | Byte-identical `osa-palettes.lua`/`palettes.lua`, 63 flat-role (`bg`/`fg`/`ink`) entries. Safe combo candidate — shared prompt. Re-verified 2026-09-27: all three still hash identically (`f1743dbc…`), Doctor's copy committed and unmodified. |
 | B | clean-suite-e | Standalone, 2 entries, different role shape (`bg`/`fg`/`ink`/`dim`/`accent`/`ok`/`warn`/`err`/...). |
-| C | LCARS | Standalone, 61 tone-ladder entries. |
-| D | tri-hud | Standalone, 60 tone-ladder entries. Shares the tone-ladder *mechanism* with C, not the catalog — confirmed even the 5 same-named utility palettes (`aqi`, `planets`, `seasons`, `dark`) that are byte-identical between C and D have a real divergence in `light` mode's tone-inversion behavior (LCARS inverts tone2↔tone3 as well as tone0↔tone4; tri-hud only inverts tone0↔tone4). Not the same group. |
+| C | LCARS | Standalone, 61 tone-ladder entries. Legacy today — pass-through, not grouped; becomes a live group only when `lcars-e` exists. |
+| D | tri-hud | Standalone, 60 tone-ladder entries. Shares the tone-ladder *mechanism* with C, not the catalog — confirmed even the 5 same-named utility palettes (`aqi`, `planets`, `seasons`, `dark`) that are byte-identical between C and D have a real divergence in `light` mode's tone-inversion behavior (LCARS inverts tone2↔tone3 as well as tone0↔tone4; tri-hud only inverts tone0↔tone4). Not the same group. Legacy today — pass-through, not grouped. |
 | E | tech-hud (legacy) / tech-hud-e (future) | No palette catalog exists at all today — no `palettes[name]` table, no launch-time prompt. Not a group until conversion happens and a catalog gets designed. |
+
+**Locating a suite's catalog:** each core-native `suite.toml` already declares it —
+`[theme] palette_catalog` (all four checked 2026-09-27) — so the launcher reads the path
+from the manifest and hashes that file, rather than assuming a path (the front doors
+hardcode the same value today). `palette_format` can't be used to group: all four
+declare `"role3"`, including clean-suite-e, whose catalog has a different role shape.
+Under the one-main-plus-companions model a selection spans at most two groups today: the
+main suite's, plus Group A for SitRep and Doctor.
 
 **Group membership is not permanent.** Re-check by file hash on every launch (or at
 least whenever any suite's palette file changes) — a group that was correct at design
@@ -253,19 +286,25 @@ generically.
 OSA→SitRep combo (see Current State) — generalized from one hardcoded pair to any
 number of suites sharing a group. Each suite's existing fallback behavior (override
 name not found in its own catalog → warn and prompt instead) carries over unchanged.
+clean-suite-e is the exception: its front door has no such handling today (see
+Front-Door Contract).
 
-### 4. Wallpaper (once per launch — universal across groups, unverified)
+### 4. Wallpaper (once per launch; each suite applies it)
 
-Prompted once for the entire launch, applying to every selected suite regardless of
-palette group — same `gtex62-shared-assets/wallpapers` source and `None` option
-(index 0) as today's `choose_wallpaper`.
+Prompted once for the whole launch: the same `gtex62-shared-assets/wallpapers` source
+and `None` option (index 0) as today's `choose_wallpaper`. The choice is passed to every
+managed suite as `GTEX62_CONKY_WALLPAPER_OVERRIDE`, and **each suite's front door applies
+it itself** with `feh`, as they do today; repeated applies of the same image are
+harmless. Decided 2026-09-27 over having the launcher apply it once, because it needs no
+front-door change. One accepted wart for the first build: clean-suite-e has no
+wallpaper step, so a clean-suite-e-only selection makes the prompt a no-op.
 
-**Not independently confirmed.** This "once, universal" behavior is inferred from
-today's two-suite, same-group OSA→SitRep combo code, which only ever exercises a
-single wallpaper prompt across a single group. Whether it should also hold across a
-selection spanning multiple palette groups (e.g. OSA + LCARS together) hasn't been
-checked against working precedent the way the palette grouping was — flagged here as
-an assumption carried into the design, not a verified fact.
+**Not independently confirmed** for a selection spanning palette groups. "Once,
+universal" is inferred from today's same-group OSA→SitRep combo. Under the
+one-main-plus-companions model the realistic cross-group case is clean-suite-e (Group B)
+as main with SitRep or Doctor (Group A) as companions — not, as an earlier draft had it,
+OSA + LCARS, which is two mains and can't coexist. Still unchecked against a live
+launch.
 
 **Cleanup implication:** legacy suites (LCARS, tri-hud, and presumably clean-suite,
 tech-hud pre-conversion) that ship their own `wallpapers/` directory are carrying
@@ -295,28 +334,67 @@ regardless of how many suites exist. OSA, SitRep, and Doctor all have no `-e` va
 for this reason: none of them started as a legacy standalone suite that was converted,
 so there's no pre-existing legacy directory for an `-e` name to live alongside.
 
-### 5. Launch
+### 5. Launch (main first, then companions)
 
-All selected suites started in sequence — each handed off to the core launcher
-binary / conky process start, same as OSA's current `CORE_LAUNCHER --suite <id>`
-pattern, generalized from `conkystart`'s existing OSA-then-SitRep sequencing to
-however many suites were selected.
+The launcher starts each selected suite through its own front door — core-native suites
+via `scripts/start-conky.sh` (toolchain gate, self-healing bootstrap, override-aware
+prompts, detached core launch), legacy suites via their own scripts — with the palette
+and wallpaper overrides exported. Sequentially: **the main suite first, companions
+after.** The order is required, not cosmetic: the legacy `start-conky.sh` scripts each
+carry a blanket `pkill -x conky` near the top (LCARS, tri-hud, tech-hud, clean-suite;
+checked 2026-09-27), which would kill any companion already running. Core-native mains skip
+companions through the manifest flag, but the same order is safe for them and keeps one
+rule.
 
-**Launch order and suite exclusivity — unresolved.** OSA's and clean-suite-e's
-`start-conky.sh` each, at launch, kill every sibling suite's widgets
-(`pkill -f "$other_dir/widgets/"`) except a hardcoded `gtex62-sitrep`, so SitRep is the
-only suite treated as a companion that may run alongside a main suite. Doctor is meant
-to run beside a main suite (its README says so) but is not exempt. **Confirmed live
-2026-09-27:** launching OSA after Doctor killed Doctor. (It was first spotted by
-simulating OSA's loop against Doctor's real conky command line — a string match that
-showed `gtex62-doctor/widgets/` matches — before the live launch confirmed it.) Only OSA
-was exercised live; clean-suite-e's identical block is read from code, not observed.
-Doctor's own `start-conky.sh` has no exclusivity block, so launch order decides: Doctor
-started after OSA survives; OSA or clean-suite-e started after Doctor takes Doctor
-down. For a multi-select launch containing both, the
-sequence matters until the exemption is expressed as data instead of a name list copied
-into each main suite's script — the same per-suite special-casing this document exists to
-remove. See Open Items.
+**Exclusivity — decided, not built.** OSA's and clean-suite-e's front doors currently
+kill every sibling suite's widgets (`pkill -f "$other_dir/widgets/"`) except a hardcoded
+`gtex62-sitrep`. Doctor is meant to run beside a main suite (its README says so) but
+wasn't exempt: **confirmed live 2026-09-27**, launching OSA after Doctor killed Doctor.
+(It was first spotted by simulating the string match against Doctor's real conky command
+line. Only OSA was exercised live; clean-suite-e's identical block is read from code, not
+observed.) The decision replaces the name list with the `companion` manifest flag: a main
+suite's kill loop skips any sibling whose `suite.toml` declares `[launch] companion =
+true`, and siblings with no manifest or no key are stopped exactly as today. Until it
+lands, launch Doctor after the main suite.
+
+---
+
+## Front-Door Contract
+
+The launcher owns the prompts; each suite's front door (`scripts/start-conky.sh`) stays
+a working standalone entry point that the launcher drives through environment variables.
+A conforming front door:
+
+1. Runs the toolchain gate, then the self-healing bootstrap with visible output, before
+   any redirect or detach (Steps 0 and 0b).
+2. Accepts `GTEX62_CONKY_PALETTE_OVERRIDE` and `GTEX62_CONKY_WALLPAPER_OVERRIDE`. A valid
+   value is used silently with no prompt; an invalid one warns and then prompts (existing
+   behavior); unset means prompt, as when run standalone.
+3. Exits 0 after detaching the core launcher; non-zero with a message otherwise.
+4. Enforces exclusivity by the manifest: a main suite stops other running non-companion
+   suites, a companion stops only itself.
+5. Records the last choice under `$CACHE_ROOT/runtime/<suite>-palette` / `-wallpaper`
+   (existing behavior; the launcher doesn't depend on it).
+
+**Manifest key.** A new `[launch]` table in `suite.toml`:
+
+```toml
+[launch]
+companion = true   # may run beside a main suite; never stopped by one
+```
+
+Default false. Read by the launcher (selection) and by main front doors' sibling-kill
+loops, with `awk` in the same style as the core launcher's existing manifest parsing
+(`get_instance_confs`). Not yet added to any `suite.toml`; SitRep and Doctor need it.
+
+**Conformance today** (read from code, 2026-09-27):
+
+| Front door | Toolchain gate | Visible bootstrap | Override vars | Exclusivity |
+| ---------- | -------------- | ----------------- | ------------- | ----------- |
+| OSA | yes | yes | yes | kills siblings except hardcoded SitRep — needs the manifest read |
+| SitRep | yes | yes | yes | none (companion) |
+| Doctor | yes | yes | yes | none (companion) |
+| clean-suite-e | yes | yes | **no** — no palette or wallpaper handling; palette comes from `GTEX62_PALETTE` | same hardcoded SitRep exemption — needs the manifest read |
 
 ---
 
@@ -336,10 +414,11 @@ later follow-up, not in scope for this build — see Open Items.
 ## Installation Location
 
 **Decided: versioned in `gtex62-core/bin/`** — e.g. `gtex62-core/bin/gtex62-conkystart`
-— not an untracked personal file. `gtex62-core-bootstrap-runtime` installs and updates
-it there and nowhere else: no writes outside the repo clone, no `sudo`, no touching
-`/bin`, `/usr/bin`, or `/usr/local/bin` — ruled out entirely, since those are
-root-owned and this project has no reason to require elevated permissions.
+— not an untracked personal file. It is part of the repo clone, so a `git pull` updates
+it and bootstrap has nothing to copy or install; it lives there and nowhere else: no
+writes outside the repo clone, no `sudo`, no touching `/bin`, `/usr/bin`, or
+`/usr/local/bin` — ruled out entirely, since those are root-owned and this project has
+no reason to require elevated permissions.
 
 Bootstrap does **not** create a `~/.local/bin` symlink itself, and does not
 interactively prompt for one either — that's left entirely to the user, documented as
@@ -374,62 +453,86 @@ LCARS/tri-hud, plus one hardcoded fixed-label combo (OSA+SitRep) → one of thre
 divergent scripts (`start-conky.sh` variants, `launch-lcars.sh`, `launch-tri-hud.sh`),
 each independently implementing some subset of {mode, palette, wallpaper}.
 
-**After:** `conkystart` (now `gtex62-core/bin/gtex62-conkystart`, versioned and
-bootstrap-installed — see Installation Location) → one core launcher entry point for
-every suite, covering any number of selected suites per invocation. The launcher:
+**After:** `gtex62-core/bin/gtex62-conkystart` (versioned in the clone — see Installation
+Location) → one launcher that drives every suite through its front door, for one main
+suite plus any companions per invocation:
 
-0. First-run bootstrap (self-healing, retained): if the suite's runtime files are
-   missing, runs its bootstrap wrapper in the foreground with output visible, then
-   continues. The fail-fast gate originally planned here is superseded (see Step 0).
-0b. Checks the baseline toolchain — `command -v jq` and `command -v python3` as
-   one combined check; if either is missing, prints which and exits before
-   anything runs (including step 0). Runs in the foreground front door, ahead of
-   any redirect. Done in OSA, SitRep, clean-suite-e, and Doctor.
-1. Lists installed suite dirs (directory-presence scan, unchanged); prompts
-   multi-select instead of a single choice or a fixed combo label.
-2. For each selected suite, checks its theme-core file for `tone_modes`
-   presence → prompts mode or skips, per suite.
-3. Groups selected suites by palette-file hash; prompts palette once per
-   distinct group present, propagates the answer to every suite in that
-   group via the existing `GTEX62_CONKY_PALETTE_OVERRIDE` mechanism.
-4. Reads `gtex62-shared-assets/wallpapers`; prompts wallpaper once for the
-   whole launch (universal across groups — unverified, see Wallpaper above).
-5. Execs the core process launcher for each selected suite in sequence.
+0. First-run bootstrap (self-healing, retained), in each front door: if the suite's
+   runtime files are missing, run the bootstrap wrapper in the foreground with output
+   visible, then continue. The fail-fast gate originally planned here is superseded
+   (see Step 0).
+0b. Baseline toolchain check, in each front door — `command -v jq` and
+   `command -v python3` as one combined check; if either is missing, print which and
+   exit before anything runs (including step 0). Done in OSA, SitRep, clean-suite-e,
+   and Doctor.
+1. List installed suite dirs (directory-presence scan, unchanged); prompt for one main
+   suite plus any companions, tagging companions from each `suite.toml`. Refuse more
+   than one main. Legacy suites (no manifest) are mains reached by pass-through.
+2. Mode — deferred until a converted suite needs it.
+3. Group the selected managed suites by palette-file hash (path from `[theme]
+   palette_catalog`); prompt palette once per distinct group; hand the answer to each
+   suite in the group via `GTEX62_CONKY_PALETTE_OVERRIDE`.
+4. Prompt wallpaper once from `gtex62-shared-assets/wallpapers`, with `None`; hand it to
+   each suite via `GTEX62_CONKY_WALLPAPER_OVERRIDE`; each suite applies it (universal
+   across groups — unverified, see Wallpaper).
+5. Launch the main suite first, then companions, each through its own front door.
 
-No suite-named special cases in `conkystart` itself, and no fixed combo label. Mode
-and Palette detection are the same conditional/grouping logic regardless of how many
-suites are selected. `launch-lcars.sh` and `launch-tri-hud.sh` are retired — their
-mode/palette logic moves into the shared launcher's conditional steps 2/3, reading
-each suite's own theme-core file rather than being duplicated per script. The legacy,
-unused LCARS `start-conky.sh` (wallpaper-only, per-suite dir) is retired outright.
-`conkystart_legacy` is not part of this path at all — confirmed dead, not a fallback
-worth preserving.
+No suite-named special cases in the launcher, and no fixed combo label. The legacy
+suites' scripts (`launch-lcars.sh`, `launch-tri-hud.sh`, the per-suite `start-conky.sh`)
+stay exactly as they are in their frozen repos and are reached by pass-through. When
+`lcars-e` and `tri-hud-e` are built they will not carry those scripts: their mode and
+palette handling moves into the launcher's steps 2 and 3. `conkystart_legacy` is not
+part of this path at all — confirmed dead, not a fallback worth preserving.
+
+---
+
+## Path to Completion
+
+**Decisions (2026-09-27):** companion status by manifest flag, not a name list; legacy
+suites are opaque pass-through; the mode step is deferred; each suite applies the
+wallpaper itself; the first build covers OSA + SitRep + Doctor (one Group A prompt
+round), plus clean-suite-e as a main and legacy pass-through.
+
+1. **Exclusivity fix** (independent of the launcher). Add `[launch] companion = true` to
+   SitRep's and Doctor's `suite.toml`; make OSA's and clean-suite-e's kill loops read
+   each sibling's manifest instead of the hardcoded `gtex62-sitrep`. Verify with a
+   simulation first, then live: OSA after Doctor (already known to fail today) and
+   clean-suite-e after Doctor (never observed).
+2. **Front-door conformance.** clean-suite-e honors the two override variables, mapping
+   the palette one onto its own `GTEX62_PALETTE`. Document the `[launch]` key wherever
+   the suite manifest schema is documented.
+3. **Build `bin/gtex62-conkystart`, first version:** the directory scan; selection with
+   the one-main rule; hash grouping from `palette_catalog`; override handoff; wallpaper
+   once; main-first launch; legacy pass-through. Ship a `--dry-run` that prints each
+   planned front-door invocation and its environment without running anything — a
+   first-class feature, because every front door `pkill`s its suite's live windows and
+   the only safe way to test them so far has been restricted-environment harnesses. Test
+   matrix: the five required cases under Suite Selection.
+4. **Cutover** (the maintainer's own actions): repoint the `~/.bash_aliases` entry,
+   retire `conkystart_legacy` and the old untracked script. The planned paragraph in
+   core's README still says bootstrap installs the launcher; correct it when this lands.
+5. **Later, not in scope:** the mode step (with `lcars-e` / `tri-hud-e`), the checkbox
+   TUI, verifying the wallpaper assumption across groups, and retiring per-suite
+   wallpaper directories in converted suites.
 
 ---
 
 ## Open Items
 
-- **Suite exclusivity / companion suites.** OSA's and clean-suite-e's front doors hardcode
-  `gtex62-sitrep` as the only suite exempt from their sibling-kill loop, so a running
-  Doctor is killed when either is launched after it (see Launch) — confirmed live for OSA
-  on 2026-09-27; clean-suite-e's identical block is unobserved. Undecided how companion
-  status should be declared — as data the launcher can read (for example a field in each
-  suite's `suite.toml`) rather than a name list copied into every script — and whether
-  the multi-select sequence should launch companions last as a stopgap. Smallest possible
-  stopgap, not applied: add `gtex62-doctor` beside the hardcoded `gtex62-sitrep`
-  exemption in both front doors. Until something lands, launch Doctor after the main suite.
-- **Detecting `tone_modes` presence.** Needs a concrete mechanism — likely the same awk
-  pattern-matching approach `launch-lcars.sh`/`launch-tri-hud.sh` already use to read
-  `tone_palettes`, extended to check for a `tone_modes` table in the same file, rather
-  than a new detection method.
+- **Detecting `tone_modes` presence.** Deferred with the mode step, but the mechanism is
+  still open — likely the same awk pattern-matching approach `launch-lcars.sh` /
+  `launch-tri-hud.sh` already use to read `tone_palettes`, extended to check for a
+  `tone_modes` table in the same file, rather than a new detection method.
 - **Per-suite wallpaper directory retirement.** Not yet actioned — flagged here as a
-  cleanup step to fold into each suite's conversion checklist (clean-suite-e's Cleanup
-  section already has a "no legacy script files" item; this is the wallpaper-directory
-  equivalent).
-- **Wallpaper "once per launch, universal across groups."** Unverified — see Wallpaper
-  step above. Only confirmed against today's two-suite, same-group OSA→SitRep combo;
-  needs checking against an actual cross-group multi-select before being treated as
-  settled behavior rather than an inference.
+  cleanup step to fold into each converted suite's conversion checklist (clean-suite-e's
+  Cleanup section already has a "no legacy script files" item; this is the
+  wallpaper-directory equivalent).
+- **Wallpaper "once per launch, universal across groups."** Unverified — see Wallpaper.
+  Needs checking against a live clean-suite-e-plus-companion launch before being treated
+  as settled behavior rather than an inference.
+- **Wallpaper prompt is a no-op for a clean-suite-e-only selection**, since that front
+  door has no wallpaper step. Accepted for the first build; a `[launch]` key declaring
+  whether a suite applies wallpapers could suppress the prompt later.
 - **Checkbox-style TUI (`dialog`/`fzf`).** A distinct, later follow-up over the same
   state machine described in Interface Scope — not in scope for this build, which
   targets the plain `read -rp`/multi-select-by-number prompts with no new dependency.

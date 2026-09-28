@@ -316,9 +316,10 @@ values, optionally apply wallpaper/theme choices, and then hand off to the core
 launcher.
 
 Consolidated suite dispatcher (planned — see `docs/core-launcher-design.md`):
-`bin/gtex62-conkystart` will be installed and updated by bootstrap, replacing today's
-untracked personal `~/.local/bin/conkystart`. Bootstrap does not create a symlink for
-it. Anyone who wants to invoke it by name instead of full path can add one themselves:
+`bin/gtex62-conkystart` will live in this repo, so a `git pull` updates it and
+bootstrap has nothing to copy. It will replace today's untracked personal
+`~/.local/bin/conkystart`. Bootstrap does not create a symlink for it. Anyone who wants
+to invoke it by name instead of full path can add one themselves:
 
 ```bash
 ln -s ~/.config/conky/gtex62-core/bin/gtex62-conkystart ~/.local/bin/conkystart
