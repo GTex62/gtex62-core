@@ -1,0 +1,409 @@
+#!/usr/bin/env bash
+# gtex62-conkystart — pick one main suite plus any companions, prompt once per
+# palette-catalog group and once for the wallpaper, then start each suite through
+# its own front door. Design: docs/core-launcher-design.md.
+#
+# Usage: gtex62-conkystart [--dry-run] [--conky-root DIR]
+#   --dry-run          do every prompt, print the ordered launch plan, start nothing
+#   --conky-root DIR   scan DIR for suites (default: $GTEX62_CONKY_ROOT or ~/.config/conky)
+#
+# Needs only bash, POSIX awk and coreutils. Sourcing this file defines the functions
+# without running anything.
+
+usage() {
+  say "Usage: gtex62-conkystart [--dry-run] [--conky-root DIR]"
+  say "  --dry-run          do every prompt, print the ordered launch plan, start nothing"
+  say "  --conky-root DIR   scan DIR for suites (default: \$GTEX62_CONKY_ROOT or ~/.config/conky)"
+}
+
+say()  { printf '%s\n' "$*"; }
+warn() { printf '%s\n' "$*" >&2; }
+die()  { warn "$*"; exit 1; }
+
+# ---------------------------------------------------------------- manifest readers
+# manifest_top_value <suite.toml> <key>   key before the first table header
+manifest_top_value() {
+  awk -v key="$2" '
+    /^\[/ { exit }
+    $0 ~ ("^[ \t]*" key "[ \t]*=") {
+      v = $0
+      sub(/^[^=]*=[ \t]*/, "", v)
+      sub(/[ \t]*(#.*)?$/, "", v)
+      gsub(/^"|"$/, "", v)
+      print v
+      exit
+    }
+  ' "$1"
+}
+
+# manifest_theme_value <suite.toml> <key>   key inside [theme]
+manifest_theme_value() {
+  awk -v key="$2" '
+    /^\[/ { in_theme = ($0 ~ /^\[theme\][ \t]*(#.*)?$/); next }
+    in_theme && $0 ~ ("^[ \t]*" key "[ \t]*=") {
+      v = $0
+      sub(/^[^=]*=[ \t]*/, "", v)
+      sub(/[ \t]*(#.*)?$/, "", v)
+      gsub(/^"|"$/, "", v)
+      print v
+      exit
+    }
+  ' "$1"
+}
+
+# is_companion_manifest <suite.toml>   true when [launch] companion = true
+is_companion_manifest() {
+  awk '
+    /^\[/ { in_launch = ($0 ~ /^\[launch\][ \t]*(#.*)?$/); next }
+    in_launch && /^[ \t]*companion[ \t]*=[ \t]*true[ \t]*(#.*)?$/ { found = 1 }
+    END { exit !found }
+  ' "$1"
+}
+
+# list_palettes <catalog-file> <syntax>
+#   nested-table   return { default = "x", palettes = { NAME = { ... } } }; a `--` comment
+#                  at the name indent is emitted as @GROUP@<text>
+#   assigned-keys  palettes["NAME"] = { ... }
+# Returns 3 for an unknown or empty syntax so the caller can fall back to pass-through.
+list_palettes() {
+  case "$2" in
+    nested-table)
+      awk '
+        /^  palettes = [{]/ { inside = 1; next }
+        inside && /^  [}]/ { exit }
+        inside && /^    --/ { g = $0; sub(/^    --[ \t]*/, "", g); print "@GROUP@" g; next }
+        inside && /^    [a-z0-9_]+ = [{]/ { print $1 }
+      ' "$1" ;;
+    assigned-keys)
+      awk '
+        /^palettes\["/ { n = $0; sub(/^palettes\["/, "", n); sub(/"\].*/, "", n); print n }
+      ' "$1" ;;
+    *) return 3 ;;
+  esac
+}
+
+# ---------------------------------------------------------------- roots
+resolve_roots() {
+  CONKY_ROOT="${CONKY_ROOT:-${GTEX62_CONKY_ROOT:-$HOME/.config/conky}}"
+  CACHE_ROOT="${GTEX62_CACHE_DIR:-${GTEX62_CONKY_CACHE_DIR:-$HOME/.cache/gtex62-core}}"
+  SHARED_ASSETS_ROOT="${GTEX62_SHARED_ASSETS:-${GTEX62_CONKY_SHARED_ASSETS:-$CONKY_ROOT/gtex62-shared-assets}}"
+  WALLPAPER_DIR="${GTEX62_WALLPAPERS_DIR:-${GTEX62_CONKY_WALLPAPERS_DIR:-$SHARED_ASSETS_ROOT/wallpapers}}"
+}
+
+# ---------------------------------------------------------------- discovery
+# Fills the parallel arrays S_* (one entry per launchable suite, in menu order).
+#   native  suite.toml + executable scripts/start-conky.sh
+#   legacy  an executable scripts/launch-*.sh if there is one, else scripts/start-conky.sh
+discover_suites() {
+  local dir name kind front role id cat syn def rel launch
+  local -a names
+  S_DIR=(); S_NAME=(); S_KIND=(); S_ROLE=(); S_ID=(); S_FRONT=(); S_CAT=(); S_SYN=(); S_DEF=()
+  # Sort the plain names: globbing "*/" sorts with the trailing slash, which puts
+  # "gtex62-clean-suite-e" before "gtex62-clean-suite".
+  mapfile -t names < <(cd "$CONKY_ROOT" && for dir in */; do if [[ -d "$dir" ]]; then printf '%s\n' "${dir%/}"; fi; done | LC_ALL=C sort)
+  for name in "${names[@]}"; do
+    dir="$CONKY_ROOT/$name"
+    kind=""; front=""; role=main; id="$name"; cat=""; syn=""; def=""
+    if [[ -f "$dir/suite.toml" && -x "$dir/scripts/start-conky.sh" ]]; then
+      kind=native
+      front="$dir/scripts/start-conky.sh"
+      if is_companion_manifest "$dir/suite.toml"; then role=companion; fi
+      id="$(manifest_top_value "$dir/suite.toml" suite_id)"
+      id="${id:-$name}"
+      rel="$(manifest_theme_value "$dir/suite.toml" palette_catalog)"
+      if [[ -n "$rel" && -f "$dir/$rel" ]]; then cat="$dir/$rel"; fi
+      syn="$(manifest_theme_value "$dir/suite.toml" palette_catalog_syntax)"
+      def="$(manifest_theme_value "$dir/suite.toml" default_palette)"
+    else
+      for launch in "$dir"/scripts/launch-*.sh; do
+        if [[ -x "$launch" ]]; then front="$launch"; break; fi
+      done
+      if [[ -z "$front" && -x "$dir/scripts/start-conky.sh" ]]; then front="$dir/scripts/start-conky.sh"; fi
+      if [[ -n "$front" ]]; then kind=legacy; fi
+    fi
+    [[ -n "$kind" ]] || continue
+    S_DIR+=("$dir"); S_NAME+=("$name"); S_KIND+=("$kind"); S_ROLE+=("$role"); S_ID+=("$id")
+    S_FRONT+=("$front"); S_CAT+=("$cat"); S_SYN+=("$syn"); S_DEF+=("$def")
+  done
+}
+
+# ---------------------------------------------------------------- selection
+show_menu() {
+  local i tag
+  say "Available Conky suites:"
+  for i in "${!S_NAME[@]}"; do
+    tag=""
+    if [[ "${S_KIND[i]}" == legacy ]]; then tag=" [legacy]"; fi
+    if [[ "${S_ROLE[i]}" == companion ]]; then tag=" [companion]"; fi
+    printf '%d) %s%s\n' "$((i + 1))" "${S_NAME[i]}" "$tag"
+  done
+}
+
+# select_suites  -> SEL = indices to launch (the main suite first, then companions in the
+# order typed). Returns 1 on end of input, 2 when the user quits.
+select_suites() {
+  local line tok i mains ok
+  local -a toks picks mains_names
+  local -A seen
+  show_menu
+  while true; do
+    if ! IFS= read -rp "Select one main suite plus any companions [1-${#S_NAME[@]}, q to quit]: " line; then
+      warn "No selection (end of input)."
+      return 1
+    fi
+    line="${line//,/ }"
+    read -ra toks <<<"$line"
+    if (( ${#toks[@]} == 0 )); then warn "Nothing selected."; continue; fi
+    if [[ "${toks[0]}" == q || "${toks[0]}" == quit ]]; then return 2; fi
+    picks=(); seen=(); ok=1
+    for tok in "${toks[@]}"; do
+      if ! [[ "$tok" =~ ^[0-9]+$ ]]; then warn "Not a number: '$tok'"; ok=0; break; fi
+      if (( tok < 1 || tok > ${#S_NAME[@]} )); then warn "No suite numbered $tok."; ok=0; break; fi
+      i=$((tok - 1))
+      if [[ -z "${seen[$i]:-}" ]]; then seen[$i]=1; picks+=("$i"); fi
+    done
+    (( ok )) || continue
+    mains=0; mains_names=()
+    for i in "${picks[@]}"; do
+      if [[ "${S_ROLE[i]}" == main ]]; then mains=$((mains + 1)); mains_names+=("${S_NAME[i]}"); fi
+    done
+    if (( mains > 1 )); then
+      warn "Pick at most one main suite (you chose: $(IFS=,; printf '%s' "${mains_names[*]}" | sed 's/,/, /g')). Only one main suite can run at a time; the second would stop the first."
+      continue
+    fi
+    SEL=()
+    for i in "${picks[@]}"; do
+      if [[ "${S_ROLE[i]}" == main ]]; then SEL+=("$i"); fi
+    done
+    for i in "${picks[@]}"; do
+      if [[ "${S_ROLE[i]}" != main ]]; then SEL+=("$i"); fi
+    done
+    return 0
+  done
+}
+
+# ---------------------------------------------------------------- palettes
+# Groups the selected native suites by catalog hash (+ declared syntax) and prompts once
+# per group. Result: PAL[suite-index]=palette name. Suites whose catalog can't be listed
+# get no entry; they prompt for themselves.
+plan_palettes() {
+  local i key hash rows g n choice default_choice last_group row grp members m cache last first names
+  local -a G_KEY=() G_MEMBERS=() G_ROWS=() palettes=() groups=()
+  PAL=()
+  for i in "${SEL[@]}"; do
+    [[ "${S_KIND[i]}" == native ]] || continue
+    if [[ -z "${S_CAT[i]}" ]]; then
+      say "${S_NAME[i]}: no palette catalog found; it will prompt for its own palette."
+      continue
+    fi
+    if ! rows="$(list_palettes "${S_CAT[i]}" "${S_SYN[i]}")" || [[ -z "$(printf '%s\n' "$rows" | grep -v '^@GROUP@' || true)" ]]; then
+      say "${S_NAME[i]}: palette catalog can't be listed (syntax '${S_SYN[i]:-not declared}'); it will prompt for its own palette."
+      continue
+    fi
+    hash="$(sha256sum "${S_CAT[i]}" | cut -d' ' -f1)"
+    key="$hash:${S_SYN[i]}"
+    g=-1
+    for n in "${!G_KEY[@]}"; do
+      if [[ "${G_KEY[n]}" == "$key" ]]; then g=$n; break; fi
+    done
+    if (( g < 0 )); then
+      G_KEY+=("$key"); G_MEMBERS+=("$i"); G_ROWS+=("$rows")
+    else
+      G_MEMBERS[g]+=" $i"
+    fi
+  done
+
+  for g in "${!G_KEY[@]}"; do
+    members="${G_MEMBERS[g]}"
+    first="${members%% *}"
+    palettes=(); groups=(); grp=""
+    while IFS= read -r row; do
+      if [[ "$row" == @GROUP@* ]]; then grp="${row#@GROUP@}"; continue; fi
+      palettes+=("$row"); groups+=("$grp")
+    done <<<"${G_ROWS[g]}"
+
+    # default: the last choice remembered for any member, else the first member's manifest default
+    default_choice=""; last=""
+    for m in $members; do
+      cache="$CACHE_ROOT/runtime/${S_ID[m]}-palette"
+      if [[ -f "$cache" ]]; then
+        last="$(cat "$cache" 2>/dev/null || true)"
+        for n in "${!palettes[@]}"; do
+          if [[ "${palettes[n]}" == "$last" ]]; then default_choice=$((n + 1)); break; fi
+        done
+        if [[ -n "$default_choice" ]]; then break; fi
+      fi
+    done
+    if [[ -z "$default_choice" ]]; then
+      for n in "${!palettes[@]}"; do
+        if [[ "${palettes[n]}" == "${S_DEF[first]}" ]]; then default_choice=$((n + 1)); break; fi
+      done
+    fi
+
+    names=""
+    for m in $members; do names+="${names:+, }${S_NAME[m]}"; done
+    say ""
+    say "Palettes for $names:"
+    last_group=""
+    for n in "${!palettes[@]}"; do
+      if [[ "${groups[n]}" != "$last_group" ]]; then
+        last_group="${groups[n]}"
+        if [[ -n "$last_group" ]]; then printf '\n%s\n' "$last_group"; fi
+      fi
+      if [[ "$((n + 1))" == "$default_choice" ]]; then
+        printf '%d) %s (default)\n' "$((n + 1))" "${palettes[n]}"
+      else
+        printf '%d) %s\n' "$((n + 1))" "${palettes[n]}"
+      fi
+    done
+    while true; do
+      if [[ -n "$default_choice" ]]; then
+        if ! IFS= read -rp "Select palette [1-${#palettes[@]}] (Enter=$default_choice): " choice; then die "No palette selection (end of input)."; fi
+        choice="${choice:-$default_choice}"
+      else
+        if ! IFS= read -rp "Select palette [1-${#palettes[@]}]: " choice; then die "No palette selection (end of input)."; fi
+      fi
+      if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#palettes[@]} )); then break; fi
+      warn "Invalid selection."
+    done
+    for m in $members; do PAL[m]="${palettes[choice - 1]}"; done
+  done
+}
+
+# ---------------------------------------------------------------- wallpaper
+# Result: WALL = "" (not asked), "none", or a file name in the shared wallpaper directory.
+plan_wallpaper() {
+  local i any=0 n choice default_choice="" cache last id
+  local -a walls=()
+  WALL=""
+  for i in "${SEL[@]}"; do
+    if [[ "${S_KIND[i]}" == native ]]; then any=1; fi
+  done
+  (( any )) || return 0
+  if [[ ! -d "$WALLPAPER_DIR" ]]; then
+    say "Shared wallpaper directory not found: $WALLPAPER_DIR (skipping wallpaper)."
+    return 0
+  fi
+  mapfile -t walls < <(
+    find "$WALLPAPER_DIR" -maxdepth 1 -type f \
+      \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.webp' \) \
+      -printf '%f\n' | sort
+  )
+  if (( ${#walls[@]} == 0 )); then
+    say "No wallpapers found in $WALLPAPER_DIR (skipping wallpaper)."
+    return 0
+  fi
+  id="${S_ID[${SEL[0]}]}"
+  cache="$CACHE_ROOT/runtime/$id-wallpaper"
+  if [[ -f "$cache" ]]; then
+    last="$(cat "$cache" 2>/dev/null || true)"
+    if [[ "$last" == none ]]; then
+      default_choice=0
+    else
+      for n in "${!walls[@]}"; do
+        if [[ "${walls[n]}" == "$last" ]]; then default_choice=$((n + 1)); break; fi
+      done
+    fi
+  fi
+  say ""
+  if (( ${#walls[@]} == 1 )) && [[ -z "$default_choice" ]]; then
+    WALL="${walls[0]}"
+    say "Wallpaper: $WALL (the only one available)."
+    return 0
+  fi
+  say "Available wallpapers:"
+  printf '0) None\n'
+  for n in "${!walls[@]}"; do printf '%d) %s\n' "$((n + 1))" "${walls[n]}"; done
+  while true; do
+    if [[ -n "$default_choice" ]]; then
+      if ! IFS= read -rp "Select wallpaper [0-${#walls[@]}] (Enter=$default_choice): " choice; then die "No wallpaper selection (end of input)."; fi
+      choice="${choice:-$default_choice}"
+    else
+      if ! IFS= read -rp "Select wallpaper [0-${#walls[@]}]: " choice; then die "No wallpaper selection (end of input)."; fi
+    fi
+    if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 0 && choice <= ${#walls[@]} )); then break; fi
+    warn "Invalid selection."
+  done
+  if (( choice == 0 )); then WALL="none"; else WALL="${walls[choice - 1]}"; fi
+}
+
+# ---------------------------------------------------------------- launch
+# Starts (or, with --dry-run, prints) each selected suite: the main suite first, then the
+# companions. A front door only ever sees the overrides assigned to it; any override
+# inherited from the caller is removed first.
+launch_all() {
+  local i name role kind summary count=0
+  local -a envargs failed=() shown
+  if (( DRY_RUN )); then
+    say ""
+    say "Plan (dry run — nothing will be started):"
+  fi
+  for i in "${SEL[@]}"; do
+    name="${S_NAME[i]}"; role="${S_ROLE[i]}"; kind="${S_KIND[i]}"
+    envargs=(-u GTEX62_CONKY_PALETTE_OVERRIDE -u GTEX62_CONKY_WALLPAPER_OVERRIDE)
+    shown=()
+    if [[ "$kind" == native ]]; then
+      if [[ -n "${PAL[i]:-}" ]]; then
+        envargs+=("GTEX62_CONKY_PALETTE_OVERRIDE=${PAL[i]}"); shown+=("GTEX62_CONKY_PALETTE_OVERRIDE=${PAL[i]}")
+      fi
+      if [[ -n "$WALL" ]]; then
+        envargs+=("GTEX62_CONKY_WALLPAPER_OVERRIDE=$WALL"); shown+=("GTEX62_CONKY_WALLPAPER_OVERRIDE=$WALL")
+      fi
+    fi
+    if (( DRY_RUN )); then
+      count=$((count + 1))
+      say "$count. $name  [$role, $kind]"
+      say "   front door: ${S_FRONT[i]}"
+      if (( ${#shown[@]} )); then say "   env: ${shown[*]}"; else say "   env: (no overrides; inherited overrides unset)"; fi
+      continue
+    fi
+    say ""
+    say "== Launching $name =="
+    if ! env "${envargs[@]}" "${S_FRONT[i]}"; then
+      warn "$name did not start cleanly."
+      failed+=("$name")
+    fi
+  done
+  if (( DRY_RUN )); then return 0; fi
+  if (( ${#failed[@]} > 0 )); then
+    summary="${failed[*]}"
+    warn ""
+    warn "Failed to start: ${summary// /, }"
+    return 1
+  fi
+  return 0
+}
+
+# ---------------------------------------------------------------- main
+main() {
+  DRY_RUN=0
+  CONKY_ROOT=""
+  while (( $# > 0 )); do
+    case "$1" in
+      --dry-run) DRY_RUN=1 ;;
+      --conky-root)
+        [[ -n "${2:-}" ]] || { warn "--conky-root needs a directory."; usage >&2; return 2; }
+        CONKY_ROOT="$2"; shift ;;
+      -h|--help) usage; return 0 ;;
+      *) warn "Unknown option: $1"; usage >&2; return 2 ;;
+    esac
+    shift
+  done
+  resolve_roots
+  [[ -d "$CONKY_ROOT" ]] || die "Conky root not found: $CONKY_ROOT"
+  discover_suites
+  (( ${#S_NAME[@]} > 0 )) || die "No Conky suites found in $CONKY_ROOT"
+
+  local rc=0
+  select_suites || rc=$?
+  if (( rc == 2 )); then say "Nothing launched."; return 0; fi
+  if (( rc != 0 )); then return 1; fi
+  plan_palettes
+  plan_wallpaper
+  launch_all
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  set -euo pipefail
+  main "$@"
+fi
