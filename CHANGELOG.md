@@ -18,6 +18,58 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
+## 0.10.0 — 2026-09-27
+
+Adds the suite launcher, `bin/gtex62-conkystart`. Minor bump: a new entry point, no provider or
+domain changes, and nothing to migrate in an existing live config. It does not replace the
+untracked `~/.local/bin/conkystart` by itself; repointing that alias is a manual step (README,
+Bootstrap and Launch).
+
+### Suite launcher
+
+`bin/gtex62-conkystart` lists the installed suites and asks for **one main suite plus any
+companions**, then prompts once per distinct palette catalog and once for the wallpaper, and starts
+each suite through its own front door, main first. Needs only bash, POSIX awk and coreutils.
+
+- Suites sharing a byte-identical palette catalog share one prompt (grouped by file hash, so OSA,
+  SitRep and Doctor get one 63-name prompt; clean-suite-e has its own). Names are listed through the
+  manifest's `[theme] palette_catalog_syntax` (`nested-table` or `assigned-keys`); a suite that
+  declares neither, or one that lists zero names, is left to prompt for itself.
+- More than one main suite is refused, matching the front doors' own exclusivity. Companions are the
+  suites whose `suite.toml` sets `[launch] companion = true` (SitRep, Doctor).
+- Legacy suites, which have no manifest, are passed through to their own script
+  (`scripts/launch-*.sh` if present, else `scripts/start-conky.sh`) with no overrides.
+- Choices reach each suite as `GTEX62_CONKY_PALETTE_OVERRIDE` / `GTEX62_CONKY_WALLPAPER_OVERRIDE`;
+  any override inherited from the caller is removed first. The remembered last choice is the prompt
+  default, else the manifest default.
+- `--dry-run` does every prompt and prints the ordered plan, starting nothing. `--conky-root DIR` (or
+  `GTEX62_CONKY_ROOT`) scans another tree. A front door that fails does not stop the rest; it is named
+  and the launcher exits 1.
+
+Menu discovery sorts plain suite names. Globbing `*/` sorts with the trailing slash, which listed
+`gtex62-clean-suite-e` before `gtex62-clean-suite` and made numbered selection pick the wrong suite;
+caught by a real-tree dry run and fixed before release.
+
+### Manifest keys it relies on
+
+`[theme] palette_catalog_syntax` and `[launch] companion`, both documented in
+`docs/legacy-suite-conversion-guide.md` and set in the current OSA, SitRep, Doctor and clean-suite-e
+manifests. A manifest without them still works: no `[launch]` means a main suite, no syntax means
+the suite prompts for its own palette.
+
+### Tests
+
+`tests/conkystart/run-tests.sh` runs the launcher against a synthetic tree whose fake front doors only
+log what they receive, so nothing can start or stop a real suite, under both gawk and mawk (76
+checks each). The launcher was also deliberately broken 25 ways and the tests caught every one. See
+`docs/core-launcher-design.md`, Path to Completion.
+
+**Status at release:** verified by those tests and by `--dry-run` against the real tree. A real
+multi-suite launch (OSA + SitRep + Doctor, then clean-suite-e + Doctor, then one legacy suite) had not
+been run yet.
+
+---
+
 ## 0.9.1 — 2026-09-24
 
 Doctor refinements and one provider cadence fix, on top of 0.9.0. Patch bump: no new domain and
