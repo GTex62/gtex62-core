@@ -306,11 +306,14 @@ however many suites were selected.
 `start-conky.sh` each, at launch, kill every sibling suite's widgets
 (`pkill -f "$other_dir/widgets/"`) except a hardcoded `gtex62-sitrep`, so SitRep is the
 only suite treated as a companion that may run alongside a main suite. Doctor is meant
-to run beside a main suite (its README says so) but is not exempt. Simulating OSA's loop
-against Doctor's real conky command line — a string match only, nothing was killed —
-shows `gtex62-doctor/widgets/` matches. Doctor's own `start-conky.sh` has no exclusivity
-block, so launch order decides: Doctor started after OSA survives; OSA or clean-suite-e
-started after Doctor takes Doctor down. For a multi-select launch containing both, the
+to run beside a main suite (its README says so) but is not exempt. **Confirmed live
+2026-09-27:** launching OSA after Doctor killed Doctor. (It was first spotted by
+simulating OSA's loop against Doctor's real conky command line — a string match that
+showed `gtex62-doctor/widgets/` matches — before the live launch confirmed it.) Only OSA
+was exercised live; clean-suite-e's identical block is read from code, not observed.
+Doctor's own `start-conky.sh` has no exclusivity block, so launch order decides: Doctor
+started after OSA survives; OSA or clean-suite-e started after Doctor takes Doctor
+down. For a multi-select launch containing both, the
 sequence matters until the exemption is expressed as data instead of a name list copied
 into each main suite's script — the same per-suite special-casing this document exists to
 remove. See Open Items.
@@ -408,11 +411,13 @@ worth preserving.
 
 - **Suite exclusivity / companion suites.** OSA's and clean-suite-e's front doors hardcode
   `gtex62-sitrep` as the only suite exempt from their sibling-kill loop, so a running
-  Doctor is killed when either is launched after it (see Launch). Undecided how companion
+  Doctor is killed when either is launched after it (see Launch) — confirmed live for OSA
+  on 2026-09-27; clean-suite-e's identical block is unobserved. Undecided how companion
   status should be declared — as data the launcher can read (for example a field in each
   suite's `suite.toml`) rather than a name list copied into every script — and whether
-  the multi-select sequence should launch companions last as a stopgap. Not verified live:
-  only the pattern match was simulated.
+  the multi-select sequence should launch companions last as a stopgap. Smallest possible
+  stopgap, not applied: add `gtex62-doctor` beside the hardcoded `gtex62-sitrep`
+  exemption in both front doors. Until something lands, launch Doctor after the main suite.
 - **Detecting `tone_modes` presence.** Needs a concrete mechanism — likely the same awk
   pattern-matching approach `launch-lcars.sh`/`launch-tri-hud.sh` already use to read
   `tone_palettes`, extended to check for a `tone_modes` table in the same file, rather
