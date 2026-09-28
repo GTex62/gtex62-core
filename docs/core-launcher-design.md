@@ -554,8 +554,8 @@ round), plus clean-suite-e as a main and legacy pass-through.
    override falling back to the prompt, an out-of-range choice): old/gawk, new/gawk and
    new/mawk are identical in every case, including the exported variable and the cached
    choice, and old/mawk reproduces the bug (0 menu rows).
-3. **Build `bin/gtex62-conkystart`, first version** — **built 2026-09-27; live acceptance
-   pending.** One bash file needing only bash, POSIX awk and coreutils; sourcing it defines
+3. **Build `bin/gtex62-conkystart`, first version** — **built and live-accepted
+   2026-09-27.** One bash file needing only bash, POSIX awk and coreutils; sourcing it defines
    the functions without running anything. It does the directory scan, selection under the
    one-main rule, hash grouping from `palette_catalog` with the per-syntax extractors,
    override handoff, one wallpaper prompt, main-first launch and legacy pass-through.
@@ -587,9 +587,9 @@ round), plus clean-suite-e as a main and legacy pass-through.
    selection pick the wrong suite. The fixture had no name that prefixes another; one was
    added (the test failed first), and discovery now sorts plain names.
 
-   **Remaining: live acceptance** — a real launch of OSA + SitRep + Doctor (one palette
-   prompt, all three up with the same palette), then clean-suite-e + Doctor (Doctor
-   survives), then one legacy pass-through.
+   **Live acceptance — done 2026-09-27**, run by the maintainer through the launcher: OSA +
+   SitRep + Doctor, then clean-suite-e + Doctor (Doctor survived), then one legacy
+   pass-through. All three passed.
 4. **Cutover** (the maintainer's own actions): repoint the `~/.bash_aliases` entry,
    retire `conkystart_legacy` and the old untracked script. The planned paragraph in
    core's README still says bootstrap installs the launcher; correct it when this lands.

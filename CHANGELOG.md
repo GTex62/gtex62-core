@@ -66,7 +66,7 @@ checks each). The launcher was also deliberately broken 25 ways and the tests ca
 
 **Status at release:** verified by those tests and by `--dry-run` against the real tree. A real
 multi-suite launch (OSA + SitRep + Doctor, then clean-suite-e + Doctor, then one legacy suite) had not
-been run yet.
+been run at release. All three were run for real afterwards (2026-09-27) and passed.
 
 ---
 
