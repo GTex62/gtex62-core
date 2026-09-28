@@ -275,19 +275,22 @@ least whenever any suite's palette file changes) — a group that was correct at
 time can drift the moment one suite's catalog is edited independently of the others'.
 
 Each suite still keeps its own palette file — grouping is a launcher-side optimization
-to avoid redundant prompts, not a change to file ownership. Core does not need to
-understand the internal shape (3-role, 5-tone ladder, gray-ramp-plus-accents) to group
-or list — it only needs the file's contents (for hashing) and a list of names plus a
-default, same as OSA's existing `choose_palette` awk pattern-matching already does
-generically.
+to avoid redundant prompts, not a change to file ownership. Grouping is shape-agnostic:
+it hashes the file's contents and never looks inside. *Listing* the names to prompt from
+is not: it depends on the file's syntax, and there are two today. Group A's files are
+`return { default = "…", palettes = { name = { … } } }`, which OSA's, SitRep's and
+Doctor's `choose_palette` awk relies on; clean-suite-e's assigns
+`palettes["name"] = { … }` into a local table. The default comes from the manifest's
+`[theme] default_palette` either way. See Open Items.
 
 **Propagation mechanism:** the same `GTEX62_CONKY_PALETTE_OVERRIDE` /
 `GTEX62_CONKY_WALLPAPER_OVERRIDE` env-var handoff `conkystart` already uses for its
 OSA→SitRep combo (see Current State) — generalized from one hardcoded pair to any
 number of suites sharing a group. Each suite's existing fallback behavior (override
 name not found in its own catalog → warn and prompt instead) carries over unchanged.
-clean-suite-e is the exception: its front door has no such handling today (see
-Front-Door Contract).
+clean-suite-e conforms too, with one difference: its front door never prompts, so it maps
+the override onto its own `GTEX62_PALETTE` and warns and ignores an unknown name instead
+of prompting (see Front-Door Contract).
 
 ### 4. Wallpaper (once per launch; each suite applies it)
 
@@ -377,7 +380,9 @@ A conforming front door:
    any redirect or detach (Steps 0 and 0b).
 2. Accepts `GTEX62_CONKY_PALETTE_OVERRIDE` and `GTEX62_CONKY_WALLPAPER_OVERRIDE`. A valid
    value is used silently with no prompt; an invalid one warns and then prompts (existing
-   behavior); unset means prompt, as when run standalone.
+   behavior); unset means prompt, as when run standalone. A front door that never prompts
+   (clean-suite-e) warns and ignores an unknown palette instead, and one with no
+   wallpaper step ignores the wallpaper variable.
 3. Exits 0 after detaching the core launcher; non-zero with a message otherwise.
 4. Enforces exclusivity by the manifest: a main suite stops other running non-companion
    suites, a companion stops only itself.
@@ -405,7 +410,7 @@ which has no manifest at all. Documented in `legacy-suite-conversion-guide.md`.
 | OSA | yes | yes | yes | stops non-companion siblings via the manifest read (2026-09-27) |
 | SitRep | yes | yes | yes | none (companion) |
 | Doctor | yes | yes | yes | none (companion) |
-| clean-suite-e | yes | yes | **no** — no palette or wallpaper handling; palette comes from `GTEX62_PALETTE` | stops non-companion siblings via the manifest read (2026-09-27) |
+| clean-suite-e | yes | yes palette: yes, mapped onto `GTEX62_PALETTE` (confirmed live 2026-09-27); wallpaper: n/a, no wallpaper step | stops non-companion siblings via the manifest read (2026-09-27) |
 
 ---
 
@@ -508,11 +513,18 @@ round), plus clean-suite-e as a main and legacy pass-through.
    confirmed live: `[launch] companion = true` in SitRep's and Doctor's `suite.toml`, and
    OSA's and clean-suite-e's kill loops read each sibling's manifest instead of the
    hardcoded `gtex62-sitrep`. Doctor survives a later OSA or clean-suite-e launch.
-2. **Front-door conformance.** clean-suite-e honors the two override variables, mapping
-   the palette one onto its own `GTEX62_PALETTE`. (The `[launch]` key is already documented
-   in `legacy-suite-conversion-guide.md`.)
+2. **Front-door conformance** — **done 2026-09-27:** clean-suite-e honors
+   `GTEX62_CONKY_PALETTE_OVERRIDE` by mapping it onto its own `GTEX62_PALETTE`, verified
+   against the real catalog (10 cases, including a regex-metacharacter name and a preset
+   `GTEX62_PALETTE` that a bad override must not clobber) and end to end through the real
+   theme file, then **confirmed live 2026-09-27** by launching the real front door with
+   `GTEX62_CONKY_PALETTE_OVERRIDE=dark` (the last hop into a running conky window, which
+   the harness couldn't reach). It deliberately gained no palette prompt and no
+   wallpaper step. (The
+   `[launch]` key is documented in `legacy-suite-conversion-guide.md`.)
 3. **Build `bin/gtex62-conkystart`, first version:** the directory scan; selection with
-   the one-main rule; hash grouping from `palette_catalog`; override handoff; wallpaper
+   the one-main rule; hash grouping from `palette_catalog`, with palette-name listing per
+   catalog syntax; override handoff; wallpaper
    once; main-first launch; legacy pass-through. Ship a `--dry-run` that prints each
    planned front-door invocation and its environment without running anything — a
    first-class feature, because every front door `pkill`s its suite's live windows and
@@ -529,6 +541,12 @@ round), plus clean-suite-e as a main and legacy pass-through.
 
 ## Open Items
 
+- **Listing palette names across catalog syntaxes.** The launcher must list names from two
+  catalog shapes (see Palette) and read the default from the manifest. Undecided how:
+  one awk pattern per known shape, keyed off something the manifest could declare (for
+  example `palette_format` — but all four suites declare `"role3"` today, so it can't
+  tell them apart as it stands), or a small per-suite listing hook. The second front door
+  to need this makes it worth settling before the launcher is built.
 - **Detecting `tone_modes` presence.** Deferred with the mode step, but the mechanism is
   still open — likely the same awk pattern-matching approach `launch-lcars.sh` /
   `launch-tri-hud.sh` already use to read `tone_palettes`, extended to check for a
