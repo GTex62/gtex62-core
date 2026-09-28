@@ -12,6 +12,7 @@ into one core-owned flow, replacing the current per-suite scattered scripts.
 | `conkystart` | dispatcher | **Untracked personal script at `~/.local/bin/conkystart`** (aliased in `~/.bash_aliases`) — not in either repo. Lists suite dirs, dispatches to suite-specific script. Already special-cases a hardcoded "osa + sitrep" combo menu entry (`COMBO_LABEL`), launching both in sequence and propagating OSA's palette/wallpaper choice to SitRep via env-var override (see below). This location is a stopgap — see Installation Location for the decided replacement |
 | `conkystart_legacy` | dispatcher (dead) | Also untracked at `~/.local/bin/`, predates the combo-label logic. Confirmed zero references anywhere — not aliased, not invoked by any script or the current `conkystart`. Dead weight, not a fallback path in use |
 | `start-conky.sh` (OSA) | gtex62-osa | Palette selection (flat list, single axis) + wallpaper (shared-assets, with None) + hands off to core launcher |
+| `start-conky.sh` (Doctor) | gtex62-doctor | Same front-door shape as OSA's, built 2026-09-23 (gtex62-doctor `790809b`): toolchain gate → foreground bootstrap → palette (Group A catalog) and wallpaper prompts, both honoring the `GTEX62_CONKY_*_OVERRIDE` handoff → detached core launcher. Self-stop only (scoped `pkill` of its own widgets); no suite-exclusivity block. Discovered by `conkystart`'s directory scan (its script is executable), so it appears in the menu and launches standalone; it is not part of any combo |
 | `start-conky.sh` (LCARS, legacy) | gtex62-lcars | Wallpaper only (per-suite dir) — not actually invoked by conkystart; superseded by launch-lcars.sh |
 | `launch-lcars.sh` | gtex62-lcars | Mode (dark/alt) + palette (flat list from theme-core.lua) → execs start-conky.sh |
 | `launch-tri-hud.sh` | gtex62-tri-hud | Mode (dark/light) + palette (flat list from theme-core.lua) → execs start-conky.sh |
@@ -28,20 +29,22 @@ needs, just fixed to one pair: it launches OSA first, reads back the palette/wal
 OSA's own `start-conky.sh` wrote to its normal "remember last choice" cache files
 (`$CACHE_ROOT/runtime/osa-palette`, `osa-wallpaper`), and exports them as
 `GTEX62_CONKY_PALETTE_OVERRIDE` / `GTEX62_CONKY_WALLPAPER_OVERRIDE` before launching
-SitRep. Both OSA's and SitRep's `start-conky.sh` already honor these env vars — if the
+SitRep. OSA's, SitRep's, and Doctor's `start-conky.sh` already honor these env vars — if the
 override value matches a name in that suite's own catalog, it's used silently; if not,
 each suite prints a warning and falls back to prompting. That graceful fallback is real,
 working code today, not a proposal — the generalized per-group propagation in Palette
 (below) builds on this exact mechanism rather than inventing a new one.
 
 **Existing bootstrap behavior: self-healing auto-bootstrap (retained by decision).**
-OSA's and SitRep's `start-conky.sh` check for `core.toml` and their own
+OSA's, SitRep's, and Doctor's `start-conky.sh` check for `core.toml` and their own
 `suites/<id>.toml`; clean-suite-e's checks only `suites/clean-e.toml`. If the file is
 missing, each runs its bootstrap wrapper and carries on: a fresh clone doesn't stop, it
 generates the runtime root from templates (placeholder values and all) and starts.
-Until 2026-09-19 all three sent the wrapper's output to `/dev/null`, so the
-bootstrap's "fill in `site.toml`" instructions never appeared; that is fixed (see
-Step 0). A fail-fast gate was designed as the alternative and rejected — see Step 0.
+Until 2026-09-19 OSA, SitRep, and clean-suite-e sent the wrapper's output to
+`/dev/null`, so the bootstrap's "fill in `site.toml`" instructions never appeared; that
+is fixed (see Step 0). Doctor, built later (2026-09-23), calls its wrapper in the
+foreground from the start. A fail-fast gate was designed as the alternative and
+rejected — see Step 0.
 
 ---
 
@@ -65,7 +68,10 @@ regression in all three front doors (each ended the call with `>/dev/null`), fix
 2026-09-19. Verified against a fresh scratch runtime root, using each suite's
 committed `HEAD` script versus the working-tree script: before, no bootstrap output
 reached the terminal; after, 35–37 lines did, including "Runtime root prepared at:"
-and the `site.toml` next steps.
+and the `site.toml` next steps. Doctor's front door was checked the same way on
+2026-09-27: 37 lines reached the terminal, a fresh root received `suites/doctor.toml`,
+and the shipped `core.toml` carries `[doctor] enabled = true`, so a first-run Doctor
+launch has its provider on without a manual edit.
 
 #### Superseded: the fail-fast bootstrap gate
 
@@ -75,17 +81,22 @@ The original design had the launcher stat `core.toml` under the runtime root
 plain terminal message pointing at the README, loading nothing. It was never built,
 and is now **superseded**, not merely deferred:
 
-- Doctor's config-completeness alert banner, as specified in `doctor-design.md`, is
-  designed specifically to surface incomplete first-boot config — unset TZ, unset
-  lat/lon, placeholder API keys — with live, per-field guidance ("Edit `<file>`, set
-  `<var>`"). A one-shot terminal fail-fast message can't match that. Building the hard
-  gate would duplicate a worse version of what Doctor is specified to do for anyone
-  who installs it. **This is a spec, not a shipped feature:** `gtex62-doctor` has no
-  commits yet, and `doctor-design.md` itself lists the config-completeness detail as
-  still to be sketched.
-- For anyone who doesn't install Doctor — and for everyone until Doctor's banner
-  exists — the visible bootstrap output above carries the same "fill in `site.toml`"
-  guidance at the moment it's relevant.
+- Doctor is built (gtex62-doctor `790809b`, 2026-09-23) and covers this ground more
+  usefully than a one-shot terminal message could. Its CONFIG box, fed by core's
+  `fetch_doctor.sh`, shows live per-field status: time zone, lat, and lon as values, and
+  whether the OpenWeather and AirNow keys are set (presence only — a set key shows just
+  `NOMINAL`), with `BLANK` for anything unset. Its DCM takeover raises a fixed-text entry
+  with a `PROC:` line per provider condition — for example AIR and ASTRO report missing
+  coordinates as "Set `[location] lat`/`lon` in the ... profile or `site.toml`", and
+  WEATHER asks for the API key and coordinates in its profile — with long-form
+  procedures in `gtex62-doctor/docs/doctor-qrh.md`. Building the hard gate would
+  duplicate a worse version of what Doctor does for anyone who installs it.
+  **Limits, so this isn't over-read:** the CONFIG box is a status readout and carries no
+  remediation text itself, and a config value that is present but still a placeholder
+  raises no row NOTE — whether DCM should raise an entry for it is still an open
+  question in `doctor-design.md` (also flagged in the QRH).
+- For anyone who doesn't install Doctor, the visible bootstrap output above carries the
+  same "fill in `site.toml`" guidance at the moment it's relevant.
 - Fail-fast would also have reversed working behavior in three suites and added a
   manual bootstrap step to every fresh install.
 
@@ -102,16 +113,18 @@ The one pre-launch gate in this design: `command -v jq` and `command -v python3`
 which one(s), point at the suite README's Requirements section, and exit 1 before
 anything else runs — including before the auto-bootstrap block in Step 0.
 
-Measured across the 23 launcher-invoked provider entry points: `jq` is referenced by
-20 (87%) and `python3` by 18 (78%). Every entry point needs at least one of them. They
-are gated together, not separately, because their numbers are too close to justify
-different treatment. Run empirically against the four local-only domains (`time`,
+First measured 2026-09-19 across the 23 launcher-invoked provider entry points: `jq` was
+referenced by 20 (87%) and `python3` by 18 (78%). Re-measured 2026-09-27 across the 24
+that exist now, after the Doctor provider (`python3` only, no `jq`) landed: `jq` 20
+(83%), `python3` 19 (79%). Every entry point still needs at least one of them; none
+needs neither. They are gated together, not separately, because their numbers are too
+close to justify different treatment. Run empirically against the four local-only domains (`time`,
 `system`, `calendar`, `astro`) with each tool broken in turn: without `jq`, none reach
 an `ok` status and `system` writes no output at all; without `python3`, only `system`
 survives, degraded.
 
 **Placement matters as much as the check.** Suite `start-conky.sh` scripts detach the
-core launcher with `>/dev/null 2>&1` (OSA `start-conky.sh`, SitRep, clean-suite-e), so
+core launcher with `>/dev/null 2>&1` (OSA `start-conky.sh`, SitRep, clean-suite-e, Doctor), so
 anything the launcher prints is discarded. This check must run in the foreground
 front door, before any redirect or detach. A launcher-side copy can only be a backstop
 for running `gtex62-core-launch` directly from a terminal.
@@ -123,8 +136,10 @@ bootstrap call and every redirect. Verified per suite with a restricted `PATH`
 exits 1, and leaves no side effects; the real scripts were never run past the gate
 because each one `pkill`s its suite's live conky windows. Each suite's README
 Requirements section now lists `python3` (clean-suite-e had no Requirements section
-and gained one). gtex62-doctor has no front door yet (its `scripts/` is not built);
-its launcher must include this block when it is.
+and gained one). gtex62-doctor's front door (built 2026-09-23) carries the same block,
+verified 2026-09-27 the same way: all three restricted-`PATH` cases print what's
+missing, exit 1, and leave no side effects. Doctor's README Requirements section lists
+`jq` and `python3`.
 
 #### Standard for what earns a pre-launch gate
 
@@ -134,9 +149,9 @@ alone:
 - *Silent:* today it fails with no visible signal (the launcher's output is
   discarded, meters just freeze). A loud failure already tells the user what's wrong.
 - *Near-total:* it takes out nearly every provider entry point, measured rather than
-  assumed. Not "strictly total" — no single tool is needed by all 23. The measured
-  gap is wide (`jq` 87%, `python3` 78%, then `ssh` 35%, `curl` 26%, `sshpass` 4%), so no
-  fixed percentage cutoff is claimed.
+  assumed. Not "strictly total" — no single tool is needed by all 24. The measured
+  gap is wide (`jq` 83%, `python3` 79%, then `ssh` 38%, `curl` 25%, `sshpass` 4%;
+  re-measured 2026-09-27), so no fixed percentage cutoff is claimed.
 - Also required: a single root cause, and deterministically checkable before any
   suite loads.
 
@@ -144,9 +159,11 @@ Near-total but loud, or silent but partial, belongs in Doctor.
 
 #### Considered and excluded
 
-- **Malformed `core.toml`/`site.toml` — Doctor only.** Not total: only the launcher
-  and `fetch_alerts.sh` reference `core.toml`, and 6 of 23 entry points (`system`,
-  `time`, `vpn`, `mtr`, `modem`, `orb`) never read `site.toml`. Providers don't fail
+- **Malformed `core.toml`/`site.toml` — Doctor only.** Not total: only the launcher,
+  `fetch_alerts.sh`, and `fetch_doctor.sh` reference `core.toml`, and 7 of the 24 entry
+  points (`alerts`, `modem`, `mtr`, `orb`, `system`, `time`, `vpn`) never read
+  `site.toml` in code (an earlier count of 6 wrongly counted `alerts`, whose only
+  mention is a comment). Providers don't fail
   identically: the shell providers use line-matching `awk`, which never validates
   syntax; the Python loaders swallow parse errors into `{}` and fall back to defaults.
   Tested cases: a garbage line elsewhere leaves every key readable, an unclosed
@@ -157,7 +174,10 @@ Near-total but loud, or silent but partial, belongs in Doctor.
   `America/Chicago` keys) and works only because its parser is hand-rolled. This is
   not a missing-file analogue either: a never-bootstrapped install is total because the
   launcher itself exits at its `SUITE_TOML` check, which a malformed file doesn't
-  trigger.
+  trigger. "Doctor only" is a placement decision, not an existing capability:
+  `fetch_doctor.sh` doesn't flag a malformed file today either — on a `tomllib`
+  rejection it falls back to a lenient line-oriented reader, matching how the launcher
+  and providers read the same files.
 - **Per-domain tools — Doctor only:** `curl` (4 domains fully dependent), `ssh`,
   `sshpass` (the AP scraper only), `ephem` (`astro`, `orb`), `requests` (`media`), and
   Python 3.11+ (`modem`, `media`, the AP script).
@@ -211,7 +231,7 @@ false-positive combo. Confirmed groups today:
 
 | Group | Suites | Catalog |
 | ----- | ------ | ------- |
-| A | OSA, SitRep, Doctor | Byte-identical `osa-palettes.lua`/`palettes.lua`, 63 flat-role (`bg`/`fg`/`ink`) entries. Safe combo candidate — shared prompt. |
+| A | OSA, SitRep, Doctor | Byte-identical `osa-palettes.lua`/`palettes.lua`, 63 flat-role (`bg`/`fg`/`ink`) entries. Safe combo candidate — shared prompt. Re-verified 2026-09-27: all three still hash identically (`f1743dbc…`), Doctor's copy committed and unmodified. |
 | B | clean-suite-e | Standalone, 2 entries, different role shape (`bg`/`fg`/`ink`/`dim`/`accent`/`ok`/`warn`/`err`/...). |
 | C | LCARS | Standalone, 61 tone-ladder entries. |
 | D | tri-hud | Standalone, 60 tone-ladder entries. Shares the tone-ladder *mechanism* with C, not the catalog — confirmed even the 5 same-named utility palettes (`aqi`, `planets`, `seasons`, `dark`) that are byte-identical between C and D have a real divergence in `light` mode's tone-inversion behavior (LCARS inverts tone2↔tone3 as well as tone0↔tone4; tri-hud only inverts tone0↔tone4). Not the same group. |
@@ -282,6 +302,19 @@ binary / conky process start, same as OSA's current `CORE_LAUNCHER --suite <id>`
 pattern, generalized from `conkystart`'s existing OSA-then-SitRep sequencing to
 however many suites were selected.
 
+**Launch order and suite exclusivity — unresolved.** OSA's and clean-suite-e's
+`start-conky.sh` each, at launch, kill every sibling suite's widgets
+(`pkill -f "$other_dir/widgets/"`) except a hardcoded `gtex62-sitrep`, so SitRep is the
+only suite treated as a companion that may run alongside a main suite. Doctor is meant
+to run beside a main suite (its README says so) but is not exempt. Simulating OSA's loop
+against Doctor's real conky command line — a string match only, nothing was killed —
+shows `gtex62-doctor/widgets/` matches. Doctor's own `start-conky.sh` has no exclusivity
+block, so launch order decides: Doctor started after OSA survives; OSA or clean-suite-e
+started after Doctor takes Doctor down. For a multi-select launch containing both, the
+sequence matters until the exemption is expressed as data instead of a name list copied
+into each main suite's script — the same per-suite special-casing this document exists to
+remove. See Open Items.
+
 ---
 
 ## Interface Scope
@@ -348,7 +381,7 @@ every suite, covering any number of selected suites per invocation. The launcher
 0b. Checks the baseline toolchain — `command -v jq` and `command -v python3` as
    one combined check; if either is missing, prints which and exits before
    anything runs (including step 0). Runs in the foreground front door, ahead of
-   any redirect. Done in OSA, SitRep, and clean-suite-e.
+   any redirect. Done in OSA, SitRep, clean-suite-e, and Doctor.
 1. Lists installed suite dirs (directory-presence scan, unchanged); prompts
    multi-select instead of a single choice or a fixed combo label.
 2. For each selected suite, checks its theme-core file for `tone_modes`
@@ -373,9 +406,13 @@ worth preserving.
 
 ## Open Items
 
-- **Doctor's front door.** gtex62-doctor has no launcher script yet; when built it needs
-  the baseline-toolchain block (and a visible-output bootstrap call, if it self-
-  bootstraps like the other three).
+- **Suite exclusivity / companion suites.** OSA's and clean-suite-e's front doors hardcode
+  `gtex62-sitrep` as the only suite exempt from their sibling-kill loop, so a running
+  Doctor is killed when either is launched after it (see Launch). Undecided how companion
+  status should be declared — as data the launcher can read (for example a field in each
+  suite's `suite.toml`) rather than a name list copied into every script — and whether
+  the multi-select sequence should launch companions last as a stopgap. Not verified live:
+  only the pattern match was simulated.
 - **Detecting `tone_modes` presence.** Needs a concrete mechanism — likely the same awk
   pattern-matching approach `launch-lcars.sh`/`launch-tri-hud.sh` already use to read
   `tone_palettes`, extended to check for a `tone_modes` table in the same file, rather
