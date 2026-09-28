@@ -412,7 +412,7 @@ first-run failure.
 
 | File | Lives in | Read by | Purpose |
 | ---- | -------- | ------- | ------- |
-| `suite.toml` | the suite repo | the launcher (`[[instances.*]]` conf paths only) and humans | Suite identity, version, assets, palette catalog, which Conky windows to start |
+| `suite.toml` | the suite repo | the launcher (`[[instances.*]]` conf paths), main suites' front doors (each sibling's `[launch] companion`), and humans | Suite identity, version, assets, palette catalog, which Conky windows to start, whether it is a companion |
 | `suites/<suite-id>.toml` | `~/.config/gtex62-core/` (runtime root) | the launcher (`suite_repo`, `[profiles]`, `[domains]`) | Binds the suite to provider profiles and declares which opt-in domains it consumes |
 
 The launcher exits with `Suite config not found` if the binding file is missing, so it must be
@@ -470,6 +470,9 @@ default_palette = "[palette-name]"
 palette_catalog = "theme/[suite]-palettes.lua"
 palette_format = "role3"                # see §3.1 — "role3" is what OSA/SitRep/clean-e declare
 
+[launch]
+companion = false                       # true for a suite that runs beside a main suite (SitRep, Doctor)
+
 # One block per Conky process this suite starts. The launcher starts every conf listed
 # here, in order, and writes a PID file per instance. With no [[instances.*]] block at all
 # it falls back to OSA's single widgets/osa-main.conky.conf — don't rely on that.
@@ -488,6 +491,12 @@ optional = true
 `id` and `description` are informational; the launcher only reads the `conf` lines. `optional`
 is likewise informational today — an optional instance is still started if listed, so
 comment it out (or leave it out) rather than relying on the flag.
+
+`[launch] companion` says whether the suite may run beside a main suite. Main suites' front
+doors read every sibling's `suite.toml` when enforcing exclusivity and leave companions
+running; a sibling with no manifest, no `[launch]` table, or any value other than a bare
+`true` is treated as a main suite and stopped. Leave it `false` (or omit the table) for a
+main suite. Today only SitRep and Doctor set it.
 
 The `[data] domains = [...]` block that clean-suite-e's `suite.toml` carries (and that earlier
 versions of this guide prescribed) is **not read by the launcher**. Domain gating comes from
@@ -996,9 +1005,12 @@ the parts that matter, in order:
    it to `/dev/null` and it had to be fixed.
 4. **Stop the suite's own previous run** — read `runtime/pids/<id>-launcher.pid` and
    `<id>-conky.pid`, kill, wait; then `pkill -f "$SUITE_DIR/widgets/"` to catch the rest.
-   Scope by the suite's own `widgets/` path — a blanket `pkill -x conky` kills SitRep.
-5. **Suite exclusivity** — kill every *other* suite's `widgets/` processes except
-   `gtex62-sitrep`, so only one main suite runs at a time.
+   Scope by the suite's own `widgets/` path — a blanket `pkill -x conky` kills the companion
+   suites (SitRep, Doctor).
+5. **Suite exclusivity** — kill every *other* suite's `widgets/` processes except companions
+   (a sibling whose `suite.toml` has `[launch] companion = true`; today SitRep and Doctor), so
+   only one main suite runs at a time. A sibling with no manifest or no such key is stopped.
+   Copy `is_companion()` from `gtex62-osa/scripts/start-conky.sh` rather than hardcoding a name.
 6. **Palette (and mode, for tone-ladder suites), then wallpaper** — honor
    `GTEX62_CONKY_PALETTE_OVERRIDE` / `GTEX62_CONKY_WALLPAPER_OVERRIDE`, remember the last choice
    under `$CACHE_ROOT/runtime/<id>-palette` / `<id>-wallpaper`, list wallpapers from
@@ -1065,7 +1077,8 @@ planned); until it lands, port their behavior into the converted suite's own `st
 - [ ] PID files exist under `runtime/pids/` (`<id>-launcher.pid` plus one per instance)
 - [ ] `start-conky.sh` gates on `jq` and `python3` before any redirect, prints bootstrap output,
       and scopes its `pkill` to the suite's own `widgets/` directory
-- [ ] Only SitRep is exempt from suite exclusivity
+- [ ] Only companions (`[launch] companion = true` in `suite.toml`) are exempt from suite
+      exclusivity; no suite name is hardcoded
 - [ ] Combined launch: `GTEX62_CONKY_PALETTE_OVERRIDE` is honored, with a warning and prompt
       fallback for an unknown name
 

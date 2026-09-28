@@ -346,16 +346,24 @@ checked 2026-09-27), which would kill any companion already running. Core-native
 companions through the manifest flag, but the same order is safe for them and keeps one
 rule.
 
-**Exclusivity — decided, not built.** OSA's and clean-suite-e's front doors currently
-kill every sibling suite's widgets (`pkill -f "$other_dir/widgets/"`) except a hardcoded
-`gtex62-sitrep`. Doctor is meant to run beside a main suite (its README says so) but
-wasn't exempt: **confirmed live 2026-09-27**, launching OSA after Doctor killed Doctor.
+**Exclusivity — implemented and confirmed live.** OSA's and clean-suite-e's front doors
+used to kill every sibling suite's widgets (`pkill -f "$other_dir/widgets/"`) except a
+hardcoded `gtex62-sitrep`. Doctor is meant to run beside a main suite (its README says so)
+but wasn't exempt: **confirmed live 2026-09-27**, launching OSA after Doctor killed Doctor.
 (It was first spotted by simulating the string match against Doctor's real conky command
-line. Only OSA was exercised live; clean-suite-e's identical block is read from code, not
-observed.) The decision replaces the name list with the `companion` manifest flag: a main
-suite's kill loop skips any sibling whose `suite.toml` declares `[launch] companion =
-true`, and siblings with no manifest or no key are stopped exactly as today. Until it
-lands, launch Doctor after the main suite.
+line. Only OSA was exercised live; clean-suite-e's identical block was read from code, not
+observed.)
+
+Fixed 2026-09-27 by replacing the name list with the `companion` manifest flag: a main
+suite's kill loop now skips any sibling whose `suite.toml` declares `[launch] companion =
+true` (SitRep and Doctor do), and siblings with no manifest or no key are stopped exactly
+as before. Verified by running each modified front door's real loop text against the real
+`~/.config/conky` tree with `pkill` replaced by a logger: for both OSA and clean-suite-e
+the only change from the old loop's targets is Doctor dropping out, and the
+`is_companion()` reader passes 14 edge-case manifests (false, missing key, wrong table,
+commented-out, quoted, array table, trailing comments, no manifest). **Confirmed live
+2026-09-27:** with Doctor running, launching OSA did not kill it, and neither did launching
+clean-suite-e (the first time that path was ever observed).
 
 ---
 
@@ -383,18 +391,21 @@ A conforming front door:
 companion = true   # may run beside a main suite; never stopped by one
 ```
 
-Default false. Read by the launcher (selection) and by main front doors' sibling-kill
-loops, with `awk` in the same style as the core launcher's existing manifest parsing
-(`get_instance_confs`). Not yet added to any `suite.toml`; SitRep and Doctor need it.
+Default false. Read by main front doors' sibling-kill loops through `is_companion()`
+(`awk`, in the same style as the core launcher's existing manifest parsing, and
+byte-identical in OSA's and clean-suite-e's `start-conky.sh`), and, once built, by the
+launcher for selection. Set in SitRep's and Doctor's `suite.toml` as of 2026-09-27; OSA and
+clean-suite-e omit it (mains), as does any manifest missing the key and any legacy suite,
+which has no manifest at all. Documented in `legacy-suite-conversion-guide.md`.
 
 **Conformance today** (read from code, 2026-09-27):
 
 | Front door | Toolchain gate | Visible bootstrap | Override vars | Exclusivity |
 | ---------- | -------------- | ----------------- | ------------- | ----------- |
-| OSA | yes | yes | yes | kills siblings except hardcoded SitRep — needs the manifest read |
+| OSA | yes | yes | yes | stops non-companion siblings via the manifest read (2026-09-27) |
 | SitRep | yes | yes | yes | none (companion) |
 | Doctor | yes | yes | yes | none (companion) |
-| clean-suite-e | yes | yes | **no** — no palette or wallpaper handling; palette comes from `GTEX62_PALETTE` | same hardcoded SitRep exemption — needs the manifest read |
+| clean-suite-e | yes | yes | **no** — no palette or wallpaper handling; palette comes from `GTEX62_PALETTE` | stops non-companion siblings via the manifest read (2026-09-27) |
 
 ---
 
@@ -493,14 +504,13 @@ suites are opaque pass-through; the mode step is deferred; each suite applies th
 wallpaper itself; the first build covers OSA + SitRep + Doctor (one Group A prompt
 round), plus clean-suite-e as a main and legacy pass-through.
 
-1. **Exclusivity fix** (independent of the launcher). Add `[launch] companion = true` to
-   SitRep's and Doctor's `suite.toml`; make OSA's and clean-suite-e's kill loops read
-   each sibling's manifest instead of the hardcoded `gtex62-sitrep`. Verify with a
-   simulation first, then live: OSA after Doctor (already known to fail today) and
-   clean-suite-e after Doctor (never observed).
+1. **Exclusivity fix** (independent of the launcher) — **done 2026-09-27**, simulated and then
+   confirmed live: `[launch] companion = true` in SitRep's and Doctor's `suite.toml`, and
+   OSA's and clean-suite-e's kill loops read each sibling's manifest instead of the
+   hardcoded `gtex62-sitrep`. Doctor survives a later OSA or clean-suite-e launch.
 2. **Front-door conformance.** clean-suite-e honors the two override variables, mapping
-   the palette one onto its own `GTEX62_PALETTE`. Document the `[launch]` key wherever
-   the suite manifest schema is documented.
+   the palette one onto its own `GTEX62_PALETTE`. (The `[launch]` key is already documented
+   in `legacy-suite-conversion-guide.md`.)
 3. **Build `bin/gtex62-conkystart`, first version:** the directory scan; selection with
    the one-main rule; hash grouping from `palette_catalog`; override handoff; wallpaper
    once; main-first launch; legacy pass-through. Ship a `--dry-run` that prints each
