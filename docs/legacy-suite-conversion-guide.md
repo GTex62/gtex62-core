@@ -469,6 +469,7 @@ wallpapers_dir = "../gtex62-shared-assets/wallpapers"
 default_palette = "[palette-name]"
 palette_catalog = "theme/[suite]-palettes.lua"
 palette_format = "role3"                # see §3.1 — "role3" is what OSA/SitRep/clean-e declare
+palette_catalog_syntax = "nested-table" # how the launcher lists names: "nested-table" or "assigned-keys" — see §3.1
 
 [launch]
 companion = false                       # true for a suite that runs beside a main suite (SitRep, Doctor)
@@ -578,10 +579,18 @@ scheme as the default; add alternates as desired.
 
 | Shape | Used by | Notes |
 | ----- | ------- | ----- |
-| **role3** — `return { default = "amber", palettes = { name = { bg, fg, ink } } }` | OSA, SitRep, Doctor (byte-identical 63-entry catalog) | What `palette_format = "role3"` declares. The launcher's `choose_palette` awk reads `default =`, the `palettes = {` block, `-- Group` comment lines as menu headings, and `name = {` entries |
-| **Named-role table** — `palettes["default"] = { bg, fg, ink, dim, accent, ok, warn, err, ... }` | clean-suite-e (2 entries) | Richer roles, but also declared `role3` in its manifest — the launcher only needs names and a default |
+| **role3** — `return { default = "amber", palettes = { name = { bg, fg, ink } } }` | OSA, SitRep, Doctor (byte-identical 63-entry catalog) | `palette_format = "role3"` (the role shape) with `palette_catalog_syntax = "nested-table"`. The front doors' `choose_palette` awk reads `default =`, the `palettes = {` block, `-- Group` comment lines as menu headings, and `name = {` entries |
+| **Named-role table** — `palettes["default"] = { bg, fg, ink, dim, accent, ok, warn, err, ... }` | clean-suite-e (2 entries) | Richer roles, but also declared `role3`, so `palette_format` can't tell it apart from the row above — `palette_catalog_syntax = "assigned-keys"` does |
 | **Tone ladder** — `tone0`–`tone4` + `energy`, plus a `tone_modes` table | LCARS (61), tri-hud (60) | Mode (dark/light/alt) is a role-inversion over the ladder, not a separate palette. Converting these means the launcher must also prompt for mode first |
 | None | tech-hud | No catalog exists — designing one is part of its conversion |
+
+**Declare the syntax.** `[theme] palette_catalog_syntax` tells the launcher how to list your
+catalog's names: `nested-table` (the first row above) or `assigned-keys` (the second). It is
+independent of `palette_format`, which labels the role shape; this labels the file's text
+layout. The default palette comes from `[theme] default_palette`. A missing or unknown value
+means the launcher will not list your palettes or hand you an override — your `start-conky.sh`
+prompts for itself. A catalog layout not listed here needs a new extractor in core and a new
+value; the tone-ladder shape has none yet.
 
 Do not share a palette file with another suite, even if starting values converge — visual
 identity is suite-owned. The launcher groups suites by *file hash* to avoid duplicate prompts;

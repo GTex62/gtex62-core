@@ -281,7 +281,23 @@ is not: it depends on the file's syntax, and there are two today. Group A's file
 `return { default = "…", palettes = { name = { … } } }`, which OSA's, SitRep's and
 Doctor's `choose_palette` awk relies on; clean-suite-e's assigns
 `palettes["name"] = { … }` into a local table. The default comes from the manifest's
-`[theme] default_palette` either way. See Open Items.
+`[theme] default_palette` either way.
+
+**Decided and validated 2026-09-27:** the manifest declares the syntax with `[theme]
+palette_catalog_syntax` — `nested-table` (Group A) or `assigned-keys` (clean-suite-e) —
+and the launcher keeps one small POSIX-awk extractor per value. `palette_format` is
+unchanged and unrelated: it labels the role shape, and all four suites say `role3`. A
+suite with no value, or one the launcher doesn't know, is simply not listed: the launcher
+passes it no palette override and the suite prompts for itself, the same fallback legacy
+suites get. A new catalog layout means adding an extractor to core and a new value.
+
+The prototype was checked against the real catalogs of all four suites, under both gawk
+and mawk. Each extractor's name set equals the keys of the real Lua table (63, 63, 63 and
+2, read by `lua5.4`, not by awk); Group A's output is byte-identical to the front doors'
+own extraction, including order and group headings; every manifest default is among the
+listed names; and a wrong declaration yields zero names, which is detectable. The
+tone-ladder shape (LCARS, tri-hud) has no value yet; it gets one when `lcars-e` /
+`tri-hud-e` exist.
 
 **Propagation mechanism:** the same `GTEX62_CONKY_PALETTE_OVERRIDE` /
 `GTEX62_CONKY_WALLPAPER_OVERRIDE` env-var handoff `conkystart` already uses for its
@@ -403,6 +419,11 @@ launcher for selection. Set in SitRep's and Doctor's `suite.toml` as of 2026-09-
 clean-suite-e omit it (mains), as does any manifest missing the key and any legacy suite,
 which has no manifest at all. Documented in `legacy-suite-conversion-guide.md`.
 
+**Second manifest key.** `[theme] palette_catalog_syntax` (see Palette). Read only by the
+launcher; the front doors ignore it. Set in all four suites' `suite.toml` as of
+2026-09-27: `nested-table` for OSA, SitRep and Doctor, `assigned-keys` for
+clean-suite-e.
+
 **Conformance today** (read from code, 2026-09-27):
 
 | Front door | Toolchain gate | Visible bootstrap | Override vars | Exclusivity |
@@ -410,7 +431,7 @@ which has no manifest at all. Documented in `legacy-suite-conversion-guide.md`.
 | OSA | yes | yes | yes | stops non-companion siblings via the manifest read (2026-09-27) |
 | SitRep | yes | yes | yes | none (companion) |
 | Doctor | yes | yes | yes | none (companion) |
-| clean-suite-e | yes | yes palette: yes, mapped onto `GTEX62_PALETTE` (confirmed live 2026-09-27); wallpaper: n/a, no wallpaper step | stops non-companion siblings via the manifest read (2026-09-27) |
+| clean-suite-e | yes | yes | palette: yes, mapped onto `GTEX62_PALETTE` (confirmed live 2026-09-27); wallpaper: n/a, no wallpaper step | stops non-companion siblings via the manifest read (2026-09-27) |
 
 ---
 
@@ -506,7 +527,7 @@ part of this path at all — confirmed dead, not a fallback worth preserving.
 
 **Decisions (2026-09-27):** companion status by manifest flag, not a name list; legacy
 suites are opaque pass-through; the mode step is deferred; each suite applies the
-wallpaper itself; the first build covers OSA + SitRep + Doctor (one Group A prompt
+wallpaper itself; palette names are listed through a manifest-declared catalog syntax; the first build covers OSA + SitRep + Doctor (one Group A prompt
 round), plus clean-suite-e as a main and legacy pass-through.
 
 1. **Exclusivity fix** (independent of the launcher) — **done 2026-09-27**, simulated and then
@@ -522,9 +543,20 @@ round), plus clean-suite-e as a main and legacy pass-through.
    the harness couldn't reach). It deliberately gained no palette prompt and no
    wallpaper step. (The
    `[launch]` key is documented in `legacy-suite-conversion-guide.md`.)
+   **POSIX palette listing** — also done 2026-09-27, found while validating the manifest
+   field. OSA's, SitRep's and Doctor's `choose_palette` used a three-argument `match()`, a
+   gawk extension and the only gawk-only awk in core, the providers, or any front door. Under
+   mawk it was a syntax error: the name list came back empty, so the palette prompt — and the
+   combined-launch override handoff, which depends on the same list — silently did nothing and
+   the suite launched with its default palette. They now use the POSIX `nested-table`
+   extractor. Verified by running the whole extracted function, old and new, under gawk and
+   mawk for six cases per suite (Enter, a number, the last entry, a valid override, an invalid
+   override falling back to the prompt, an out-of-range choice): old/gawk, new/gawk and
+   new/mawk are identical in every case, including the exported variable and the cached
+   choice, and old/mawk reproduces the bug (0 menu rows).
 3. **Build `bin/gtex62-conkystart`, first version:** the directory scan; selection with
-   the one-main rule; hash grouping from `palette_catalog`, with palette-name listing per
-   catalog syntax; override handoff; wallpaper
+   the one-main rule; hash grouping from `palette_catalog`, with per-syntax palette-name
+   extractors (prototype validated — see Palette); override handoff; wallpaper
    once; main-first launch; legacy pass-through. Ship a `--dry-run` that prints each
    planned front-door invocation and its environment without running anything — a
    first-class feature, because every front door `pkill`s its suite's live windows and
@@ -541,12 +573,6 @@ round), plus clean-suite-e as a main and legacy pass-through.
 
 ## Open Items
 
-- **Listing palette names across catalog syntaxes.** The launcher must list names from two
-  catalog shapes (see Palette) and read the default from the manifest. Undecided how:
-  one awk pattern per known shape, keyed off something the manifest could declare (for
-  example `palette_format` — but all four suites declare `"role3"` today, so it can't
-  tell them apart as it stands), or a small per-suite listing hook. The second front door
-  to need this makes it worth settling before the launcher is built.
 - **Detecting `tone_modes` presence.** Deferred with the mode step, but the mechanism is
   still open — likely the same awk pattern-matching approach `launch-lcars.sh` /
   `launch-tri-hud.sh` already use to read `tone_palettes`, extended to check for a
