@@ -243,6 +243,8 @@ Current provider domains include:
 - `aviation`
 - `calendar`
 - `connectivity`
+- `doctor` — cross-cutting health watcher over every other domain's cache; see
+  `docs/doctor-design.md`
 - `github`
 - `media`
 - `modem`
@@ -257,6 +259,9 @@ Current provider domains include:
 - `time`
 - `vpn`
 - `weather`
+
+`airgradient` (indoor AQI) is designed but not yet built — see
+`docs/airgradient-provider-design.md`.
 
 Provider status files use the same basic shape:
 

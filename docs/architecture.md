@@ -42,6 +42,7 @@ gtex62-core/
     aviation/      — METAR/TAF weather
     calendar/      — calendar events
     connectivity/  — speedtest snapshots
+    doctor/        — cross-cutting health watcher (reads every other domain's cache)
     github/        — GitHub traffic
     media/         — lyrics library (player status, cover art)
     modem/         — cable modem status (HTTP scrape via pfSense NAT path)
@@ -118,6 +119,7 @@ time    = "local"
     aviation/      — METAR/TAF cache
     calendar/      — calendar event cache
     connectivity/  — speedtest snapshot cache
+    doctor/        — cross-cutting health status cache (status.json)
     github/        — GitHub traffic cache
     media/         — lyrics cache
     modem/         — modem status cache
@@ -190,9 +192,10 @@ making fast-track meters (VLAN, ping) appear frozen.
 | aviation     | 600s           | METAR/TAF, independent metar_ttl_sec/taf_ttl_sec                                                                 |
 | calendar     | 86400s         | Calendar events; seasonal sub-cache TTL 31536000s (1 year)                                                       |
 | connectivity | on-demand      | Manual speedtest snapshots                                                                                       |
-| github       | varies         | Traffic data                                                                                                     |
+| doctor       | recompute      | Cross-cutting; reads every other domain's cache, no cache_ttl_sec of its own — see doctor-design.md              |
+| github       | ~12h (timer)   | Traffic data; no launcher entry at all — cadence owned by a systemd user timer, see github-provider-status.md    |
 | media        | write-through  | Lyrics library — not TTL-cadence, see lyrics-library-design.md                                                   |
-| modem        | 300s           | Cable modem status                                                                                               |
+| modem        | 300s           | Cable modem status — see modem-provider-status.md                                                                |
 | mtr          | trigger-driven | Start/stop gated on SEVERE `gateway-offline`; live-pgrep-confirmed every poll while running (see `fetch_mtr.sh`) |
 | net          | 1s             | Fast-track — VLAN, ping, WAN IP display                                                                          |
 | network      | varies         | NIC state                                                                                                        |
@@ -201,7 +204,7 @@ making fast-track meters (VLAN, ping) appear frozen.
 | solar        | 300s           | UV + radiation (weather-derived) — see env-provider-status.md                                                    |
 | system       | 1s             | Fast-track — CPU, RAM, GPU, storage — see system-provider-status.md                                              |
 | time         | 1s             | Fast-track — clock rows                                                                                          |
-| vpn          | 10s            | PIA WireGuard tunnel status                                                                                      |
+| vpn          | 10s            | PIA WireGuard tunnel status — see vpn-provider-status.md                                                         |
 | weather      | 300s           | Current conditions + forecast                                                                                    |
 
 WAN IP (within net) is internally rate-limited to one external call per 30s

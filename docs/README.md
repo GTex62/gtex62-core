@@ -13,24 +13,34 @@ orchestration. Suites own visual identity, layout, and rendering.
 ## Provider Reference
 
 Per-provider implementation status: what's shipped, output schemas, configuration,
-known constraints/quirks. Coverage across all 20 provider domains is uneven — see each
-doc's own scope, and [Architecture](architecture.md)'s provider directory listing for
-the full domain set including ones with no dedicated doc yet.
+known constraints/quirks. Listed alphabetically by domain. Coverage across the engine's
+21 provider domains (plus the design-only `airgradient`, not yet built — see its entry
+below) is uneven: `alerts` is covered inside [SitRep Architecture](sitrep-architecture.md)'s
+"Alert Banner Watcher" section rather than a dedicated doc, and `doctor` has its own
+section further down this page. `calendar`, `connectivity`, `mtr`, `network`, and `time`
+have no written doc beyond their own script comments and [Doctor Missing
+Conditions](doctor-missing-conditions.md)'s per-domain MISSING-condition notes —
+investigated and judged not to warrant one (each is either trivial or its one real quirk
+is already fully captured there). See [Architecture](architecture.md)'s provider
+directory listing for the full domain set.
 
-- [pfSense Provider Status](pfsense-provider-status.md) — current state of the core `pfsense` provider: domain schemas, gate-per-domain pattern, remaining work
-- [AP Provider Status](ap-provider-status.md) — Zyxel access-point domain: auth/transport, MAC↔IP client join, MSMTCH mismatch detection
-- [Weather Provider Status](weather-provider-status.md) — OpenWeather current conditions + forecast: schemas, known staleness-detection gap
-- [Aviation Provider Status](aviation-provider-status.md) — METAR/TAF split-endpoint fetch, per-field degraded envelope, Aug 2026 TAF stuck-data incident
+- [AirGradient Provider Design](airgradient-provider-design.md) — `air` domain, indoor AQI sub-provider: design-only, not yet built; collector/engine/display separation
 - [ENV Provider Status](env-provider-status.md) — `air` (OpenWeather + AirNow AQI/pollution) and `solar` (weather-derived UV/radiation) domains behind OSA's ENV/ATMOS panel: schemas, TTL-key mismatch between the two, `solar` status.json provider-field quirk
-- [System Provider Status](system-provider-status.md) — machine/OS truth (`current.json`/`processes.json`/`storage.json`/`status.json`), fast-lane/slow-lane split with OSA `SYS`, promoted out of the former `system-schema.md`
+- [AP Provider Status](ap-provider-status.md) — Zyxel access-point domain: auth/transport, MAC↔IP client join, MSMTCH mismatch detection
 - [Astro Provider Status](astro-provider-status.md) — sun/moon/planet positions (a *different* domain from `orb` — see its own Scope section), promoted out of the former `astro-schema.md`
-- [Net Provider Reference](net-provider-reference.md) — state.vars and vlan.tsv formats, key reference, refresh model
-- [Orb Provider Reference](orb-provider-reference.md) — ephemeris.vars format, per-body key reference, location resolution
-- [AirGradient Provider Design](airgradient-provider-design.md) — indoor AQI (`air` domain) design: collector/engine/display separation
+- [Aviation Provider Status](aviation-provider-status.md) — METAR/TAF split-endpoint fetch, per-field degraded envelope, Aug 2026 TAF stuck-data incident
+- [GitHub Provider Status](github-provider-status.md) — personal-use traffic-stats domain: entirely systemd-timer-driven (outside the launcher's TTL mechanism), no `"degraded"` state (a known convention mismatch vs. weather/aviation/network)
 - [Lyrics Library Design](lyrics-library-design.md) — `media` domain design: library-vs-cache distinction, write-through safety
-- [MEDIA Event-Driven Refresh Design](media-event-driven-design.md) — draft: replacing MEDIA's poll with an MPRIS D-Bus listener; measurements, launcher-integration open questions, standing test-safety note
+- [MEDIA Event-Driven Refresh Design](media-event-driven-design.md) — `media` domain, draft: replacing MEDIA's poll with an MPRIS D-Bus listener; measurements, launcher-integration open questions, standing test-safety note
 - [Bug: lyrics blank after a fetch when the library write fails](2026-09-20-lyrics-publish-then-searching-bug.md) — `media` domain; violates lyrics-library-design.md's "not a blank widget"; resolved
 - [Bug: failed lyrics lookup cached as "not found" for 12 hours](2026-09-20-lyrics-failed-lookup-cached-as-miss-bug.md) — `media` domain; a timeout/5xx is recorded as a genuine miss; inherited from tech-hud; open
+- [Modem Provider Status](modem-provider-status.md) — CM1000 HTTP-scrape domain: auth flow, DOCSIS event-log T3 undercount/clock-skew saga, burst-vs-trickle alerting, promoted out of [Network Providers Roadmap](network-providers-roadmap.md)
+- [Net Provider Reference](net-provider-reference.md) — state.vars and vlan.tsv formats, key reference, refresh model
+- [Orb Provider Reference](orb-provider-reference.md) — ephemeris.vars format, per-body key reference, location resolution
+- [pfSense Provider Status](pfsense-provider-status.md) — current state of the core `pfsense` provider: domain schemas, gate-per-domain pattern, remaining work
+- [System Provider Status](system-provider-status.md) — machine/OS truth (`current.json`/`processes.json`/`storage.json`/`status.json`), fast-lane/slow-lane split with OSA `SYS`, promoted out of the former `system-schema.md`
+- [VPN Provider Status](vpn-provider-status.md) — PIA WireGuard domain: killswitch vs. killswitch_mode split, REKEY-AFTER-TIME-based health classification, promoted out of [Network Providers Roadmap](network-providers-roadmap.md)
+- [Weather Provider Status](weather-provider-status.md) — OpenWeather current conditions + forecast: schemas, known staleness-detection gap
 
 ## Suite Conversion
 
@@ -49,7 +59,7 @@ planned — and has moved to [archive/sitrep-relocation-plan.md](archive/sitrep-
 as a historical record of the original approach.
 
 - [SitRep Architecture](sitrep-architecture.md) — stable design: purpose, core principle, current/future data-flow diagrams, device inventory
-- [Network Providers Roadmap](network-providers-roadmap.md) — vpn/modem (built) and network-health (not started), drafted together in one investigation session
+- [Network Providers Roadmap](network-providers-roadmap.md) — full investigation log behind `vpn`/`modem` (current state now in their own provider-status docs above) plus `network-health` (not started), drafted together in one investigation session
 
 ## Doctor
 

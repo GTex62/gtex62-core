@@ -1,5 +1,14 @@
 # Network Providers Roadmap
 
+**For current state, read [VPN Provider Status](vpn-provider-status.md) and [Modem
+Provider Status](modem-provider-status.md) first** (promoted out of this doc Oct 1,
+2026, same treatment `system`/`astro` got from their own former `*-schema.md` docs). This
+doc is not superseded — it remains the full chronological investigation log (every dead
+end, live capture, and session-by-session fix) that those two docs distill and that
+[CHANGELOG.md](../CHANGELOG.md) cites by dated session throughout — plus the one item
+here that's still actually a roadmap entry: `network-health`, proposed below, never
+built.
+
 Proposed engine providers unrelated to pfSense's SSH-gated domains: `vpn` (local
 `piactl`/`wg` polling, no SSH), `network-health` (WAN loss/latency sampling), and `modem`
 (HTTP scrape of the cable modem's admin UI via a pfSense NAT path). `vpn` was built and
