@@ -18,6 +18,30 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
+## 0.11.0 — 2026-09-30
+
+Adds `lua/runtime/fonts.lua`, a shared font-availability check for suite theme files: `fc-list`
+detection (`font_installed`) plus a preferred/fallback picker (`pick_font`), cached once per
+machine under `runtime/font_cache.txt` since the shell-out is slow and the answer doesn't change
+within a session. Minor bump: a new runtime helper only, loaded the same optional way as
+`lua/runtime/window.lua` (`pcall(dofile, CORE_DIR .. "/lua/runtime/fonts.lua")`) — no provider or
+domain changes, nothing to migrate.
+
+Surfaced during the `gtex62-tech-hud-e` conversion audit: tech-hud's own (suite-local)
+`theme-core.lua` already had this exact mechanism to protect two non-redistributable commercial
+fonts (`Eurostile LT Std`, `Berthold City`) with open-source fallbacks (Orbitron, Roboto
+Condensed, Rajdhani, Exo 2). OSA and SitRep reference the same commercial font
+(`theme.fonts.title = "Eurostile LT Std"`) with no detection and no fallback at all — they only
+render correctly because the font happens to be installed locally. This module is the fix,
+available for any suite to adopt on its own schedule; it does not change OSA's or SitRep's theme
+files by itself.
+
+Font *choice* (which families to prefer per role, which open fallback to use, any per-font
+metric correction) stays suite-owned, in the suite's own theme file — this module only answers
+"is this font installed," not "what should this look like."
+
+---
+
 ## 0.10.0 — 2026-09-27
 
 Adds the suite launcher, `bin/gtex62-conkystart`. Minor bump: a new entry point, no provider or
