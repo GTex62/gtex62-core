@@ -30,6 +30,10 @@ station_model = "KMEM"
 advisories_center = "KMEM"
 
 [calendar]
+# Independent of [location.home].timezone above -- NOT derived from it.
+# Falls back to [location.home].timezone only if this key is absent, so
+# if you relocate, update both or this one will silently keep computing
+# DST transitions for the OLD timezone.
 timezone = "America/Chicago"
 
 [pfsense]
