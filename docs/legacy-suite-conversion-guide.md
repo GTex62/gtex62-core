@@ -25,7 +25,7 @@ sections that drift.
 | Legacy suite | Converted suite | Status |
 | ------------ | --------------- | ------ |
 | `gtex62-clean-suite` | `gtex62-clean-suite-e` | Converted — every widget Done in [clean-suite-e-recovery-runbook.md](clean-suite-e-recovery-runbook.md) |
-| `gtex62-tech-hud` | `gtex62-tech-hud-e` | Not started — directory exists but is empty |
+| `gtex62-tech-hud` | `gtex62-tech-hud-e` | Scaffolding — Phase 0 audit and Phase 1 decisions done, `suite.toml` and launch scripts in place; theme/Lua/widget content not yet ported. See `gtex62-tech-hud-e/docs/`. |
 | `gtex62-lcars` | `gtex62-lcars-e` | Not started |
 | `gtex62-tri-hud` | `gtex62-tri-hud-e` | Not started |
 

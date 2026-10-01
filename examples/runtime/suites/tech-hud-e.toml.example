@@ -1,0 +1,38 @@
+suite_id = "tech-hud-e"
+name = "gtex62-tech-hud-e"
+suite_repo = "__SUITE_REPO__"
+suite_manifest = "__SUITE_REPO__/suite.toml"
+enabled = true
+
+[profiles]
+system = "local"
+network = "local"
+net = "local"
+weather = "home"
+aviation = "home"
+astro = "home"
+calendar = "local"
+media = "local"
+pfsense = "main_router"
+
+# Mirrors the [data] domains list in the suite's own suite.toml. None of these
+# are dual-gated, so this list documents the suite's consumers rather than
+# gating anything. Infrastructure status (AP, pfBlockerNG, Pi-hole, gateway
+# health) is gtex62-sitrep's job, not a tech-hud-e panel — see
+# gtex62-tech-hud-e/docs/phase1-decisions.md.
+[domains]
+required = [
+  "system",
+  "network",
+  "net",
+  "weather",
+  "aviation",
+  "astro",
+  "calendar",
+  "media",
+  "pfsense",
+]
+optional = []
+
+[suite_cache]
+namespaces = ["msc"]
