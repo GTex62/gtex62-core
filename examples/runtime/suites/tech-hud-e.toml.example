@@ -10,7 +10,7 @@ network = "local"
 net = "local"
 weather = "home"
 aviation = "home"
-astro = "home"
+orb = "home"
 calendar = "local"
 media = "local"
 pfsense = "main_router"
@@ -27,7 +27,7 @@ required = [
   "net",
   "weather",
   "aviation",
-  "astro",
+  "orb",
   "calendar",
   "media",
   "pfsense",
