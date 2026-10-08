@@ -1,0 +1,13 @@
+[Unit]
+Description=Catch-up export of Home Assistant history for the AirGradient sensors (gtex62-core)
+ConditionPathExists=%h/.config/gtex62-core/profiles/airgradient/indoor.toml
+
+[Service]
+Type=oneshot
+Nice=10
+IOSchedulingClass=idle
+ExecStart=/usr/bin/env python3 %h/.config/conky/gtex62-core/scripts/airgradient-ha-export.py --profile indoor
+# The Home Assistant mount can be down for a while after boot or if its host is off: try again later
+# rather than waiting for the next daily run (Home Assistant keeps raw history for only 10 days).
+Restart=on-failure
+RestartSec=15min

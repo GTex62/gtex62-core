@@ -37,7 +37,8 @@ def check(label, condition, detail=""):
 T0 = 1_791_000_000 - 1_791_000_000 % 60    # a whole minute, 2026-10-03 UTC
 
 
-def make_db(path, minutes=range(20), co2_gap=range(5, 15), temp_unit="°C", drop_before=None, silent=()):
+def make_db(path, minutes=range(20), co2_gap=range(5, 15), temp_unit="°C", drop_before=None, silent=(), t0=None):
+    T0 = t0 if t0 is not None else globals()['T0']
     con = sqlite3.connect(path)
     con.executescript("""
         create table states_meta (metadata_id integer primary key, entity_id text);
@@ -177,6 +178,105 @@ check("no matching AirGradient entities: exit 3", r.returncode == 3 and "check -
 db3 = d / "ha3.db"; make_db(db3, temp_unit="°F")
 run(db3, d / "o3")
 check("a temperature already in F is not converted again", rows(d / "o3" / "indoor_1min.csv")[3]["temp_f"] == "24.0")
+
+# ---------------------------------------------------------------------------
+# Rolling window and archive
+# ---------------------------------------------------------------------------
+import calendar, gzip
+def epoch_of(s):
+    return calendar.timegm(time.strptime(s, "%Y-%m-%d %H:%M"))
+
+
+def gz_rows(path):
+    with gzip.open(path, "rt", newline="", encoding="utf-8") as f:
+        return list(csv.DictReader(f))
+
+
+TODAY = "2026-10-08"                      # keep 3 months -> cutoff 2026-07-08
+old_db, new_db, edge_db = d / "old.db", d / "new.db", d / "edge.db"
+make_db(old_db, t0=epoch_of("2026-01-15 03:00"))
+make_db(new_db, t0=epoch_of("2026-10-03 04:00"))
+make_db(edge_db, t0=epoch_of("2026-07-08 00:00"))
+rw = d / "rolling"
+r = run(old_db, rw, "--keep-months", "3", "--today", TODAY)
+check("rows older than the window are archived, not kept live", r.returncode == 0 and len(rows(rw / "indoor_1min.csv")) == 0, r.stderr[-200:])
+arc = rw / "archive" / "indoor_1min-2026-01.csv.gz"
+check("...into one gzip per file per month", arc.exists() and len(gz_rows(arc)) == 19, str(sorted(p.name for p in (rw / "archive").glob("*"))))
+check("...for every exported file (weather, thermostat, statistics too)",
+      all((rw / "archive" / n).exists() for n in ("outdoor_weather-2026-01.csv.gz", "thermostat-2026-01.csv.gz")) and any((rw / "archive").glob("statistics_hourly-*.csv.gz")),
+      str(sorted(p.name for p in (rw / "archive").glob("*"))))
+check("archived rows keep their values and the header", gz_rows(arc)[2]["co2_ppm"] == "502.0" and "utc_time" in gz_rows(arc)[0])
+mf = json.loads((rw / "manifest.json").read_text())
+check("manifest records the window, the cutoff and what was moved",
+      mf["retention"]["keep_months"] == 3 and mf["retention"]["cutoff"] == "2026-07-08" and mf["retention"]["moved_this_run"].get("indoor_1min-2026-01.csv.gz") == 19
+      and mf["retention"]["archive_files"].get("indoor_1min-2026-01.csv.gz") == 19, str(mf["retention"]))
+arc_bytes = arc.read_bytes()
+run(old_db, rw, "--keep-months", "3", "--today", TODAY)
+check("re-exporting the same old data is idempotent (archive unchanged, live still empty)", arc.read_bytes() == arc_bytes and len(rows(rw / "indoor_1min.csv")) == 0)
+run(new_db, rw, "--keep-months", "3", "--today", TODAY)
+check("recent rows stay live while the January archive is left alone", len(rows(rw / "indoor_1min.csv")) == 19 and arc.read_bytes() == arc_bytes)
+# the window rolls forward: a later 'today' moves the October rows into an October archive, nothing lost
+run(new_db, rw, "--keep-months", "3", "--today", "2027-02-01")
+check("as the window rolls forward the newly expired rows are archived by month and live shrinks accordingly",
+      (rw / "archive" / "indoor_1min-2026-10.csv.gz").exists() and len(rows(rw / "indoor_1min.csv")) == 0 and len(gz_rows(rw / "archive" / "indoor_1min-2026-10.csv.gz")) == 19)
+check("an archive file is never deleted by later runs", arc.exists() and arc.read_bytes() == arc_bytes)
+# merging into an existing month file
+make_db(d / "jan2.db", t0=epoch_of("2026-01-15 03:30"), minutes=range(5))
+run(d / "jan2.db", rw, "--keep-months", "3", "--today", "2027-02-01")
+check("rows for an already-archived month merge into its file (no duplicates, nothing lost)",
+      len(gz_rows(arc)) == 19 + 4 and len({r["utc_time"] for r in gz_rows(arc)}) == 23, str(len(gz_rows(arc))))
+# boundary: a row dated exactly on the cutoff stays live, the day before is archived
+rb = d / "boundary"
+run(edge_db, rb, "--keep-months", "3", "--today", TODAY)
+live_b = rows(rb / "indoor_1min.csv")
+check("a row dated on the cutoff day stays live", len(live_b) == 19 and live_b[0]["utc_time"].startswith("2026-07-08"), str(len(live_b)))
+rb2 = d / "boundary2"
+make_db(d / "edge2.db", t0=epoch_of("2026-07-07 23:40"))
+run(d / "edge2.db", rb2, "--keep-months", "3", "--today", TODAY)
+check("rows from the day before the cutoff are archived",
+      (rb2 / "archive" / "indoor_1min-2026-07.csv.gz").exists() and all(r["utc_time"][:10] >= "2026-07-08" for r in rows(rb2 / "indoor_1min.csv")),
+      str(sorted(p.name for p in (rb2 / "archive").glob("*"))))
+rk = d / "keepall"
+run(old_db, rk, "--keep-months", "0", "--today", TODAY)
+check("--keep-months 0 keeps everything live and writes no archive", len(rows(rk / "indoor_1min.csv")) == 19 and not (rk / "archive").exists())
+import importlib.util
+from datetime import date
+spec = importlib.util.spec_from_file_location("hx", SCRIPT)
+hx = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(hx)
+check("month arithmetic: 31 May minus 3 months clamps to 28 Feb; across a year boundary; zero stays put",
+      hx.months_back(date(2026, 5, 31), 3) == date(2026, 2, 28) and hx.months_back(date(2026, 1, 15), 3) == date(2025, 10, 15)
+      and hx.months_back(date(2026, 3, 31), 1) == date(2026, 2, 28) and hx.months_back(date(2026, 10, 8), 12) == date(2025, 10, 8)
+      and hx.months_back(date(2024, 3, 31), 1) == date(2024, 2, 29), "")
+
+# ---------------------------------------------------------------------------
+# Settings from the airgradient profile
+# ---------------------------------------------------------------------------
+cfgdir = d / "cfg"
+(cfgdir / "profiles" / "airgradient").mkdir(parents=True)
+prof = cfgdir / "profiles" / "airgradient" / "indoor.toml"
+rc = d / "fromcfg"
+prof.write_text(f'[ha_export]\nha_db = "{db}"\nprefix = "sensor.t_"\nthermostat = "climate.t"\nweather = "weather.t"\n'
+                f'keep_months = 2\ntz = "America/Chicago"\nout = "{rc}"\n')
+env = dict(os.environ, GTEX62_CONFIG_DIR=str(cfgdir), GTEX62_CONKY_CONFIG_DIR=str(cfgdir))
+r = subprocess.run([sys.executable, str(SCRIPT), "--today", TODAY], env=env, capture_output=True, text=True, timeout=120)
+mf = json.loads((rc / "manifest.json").read_text()) if (rc / "manifest.json").exists() else {}
+check("no flags needed: db, entities, window and output all come from [ha_export] in the profile",
+      r.returncode == 0 and mf.get("retention", {}).get("keep_months") == 2 and mf["retention"]["cutoff"] == "2026-08-08" and "sensor.t_carbon_dioxide" in mf["entities"].values(),
+      r.stdout[-200:] + r.stderr[-200:])
+r = subprocess.run([sys.executable, str(SCRIPT), "--today", TODAY, "--keep-months", "6"], env=env, capture_output=True, text=True, timeout=120)
+check("a command-line flag overrides the profile", json.loads((rc / "manifest.json").read_text())["retention"]["keep_months"] == 6)
+prof.write_text(f'[ha_export]\nha_db = "{db}"\nout = "{d / "noprefix"}"\n')
+r = subprocess.run([sys.executable, str(SCRIPT)], env=env, capture_output=True, text=True, timeout=60)
+check("no prefix anywhere: a clear message and exit 2", r.returncode == 2 and "prefix" in r.stderr, r.stderr[-150:])
+prof.write_text('[ha_export]\nenabled = false\n')
+r = subprocess.run([sys.executable, str(SCRIPT)], env=env, capture_output=True, text=True, timeout=60)
+check("[ha_export] enabled = false: exits 0 without touching anything", r.returncode == 0 and "disabled" in r.stdout)
+prof.write_text(f'[ha_export]\nha_db = "{db}"\nprefix = "sensor.t_"\nout = "{d / "nothermo"}"\n')
+r = subprocess.run([sys.executable, str(SCRIPT), "--today", TODAY], env=env, capture_output=True, text=True, timeout=120)
+check("thermostat and weather are optional: without them those files are simply not written",
+      r.returncode == 0 and (d / "nothermo" / "indoor_1min.csv").exists() and not (d / "nothermo" / "thermostat.csv").exists()
+      and not (d / "nothermo" / "outdoor_weather.csv").exists() and rows(d / "nothermo" / "indoor_1min.csv")[2]["thermostat_setpoint_f"] == "", r.stderr[-200:])
 
 shutil.rmtree(d, ignore_errors=True)
 print()

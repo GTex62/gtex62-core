@@ -179,7 +179,8 @@ copy is `~/.config/gtex62-core/profiles/airgradient/indoor.toml`. Keys:
 | `[device] host` | none, required | Address of the unit; empty gives `state: "error"` |
 | `[device] timeout_sec`, `carry_max_age_sec` | 5, 600 | HTTP timeout; how long an omitted field is carried forward |
 | `[advisor] enabled`, `shadow` | `true`, `true` | `shadow` computes and logs but never shows an alert |
-| `[advisor] log_inputs`, `log_keep_days` | `true`, 60 | Per-minute input log under `runtime/airgradient/<profile>/` |
+| `[advisor] log_inputs`, `log_keep_days` | `true`, 365 | Per-minute input log under `runtime/airgradient/<profile>/`; a year, to match the Home Assistant archive window |
+| `[ha_export]` | absent (off) | Optional Home Assistant archive: `ha_db`, `prefix` (required), `thermostat`, `weather`, `keep_months` (12); see *History outside the engine* |
 | `[advisor.thresholds]` | the advisor's `DEFAULTS` | Any threshold name from `ventilation_advisor.py`, numbers only |
 | `[advisor.pollen]` | on, 80, tree + grass | Optional `csv` path; defaults to the shared-assets pollen file |
 | `[advisor.outdoor] air_max_age_sec`, `wx_max_age_sec` | 7200, 1800 | Freshness limits for the outdoor caches |
@@ -534,9 +535,10 @@ covered by an offline harness only, since shadow mode hides alerts. OSA's own de
      how long, so an analysis never mistakes a gap for a calm stretch;
    - `inputs.csv`: one line per minute with every input the advisor saw (indoor readings, outdoor
      AQI, PM2.5 and PM10 with `pm_source`, outdoor temperature and humidity, pollen values, the
-     verdict, and whether the device response was complete), rotated daily and kept 60 days
-     (about 13 MB). This is what lets the next replay include outdoor data, which the first week
-     lacked.
+     verdict, and whether the device response was complete), rotated daily and kept 365 days
+     (at most about 80 MB if the machine never slept; far less in practice). This is what lets the next
+     replay include outdoor data, which the first week lacked. The 60-day default it shipped with would
+     have deleted the outdoor record that exists nowhere else just as the seasonal patterns became visible.
 
    Run about a week, spanning the DST change on 2026-11-01, and compare the log to what you would
    have wanted. This is where tuning happens: the VOC 250 line, the humidity thresholds, and the
@@ -573,6 +575,28 @@ copy, and **merges** with what is already archived (a new value wins; a blank ne
 value), so a re-run after the 10-day purge keeps the old rows. It is an analysis aid: nothing in the
 live provider or display depends on it, which keeps the earlier decision that the engine has no live
 Home Assistant access. The first export ran on 2026-10-08 and covers 2026-09-28 onward.
+
+**Automatic catch-up and rolling retention.** A systemd user timer runs the export
+(`systemd/user/gtex62-airgradient-ha-export.{service,timer}`, installed by copying both to
+`~/.config/systemd/user/` and `systemctl --user enable --now gtex62-airgradient-ha-export.timer`):
+5 minutes after boot (or at once if the session starts later), then daily, retrying every 15 minutes
+if the Home Assistant mount is not up. Titan can be off for days, but anything Home Assistant still
+holds (10 days of raw minutes, indefinite hourly statistics) is merged in at the next boot, so only a
+shutdown longer than 10 days loses minute resolution (the hourly statistics still cover it). Settings
+live in an `[ha_export]` section of the profile (`prefix` is required; nothing runs without that
+section).
+
+The live files hold a rolling window of `keep_months` months (default **12**, a full seasonal cycle:
+AC use, pollen and outdoor temperature all swing over a year; about 50 MB of CSV for a year of
+`indoor_1min.csv`). Rows older than the window are moved, not deleted, into
+`ha_export/archive/<file>-YYYY-MM.csv.gz`, one gzip per file per month (merged into an existing month
+file, so a re-run never duplicates or loses rows); the tool never deletes an archive file.
+`keep_months = 0` keeps everything live. To analyze across the window, read the live CSV; for older
+months read the matching `.csv.gz` files (`manifest.json` lists them with row counts).
+
+**Ground truth.** `window_events.txt` next to the shadow logs holds window open/close events the user
+reported (UTC), so a replay can be checked against what actually happened (2026-10-07 night open all
+night; closed at 15:38Z on 10-08).
 
 ---
 
@@ -618,9 +642,8 @@ pollutant. Residual limit: readings are hourly and can be up to 2 hours old.
 
 ## Open Items
 
-- Investigate keeping the Home Assistant archive current automatically (a catch-up export at each
-  boot, or on the HA host) before more of the shadow week passes the 10-day purge, and how a replay should
-  join it with the engine's own outdoor log.
+- How a replay should join the Home Assistant archive with the engine's own outdoor log (`inputs-*.csv`):
+  indoor from the archive wherever the engine log has a hole, outdoor from the engine log only.
 - The shadow logs live under `runtime/airgradient/<profile>/` in the cache root, which the architecture
   docs call safe to delete; the data root (`~/.local/share/gtex62-core`, documented for persistent state)
   is where irreplaceable logs belong. Decide whether to move them.

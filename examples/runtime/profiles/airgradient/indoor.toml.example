@@ -24,7 +24,7 @@ enabled = true
 shadow = true
 # One row per minute of every advisor input under runtime/airgradient/<profile>/, for replays.
 log_inputs = true
-log_keep_days = 60
+log_keep_days = 365
 # A hole in the record longer than this many seconds is marked in verdict_log.txt ("gap" lines): either
 # "offline" (the machine was off or the suite closed) or "unreachable" (the device could not be read).
 # gap_log_sec = 300
@@ -45,3 +45,15 @@ categories = ["tree", "grass"]
 # The air and weather profiles are taken from the launching suite's bindings.
 air_max_age_sec = 7200
 wx_max_age_sec = 1800
+
+# Optional, off unless this section exists: archive Home Assistant's history for the sensors, keeping a
+# rolling window (Home Assistant keeps raw history only 10 days and keeps running while this machine is
+# off). Runs from a systemd user timer; see scripts/airgradient-ha-export.py and
+# systemd/user/gtex62-airgradient-ha-export.timer (copy both units to ~/.config/systemd/user, then
+# `systemctl --user enable --now gtex62-airgradient-ha-export.timer`).
+# [ha_export]
+# ha_db = "~/.local/ha-config/home-assistant_v2.db"   # HA's recorder database (read-only, via a private copy)
+# prefix = "sensor.<your_device>_"                      # entity id prefix of the AirGradient sensors (required)
+# thermostat = "climate.<your_thermostat>"              # optional: setpoint and AC state
+# weather = "weather.<your_weather_entity>"             # optional: HA's outdoor weather entity
+# keep_months = 12                                      # months kept live; older rows go to archive/ as monthly .csv.gz

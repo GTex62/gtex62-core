@@ -31,6 +31,15 @@ It reads HA's database read-only through a private copy and merges with earlier 
 keeps old rows. Optional and offline: nothing live depends on it. Tests: `tests/airgradient/test_ha_export.py` and new
 gap-marker cases in `test_fetch_airgradient.py`; design notes in `airgradient-provider-design.md`.
 
+**airgradient: the Home Assistant export now runs itself, with a rolling 12-month window (2026-10-08).** New user timer
+`systemd/user/gtex62-airgradient-ha-export.timer` (boot + 5 minutes, then daily; the service retries every 15 minutes if
+the HA mount is down) runs the export as a catch-up job. Settings come from a new optional `[ha_export]` section of the
+airgradient profile (nothing runs without it); `prefix` is required, so the tool no longer carries one install's entity
+names as defaults. The live CSVs hold `keep_months` months (default 12, 0 = all); older rows are moved, never deleted,
+into `ha_export/archive/<file>-YYYY-MM.csv.gz`, merged per month. The provider's `log_keep_days` default rises from 60 to
+365 so its own outdoor record (which exists nowhere else) lasts as long as the archive window. Tests: retention,
+boundary, archive-merge, never-delete, profile-config and override cases in `test_ha_export.py`.
+
 ---
 
 ## 0.13.1 — 2026-10-08
