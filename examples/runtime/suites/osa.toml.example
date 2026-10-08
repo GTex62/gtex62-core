@@ -15,9 +15,11 @@ connectivity = "default"
 pfsense = "main_router"
 solar = "home"
 media = "local"
-# Optional: AirGradient indoor air quality (also needs [providers] airgradient = true in core.toml
-# and the device address in profiles/airgradient/indoor.toml).
-airgradient = "indoor"
+# AirGradient indoor air quality is OFF by default (it needs an AirGradient ONE on your network).
+# To turn it on, uncomment the next line AND add "airgradient" to [domains] optional below, set
+# [providers] airgradient = true in core.toml, and put the device address in
+# profiles/airgradient/indoor.toml. Without the binding OSA never looks for the data.
+# airgradient = "indoor"
 
 [domains]
 required = [
@@ -35,7 +37,6 @@ required = [
 ]
 optional = [
   "pollen",
-  "airgradient",
 ]
 
 [suite_cache]

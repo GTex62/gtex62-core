@@ -491,9 +491,12 @@ Core (`gtex62-core`), done 2026-10-07 unless marked:
    profiles passed as arguments 2 and 3. Syntax-checked only; not yet run under a live launch.
 4. Dual-gated like vpn: `core.toml` `[providers] airgradient` (ships `false`) plus the suite listing
    `airgradient` in its `[domains]`; `core.toml.example` and `README.md` § Provider Toggles updated.
-5. Suite binding template: `airgradient = "indoor"` under `[profiles]` and the domain in the
-   `[domains]` `optional` list of `examples/runtime/suites/osa.toml.example`. The installed
-   `suites/osa.toml` and `core.toml` are separate files and are changed by hand.
+5. Suite binding template: **off by default.** `examples/runtime/suites/osa.toml.example` carries the
+   `airgradient = "indoor"` binding as a comment, with instructions, and does not list the domain,
+   because most installs have no AirGradient. Turning it on takes four steps: the `core.toml` flag,
+   the profile's `[device].host`, and the binding plus the `[domains]` `optional` entry in the
+   installed `suites/<id>.toml` (all by hand; the installed `core.toml` and suite files are never
+   rewritten by bootstrap).
 6. Doctor: deferred until the provider and OSA are running. Then add a row for the new domain (the
    table is alphabetical and counts domains, so 21 becomes 22) and update `doctor-design.md` and
    `doctor-missing-conditions.md`; the row must read `state` as well as cache age, since a degraded

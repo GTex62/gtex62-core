@@ -18,6 +18,18 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
+## Unreleased
+
+**`airgradient` is off by default everywhere.** The domain already shipped disabled in the engine
+(`[providers] airgradient = false`, and a missing key counts as false), but
+`examples/runtime/suites/osa.toml.example` bound it and listed it in `[domains]`, so a fresh OSA install
+was pre-wired for a device most installs do not have. The template now carries the binding as a comment
+with the four enable steps and does not list the domain; `indoor.toml.example` says the same at the top.
+Existing installs are unaffected (bootstrap never rewrites an installed suite file), and enabling it is
+unchanged: the `core.toml` flag, the device address, and the binding plus the `[domains]` entry.
+
+---
+
 ## 0.12.0 — 2026-10-07
 
 Adds the `airgradient` provider domain (indoor air quality plus a ventilation advisor) and fixes the

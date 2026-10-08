@@ -1,3 +1,6 @@
+# Off by default: nothing reads this file unless `[providers] airgradient = true` is set in core.toml
+# AND the launching suite binds and lists the domain (see suites/<id>.toml.example). Most installs
+# do not own an AirGradient, so it is not wired in unless you do it.
 profile_id = "indoor"
 enabled = true
 # Short text shown after INDOOR in the ENV panel header and on the SRC line
