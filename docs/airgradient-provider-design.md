@@ -388,11 +388,11 @@ column layout, same (V) column. Pollen and the AQI bars do not change.
 
 | Row | Label | Shown value |
 | --- | --- | --- |
-| 1 | CARBON DIOXIDE (PPM) | ppm, four digits |
+| 1 | CARBON DIOXIDE (PPM) | ppm, up to four digits, no leading zeros |
 | 2 | PARTICULATE MATTER 2.5 | ug/m3 |
 | 3 | PARTICULATE MATTER 10 | ug/m3 |
 | 4 | PARTICULATE MATTER 1 | ug/m3 |
-| 5 | PARTICLES 0.3 (/DL) | particles/dL, four digits |
+| 5 | PARTICLES 0.3 (/DL) | particles/dL, up to four digits, no leading zeros |
 | 6 | VOC INDEX | index, 0 to 500 |
 | 7 | NOX INDEX | index, 0 to 500 |
 
@@ -402,8 +402,8 @@ value (for instance PM0.3 on firmware older than 3.7.0, or a carried field past 
 shows as dashes in its row.
 
 **Fixed width, never switching.** CO2 and PM0.3 routinely exceed 999 (CO2 1,150 ppm; PM0.3 1,856 to
-3,389 particles/dL during vacuuming), so those two rows show four zero-padded digits (`0482`, `1150`;
-`0500`, `3389`), capped at 9999, and every other row keeps three (capped at 999). Nothing is rescaled
+3,389 particles/dL during vacuuming), so those two rows show up to four digits with no leading zeros (`482`,
+`1150`; `500`, `3389`), capped at 9999, and every other row stays zero-padded to three (capped at 999). Nothing is rescaled
 by magnitude or divided by 10, so the displayed number is always the real one and the alert line's
 value (`CO2 1150 PPM`) matches the table. The earlier design divided both rows by 10 to stay inside
 three digits, with the scale in the label (`(PPM X10)`); a width test on the live panel on
