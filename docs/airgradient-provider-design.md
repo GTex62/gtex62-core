@@ -578,15 +578,13 @@ newest one to two hours of rows carry `RawConcentration = -999.0` (missing) and 
 instead of the populated `Value`, so the freshest hour was dropped and the rest failed the 3600 s
 `max_age_sec`. Fixed the same day (sentinel treated as missing; example profile sets
 `max_age_sec = 7200`); details in `env-provider-status.md` and `CHANGELOG.md`. Profiles installed
-before then need `max_age_sec = 7200` added. Residual limits: readings are hourly and can be up to
-2 hours old, and the provider keeps the first-listed station per pollutant rather than the nearest.
+before then need `max_age_sec = 7200` added. The provider now also picks the nearest monitor per
+pollutant. Residual limit: readings are hourly and can be up to 2 hours old.
 
 ---
 
 ## Open Items
 
-- Air provider: pick the nearest station (or average) per pollutant instead of the first listed
-  (see Known Constraints).
 - Re-check thresholds after a few weeks of shadow mode, and in a different season, using
   `inputs.csv` for a replay that includes the outdoor rules.
 - Explain or accept the two long VOC episodes (2026-10-01 evening, peak 475; 2026-10-04

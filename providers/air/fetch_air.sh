@@ -294,10 +294,17 @@ jq -n \
         select($age >= 0 and $age <= $airnow_max_age) |
         (ugm3($key; .Unit; ($raw_value | tonumber)) // null) as $value |
         select($value != null and $value >= 0) |
-        {key:$key, value:$value, ts:$ts, age:$age}
+        # Squared distance (degrees, longitude scaled by cos(lat)) from the profile location to the
+        # reporting monitor; used only to rank monitors. Rows without coordinates rank last.
+        ((.Latitude | try tonumber catch null) as $slat | (.Longitude | try tonumber catch null) as $slon |
+          if $slat == null or $slon == null then 1e9
+          else (($slat - $lat) as $dy | (($slon - $lon) * (($lat * 0.017453292519943295) | cos)) as $dx | ($dy * $dy + $dx * $dx))
+          end) as $d2 |
+        {key:$key, value:$value, ts:$ts, age:$age, d2:$d2}
       )
     | group_by(.key)
-    | map(sort_by(.age) | .[0])
+    # Per pollutant: the nearest monitor that has a reading under max_age, then the freshest reading from that monitor.
+    | map(sort_by([.d2, .age]) | .[0])
   ) as $anw_values |
   (
     ($airnow_obs[0] // [])

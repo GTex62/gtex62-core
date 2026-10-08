@@ -59,7 +59,7 @@ Merges two upstream sources into one cache:
 
 Selection logic (`selected` object in `current.json`): OpenWeather components are the
 base; any AirNow `aq/data` value present for a pollutant (after the `window_hours` /
-`airnow_max_age` filters) overlays it. AQI is chosen independently in the *suite* layer
+`airnow_max_age` filters, from the nearest monitor reporting that pollutant) overlays it. AQI is chosen independently in the *suite* layer
 (`env.lua`), not by this script — see Suite Consumption.
 
 #### Cache Location
@@ -360,10 +360,14 @@ reader never catches either empty.
   `airnow.aqi` does not guarantee any pollutant in `selected` is AirNow-sourced rather
   than OpenWeather baseline. (Empty `values` with data present in `raw_airnow_data.json` was
   the `-999` raw-concentration bug, fixed 2026-10-07; see Configuration.)
-- **One station per pollutant, not the nearest.** `aq/data` returns every monitor in the
-  bounding box; the script keeps, per pollutant, the freshest reading and breaks ties by
-  response order, not by distance or by averaging. On 2026-10-07 two stations reported PM2.5
-  for the same hour (9.7 and 6.7 ug/m3) and the first listed was used, not the nearer one.
+- **One monitor per pollutant, chosen by distance.** `aq/data` returns every monitor in the
+  bounding box (`distance_miles`). Per pollutant the script keeps the **nearest** monitor that has
+  a usable reading under `max_age_sec`, then that monitor's freshest reading (distance is the
+  squared planar offset from the profile lat/lon, longitude scaled by cos(lat); monitors without
+  coordinates rank last). It does not average monitors, and a nearer monitor with an older
+  reading beats a farther one with a newer reading, within `max_age_sec`. Until 2026-10-07 ties
+  were broken by response order: two monitors reporting PM2.5 for the same hour (9.7 and
+  6.7 ug/m3, 24 and 6 miles away) gave 9.7.
 - **`solar` has no error state for a failed Open-Meteo call** — only `curl` success
   toggles `meta.uv_source` between `"open-meteo"` and `"synthetic"`; `status.json` still
   reports `"ok"` either way, since the synthetic fallback always produces a value. A

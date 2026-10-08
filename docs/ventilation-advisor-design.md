@@ -610,9 +610,8 @@ an `OPEN` alert.
 - AirNow's overlay was usually empty in the air cache until 2026-10-07: the air provider took
   AirNow's `RawConcentration = -999` (not yet available) instead of `Value` and discarded the newest
   hour. Fixed in `fetch_air.sh`, with `max_age_sec = 7200` in the example profile (see
-  `env-provider-status.md`). `pm_source` is `owm` only when AirNow has nothing under 2 hours old.
-  The air provider also keeps the first-listed station per pollutant, not the nearest, so two
-  stations reporting the same hour can differ (9.7 against 6.7 on 2026-10-07).
+  `env-provider-status.md`). The provider also picks the nearest monitor per pollutant now.
+  `pm_source` is `owm` only when AirNow has nothing under 2 hours old.
 - Whether OSA shows the verdict as a status-line tag, a color on the ENV panel header, or
   only as a transient alert.
 - NOx index (1 to 6 all week) is not used; it is logged by the provider design but never

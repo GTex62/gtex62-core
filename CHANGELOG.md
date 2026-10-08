@@ -32,8 +32,10 @@ old when published); profiles installed earlier keep the 3600 default until the 
 Visible effect: ENV panel pollutant values now come from AirNow stations when a reading under
 `max_age_sec` exists, instead of always from OpenWeather. Found while designing the AirGradient
 ventilation advisor ([docs/airgradient-provider-design.md](docs/airgradient-provider-design.md)).
-Unrelated to the new design: `owm_tolerance_sec` is parsed but unused, and the station choice is
-first-listed rather than nearest (both noted in [docs/env-provider-status.md](docs/env-provider-status.md)).
+Same day, the per-pollutant monitor choice changed from first-listed to **nearest** monitor (with a
+reading under `max_age_sec`, then that monitor's freshest reading); two monitors reporting PM2.5 for the
+same hour had given the 24-mile one (9.7) over the 6-mile one (6.7). `owm_tolerance_sec` is parsed but
+unused (noted in [docs/env-provider-status.md](docs/env-provider-status.md)).
 
 ---
 
