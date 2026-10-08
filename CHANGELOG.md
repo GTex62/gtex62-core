@@ -18,40 +18,48 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
-## Unreleased
+## 0.12.0 — 2026-10-07
 
-**New `airgradient` domain (2026-10-07): indoor air quality plus a ventilation advisor.**
+Adds the `airgradient` provider domain (indoor air quality plus a ventilation advisor) and fixes the
+`air` provider's AirNow overlay, which was usually empty. Minor bump: a new opt-in domain. To use it,
+run `gtex62-core-bootstrap-runtime` (installs `profiles/airgradient/indoor.toml`), set the device
+address in it, set `[providers] airgradient = true` in `core.toml`, and bind `airgradient = "indoor"`
+and list the domain in the suite's `suites/<id>.toml`. Existing installs also need
+`[airnow] max_age_sec = 7200` added to their `profiles/air/<profile>.toml` to get the full `air` fix
+(the code fix applies regardless; the shipped example now sets it). Nothing else to migrate.
+
+### New `airgradient` domain
+
 `providers/airgradient/` polls an AirGradient ONE's local HTTP API (no cloud, no SSH), scales the
 readings and writes `shared/airgradient/<profile>/status.json`; the advisor
 (`ventilation_advisor.py`) turns them, with the outdoor air and weather caches and the seasonal
 pollen curve, into an `OPEN` / `BRIEF` / `CLOSE` / `NEUTRAL` verdict with a ready-to-display alert
-string. Opt-in and dual-gated like vpn/ap/modem: `core.toml` `[providers] airgradient = true` plus the
-suite listing `airgradient` in its `[domains]`, and the device address in
-`profiles/airgradient/<profile>.toml` (`examples/runtime/profiles/airgradient/indoor.toml.example`;
-re-run `gtex62-core-bootstrap-runtime`). Ships in shadow mode: verdicts are computed and logged, never
-shown. Firmware 3.7.0 intermittently drops temperature, humidity and compensated PM2.5 from a response;
-the provider carries the last values forward for up to 10 minutes rather than failing or using raw PM.
+string. Opt-in and dual-gated like vpn/ap/modem: the `core.toml` flag plus the suite listing
+`airgradient` in its `[domains]`. Ships in shadow mode: verdicts are computed and logged, never shown.
+Firmware 3.7.0 intermittently drops temperature, humidity and compensated PM2.5 from a response; the
+provider carries the last values forward for up to 10 minutes rather than failing or using raw PM.
 Tests: `tests/airgradient/run-tests.sh` (replay of a week of real data against
 `tests/airgradient/fixtures/`, synthetic rule cases, a fake device). Design:
 [docs/airgradient-provider-design.md](docs/airgradient-provider-design.md) and
-[docs/ventilation-advisor-design.md](docs/ventilation-advisor-design.md). Not yet done: the
-doctor row. The OSA display shipped the same day in `gtex62-osa` (`1b8d6a4`) and the launcher wiring has
-run live (`osa-airgradient-refresh.pid`); the provider runs in shadow mode.
+[docs/ventilation-advisor-design.md](docs/ventilation-advisor-design.md). The OSA display shipped the same
+day in `gtex62-osa`; the launcher wiring has run live. Not yet done: the doctor row.
 
-**`air`: AirNow overlay was usually empty (fixed 2026-10-07).** AirNow's `aq/data` marks a
-not-yet-available raw concentration as `-999` on the newest one to two hours of rows while the
-validated `Value` is populated. `providers/air/fetch_air.sh` took `RawConcentration // Value`, so the
-sentinel won, failed the `>= 0` check and the freshest hour was dropped; the remaining readings were
-usually older than `max_age_sec` (3600), so `airnow.values` was empty and `selected` fell back to
-OpenWeather's modelled PM even with fresh station data in `raw_airnow_data.json`. Now a negative or
-non-numeric raw concentration is treated as missing and `Value` is used. `examples/runtime/profiles/
-air/home.toml.example` also sets `[airnow] max_age_sec = 7200` (hourly data is routinely 1 to 2 hours
-old when published); profiles installed earlier keep the 3600 default until the key is added.
-Visible effect: ENV panel pollutant values now come from AirNow stations when a reading under
-`max_age_sec` exists, instead of always from OpenWeather. Found while designing the AirGradient
-ventilation advisor ([docs/airgradient-provider-design.md](docs/airgradient-provider-design.md)).
-Same day, the per-pollutant monitor choice changed from first-listed to **nearest** monitor (with a
-reading under `max_age_sec`, then that monitor's freshest reading); two monitors reporting PM2.5 for the
+### `air`: AirNow overlay was usually empty
+
+AirNow's `aq/data` marks a not-yet-available raw concentration as `-999` on the newest one to two hours
+of rows while the validated `Value` is populated. `providers/air/fetch_air.sh` took
+`RawConcentration // Value`, so the sentinel won, failed the `>= 0` check and the freshest hour was
+dropped; the remaining readings were usually older than `max_age_sec` (3600), so `airnow.values` was empty
+and `selected` fell back to OpenWeather's modelled PM even with fresh station data in
+`raw_airnow_data.json`. Now a negative or non-numeric raw concentration is treated as missing and `Value`
+is used. `examples/runtime/profiles/air/home.toml.example` also sets `[airnow] max_age_sec = 7200`
+(hourly data is routinely 1 to 2 hours old when published); profiles installed earlier keep the 3600
+default until the key is added. Visible effect: ENV panel pollutant values now come from AirNow stations
+when a reading under `max_age_sec` exists, instead of always from OpenWeather. Found while designing the
+AirGradient ventilation advisor.
+
+The per-pollutant monitor choice also changed from first-listed to the **nearest** monitor (with a
+reading under `max_age_sec`, then that monitor's freshest reading): two monitors reporting PM2.5 for the
 same hour had given the 24-mile one (9.7) over the 6-mile one (6.7). `owm_tolerance_sec` is parsed but
 unused (noted in [docs/env-provider-status.md](docs/env-provider-status.md)).
 
