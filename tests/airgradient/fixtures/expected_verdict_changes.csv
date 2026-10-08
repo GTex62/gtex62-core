@@ -1,0 +1,20 @@
+local_time_cdt,verdict,reason
+2026-10-01 00:00,NEUTRAL,Start of data
+2026-10-01 21:18,OPEN,Open windows: VOC index 338
+2026-10-02 01:59,NEUTRAL,"Fine either way | VOC index 249 (relative, informational)"
+2026-10-03 13:03,CLOSE,Close windows: humidity 70% (dew point +4F in 30 min)
+2026-10-03 13:44,NEUTRAL,"Fine either way | VOC index 171 (relative, informational)"
+2026-10-04 11:49,CLOSE,Close windows: humidity 70% (dew point +2F in 30 min)
+2026-10-04 14:31,NEUTRAL,Fine either way
+2026-10-04 19:07,OPEN,Open windows: VOC index 250
+2026-10-04 19:17,NEUTRAL,"Fine either way | VOC index 199 (relative, informational)"
+2026-10-04 20:37,OPEN,Open windows: VOC index 263
+2026-10-04 23:13,NEUTRAL,"Fine either way | VOC index 245 (relative, informational)"
+2026-10-06 11:03,OPEN,Open windows: indoor PM2.5 9.4
+2026-10-06 11:15,NEUTRAL,Fine either way
+2026-10-06 20:08,OPEN,Open windows: VOC index 257
+2026-10-06 20:18,NEUTRAL,"Fine either way | VOC index 185 (relative, informational)"
+2026-10-07 06:39,CLOSE,Close windows: humidity 70% (dew point +4F in 30 min)
+2026-10-07 07:16,NEUTRAL,Fine either way
+2026-10-07 08:30,CLOSE,Close windows: humidity 69% (dew point +4F in 30 min)
+2026-10-07 09:24,NEUTRAL,Fine either way
