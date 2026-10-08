@@ -583,6 +583,16 @@ an `OPEN` alert.
   600 or more then comes from being in the room (a step from about 565 to 610 at 09:25 when the room was
   occupied), not from the windows. This is why the CO2 rule is "insurance" and why CO2 alone cannot say
   whether the windows are open.
+- **What closing the windows looks like (2026-10-08, closed at 15:38Z; midday, outdoor PM2.5 12 to 16, outdoor
+  76 to 85 F, user at the desk).** With the windows open CO2 had been easing slowly (603 to 568 ppm over an hour);
+  it bottomed out about 12 minutes after closing and then climbed (568 to about 700 over the next hour, with the
+  room occupied). Particle counts fell about 10 percent over the next half hour (PM0.3 about 1,120 to about
+  1,000; PM10 6.1 to about 5.5), a weak, slow signal because indoor PM stayed far below outdoor even with the
+  windows open (indoor PM2.5 3.6 against 14 to 16 outdoors). Indoor temperature kept rising throughout (71.6 to
+  73.9 F) because the outdoor air was warming, so by day it does not separate open from closed as it does at
+  night. An hour later RH and dew point jumped together with CO2 (RH 59.8 to 65.9 percent, dew point 57.5 to
+  61.4 F, 16:30 to 16:50Z), an indoor moisture source with the windows closed: the advisor moved to `BRIEF`
+  ("indoor RH 60% and drier outside") on its own rules, which is what the humidity-with-outdoor-data rule is for.
 - **CO2 cannot detect every window opening.** On the morning of 10-07 CO2 rose while the window
   was open (565 to 742 ppm), probably because someone was in the room. Humidity was the signal
   that showed it.
