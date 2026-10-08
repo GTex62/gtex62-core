@@ -54,8 +54,9 @@ Merges two upstream sources into one cache:
   configured. Two separate endpoints, fetched independently:
   - `aq/data` (`AIRNOW_DATA_URL`) — per-pollutant raw concentrations in a bounding box
     around the profile's lat/lon (`distance_miles`), converted to µg/m³.
-  - `aq/observation/current/ziplatlong` (`AIRNOW_OBS_URL`) — AirNow's own computed AQI
-    for the nearest monitor.
+  - `aq/observation/current/ziplatlong` (`AIRNOW_OBS_URL`) — AirNow's own computed AQI for the
+    reporting area, **one row per pollutant** (PM2.5, OZONE, ...) for the newest hour. The overall
+    AQI is the highest of those sub-indices, and that is what `airnow.aqi` carries.
 
 Selection logic (`selected` object in `current.json`): OpenWeather components are the
 base; any AirNow `aq/data` value present for a pollutant (after the `window_hours` /
@@ -186,7 +187,7 @@ old filter and `pm2_5 = 9.7` under the fixed one.
 | --- | --- |
 | `provider_updated_at` | Newest of AirNow AQI ts, AirNow observed ts, AirNow data ts, or OpenWeather observed ts |
 | `openweather.aqi` | OpenWeather's own 1–5 AQI category (not AirNow's 0–500 scale) |
-| `airnow.aqi` | AirNow AQI (0–500 scale), from `aq/observation`, independent of `airnow.values` |
+| `airnow.aqi` | AirNow AQI (0–500 scale): the highest sub-index among the newest `aq/observation` rows (the overall AQI), independent of `airnow.values`. `-999` rows are ignored. `aqi_ts` is that observation hour |
 | `airnow.values` / `airnow.timestamps` | Per-pollutant AirNow concentrations (µg/m³) and their source timestamps, from `aq/data`, filtered to freshest-per-pollutant within `airnow_max_age` |
 | `selected` | OpenWeather components overlaid with any available `airnow.values` — the pollutant set the ENV panel actually renders |
 
@@ -367,6 +368,12 @@ reader never catches either empty.
   `airnow.aqi` does not guarantee any pollutant in `selected` is AirNow-sourced rather
   than OpenWeather baseline. (Empty `values` with data present in `raw_airnow_data.json` was
   the `-999` raw-concentration bug, fixed 2026-10-07; see Configuration.)
+- **`airnow.aqi` was the last observation row, not the overall AQI (fixed 2026-10-08).** The
+  observation endpoint returns a row per pollutant; the script kept whichever row it read last,
+  which on 2026-10-08 was OZONE (AQI 15) while PM2.5 was 63 (Moderate), so the ENV panel's ANW AQI read
+  015 and the ventilation advisor's hazard rule (`airnow.aqi >= 101`) could not have seen a
+  PM2.5- or ozone-driven bad air day whenever the other pollutant happened to be listed last. It now
+  takes the highest sub-index among the newest rows. `tests/air/test_fetch_air.py` covers it.
 - **One monitor per pollutant, chosen by distance.** `aq/data` returns every monitor in the
   bounding box (`distance_miles`). Per pollutant the script keeps the **nearest** monitor that has
   a usable reading under `max_age_sec`, then that monitor's freshest reading (distance is the

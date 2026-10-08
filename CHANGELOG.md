@@ -18,6 +18,20 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
+## Unreleased
+
+**`air`: `airnow.aqi` was the last pollutant row, not the overall AQI (fixed 2026-10-08).** AirNow's observation
+endpoint returns one row per pollutant for the newest hour; `fetch_air.sh` kept whichever it read last. On
+2026-10-08 that was OZONE (AQI 15) while PM2.5 was 63 (Moderate), so the ENV panel showed `ANW 015` and the
+ventilation advisor's hard-close (`airnow.aqi >= 101`) had a blind spot: a bad PM2.5 or ozone day would have been
+missed whenever the other pollutant was listed last. It now takes the highest AQI among the newest rows (the overall
+AQI), ignoring AirNow's `-999` marker. Visible effect: the ANW AQI on the ENV panel (and in any suite reading
+`airnow.aqi`) can read higher than before, correctly. `tests/air/test_fetch_air.py` is new: it runs the real script
+offline against scratch trees and covers the AQI selection plus the earlier `-999`, nearest-monitor and `max_age_sec`
+fixes, which had no test.
+
+---
+
 ## 0.13.0 — 2026-10-08
 
 Adds the AIRGRADIENT row to the Doctor provider (its 22nd domain), gives the airgradient provider a

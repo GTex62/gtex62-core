@@ -25,7 +25,7 @@ one-minute samples); thresholds are still defaults to be tuned (see Open Items).
 | --- | --- | --- |
 | Indoor | `co2_ppm`, `voc_index`, `pm.pm25_ugm3`, `temp_f`, `humidity_pct` | `shared/airgradient/<profile>/status.json` |
 | Indoor (derived) | `dp_rise_30`: indoor dew point now minus dew point at exactly 30 minutes ago (F), interpolated | engine keeps a 30-minute dew point history |
-| Outdoor air | `airnow.aqi`; `selected.pm2_5` and `.pm10` (AirNow where present, else OpenWeather); `openweather.components.pm2_5` and `.pm10` | `shared/air/<air_profile>/current.json` |
+| Outdoor air | `airnow.aqi` (the overall AQI: the highest pollutant sub-index, as the air provider has computed it since 2026-10-08); `selected.pm2_5` and `.pm10` (AirNow where present, else OpenWeather); `openweather.components.pm2_5` and `.pm10` | `shared/air/<air_profile>/current.json` |
 | Outdoor weather | `temp_f`, `humidity_pct` | `shared/weather/<weather_profile>/current.json` |
 | Pollen (optional) | `tree`, `grass`, `weed`, `mold` (0 to 100 seasonal index) | `pollen_mem_v2.csv`, day-of-year lookup, path from the profile TOML (see below) |
 
@@ -565,12 +565,24 @@ an `OPEN` alert.
 
 ---
 
-## Observations that shaped the rules (2026-10-06 and 07)
+## Observations that shaped the rules (2026-10-06 to 08)
 
 - **Opening a window moves everything at once.** The 19:28 opening on 10-07 took CO2 from 619
   to 471 ppm (about 10 air changes per hour from a curve fit), VOC from 162 to 20, and RH
   down about 4 points, while PM2.5 rose 1.8x, PM10 2.1x and PM0.3 1.7x. The CO2/PM trade-off
   is real and recurring.
+- **What a night with the windows open all night looks like here (2026-10-07 to 08, window state
+  confirmed by the user afterwards; AC idle, setpoint 76 F, outdoor 61 to 64 F, outdoor PM2.5 7 to 9).**
+  CO2 stayed at 457 to 551 ppm, about 500 to 530 through the night and creeping up to about 565 by 09:00,
+  never falling to the roughly 420 to 470 that a daytime opening reaches; the room cooled from 75.7 to
+  68.5 F; the indoor dew point fell only about 3 F (58.5 to 56.4) toward the outdoor 54 to 55; indoor PM2.5
+  drifted up from 3.0 to 4.5 (PM10 about 7.6 and PM0.3 about 1,300 near midnight, against about 5 and 950
+  on the closed-window night of 10-06). So an all-night opening reads as CO2 near the outdoor night-time
+  level (assumed to be itself close to 500 ppm; it was not measured), not as a CO2 drop, and the
+  distinguishing signals were the particle counts and the temperature slide, not CO2. A morning CO2 of
+  600 or more then comes from being in the room (a step from about 565 to 610 at 09:25 when the room was
+  occupied), not from the windows. This is why the CO2 rule is "insurance" and why CO2 alone cannot say
+  whether the windows are open.
 - **CO2 cannot detect every window opening.** On the morning of 10-07 CO2 rose while the window
   was open (565 to 742 ppm), probably because someone was in the room. Humidity was the signal
   that showed it.

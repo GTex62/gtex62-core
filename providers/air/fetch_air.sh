@@ -307,11 +307,16 @@ jq -n \
     | map(sort_by([.d2, .age]) | .[0])
   ) as $anw_values |
   (
+    # The overall AirNow AQI is the worst pollutant sub-index. The observation endpoint returns one row
+    # per pollutant (PM2.5, OZONE, ...) for the newest hour, so take the highest AQI among the newest
+    # rows. Taking the last row read, as this used to, gave whichever pollutant happened to be listed
+    # last: the ozone 15 instead of the PM2.5 63. A negative value is the AirNow missing marker.
     ($airnow_obs[0] // [])
     | map(select((.AQI // .nowcastAQI) != null) | {aqi:((.AQI // .nowcastAQI) | tonumber), ts:obs_ts})
-    | map(select(.ts != null))
-    | sort_by(.ts)
-    | last
+    | map(select(.ts != null and .aqi >= 0))
+    | (map(.ts) | max) as $newest
+    | map(select(.ts == $newest))
+    | max_by(.aqi)
   ) as $anw_aqi |
   ($anw_values | map(.ts) | max) as $anw_observed_ts |
   ($anw_aqi.ts // $anw_observed_ts // $anw_latest_data_ts) as $anw_latest_ts |
