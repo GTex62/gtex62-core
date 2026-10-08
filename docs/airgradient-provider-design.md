@@ -388,11 +388,11 @@ column layout, same (V) column. Pollen and the AQI bars do not change.
 
 | Row | Label | Shown value |
 | --- | --- | --- |
-| 1 | CO2 (PPM X10) | ppm divided by 10 |
+| 1 | CARBON DIOXIDE (PPM) | ppm, four digits |
 | 2 | PARTICULATE MATTER 2.5 | ug/m3 |
 | 3 | PARTICULATE MATTER 10 | ug/m3 |
 | 4 | PARTICULATE MATTER 1 | ug/m3 |
-| 5 | PARTICLES 0.3 (X10/DL) | particles/dL divided by 10 |
+| 5 | PARTICLES 0.3 (/DL) | particles/dL, four digits |
 | 6 | VOC INDEX | index, 0 to 500 |
 | 7 | NOX INDEX | index, 0 to 500 |
 
@@ -401,21 +401,20 @@ no `label`. The SRC line reads `SRC // AG <LABEL>` (or `SRC // AG`) during the i
 value (for instance PM0.3 on firmware older than 3.7.0, or a carried field past its maximum age)
 shows as dashes in its row.
 
-The table's label column holds 22 characters (the font is monospaced), which is why the CO2 and
-PM0.3 labels are abbreviated; "CARBON DIOXIDE (PPM X10)" is 24.
-
-**Fixed scaling, never switching.** The (V) column is three digits wide. CO2 and PM0.3
-routinely exceed 999 (CO2 1,150 ppm; PM0.3 1,856 to 3,389 particles/dL during vacuuming).
-Clamping at 999 would show a wrong number, and switching format by magnitude would be
-confusing, so those two rows are always shown at a fixed divide-by-10 scale with the scale
-stated in the label: 482 ppm shows `048`, 1,150 ppm shows `115`; 500 particles/dL shows
-`050`, 3,389 shows `339`. Three digits cover up to 9,990, well beyond anything this sensor
-reports here. CO2 accuracy is about plus or minus 50 ppm, so the lost last digit carries no
-information. The alert line shows the true unscaled value with its unit.
+**Fixed width, never switching.** CO2 and PM0.3 routinely exceed 999 (CO2 1,150 ppm; PM0.3 1,856 to
+3,389 particles/dL during vacuuming), so those two rows show four zero-padded digits (`0482`, `1150`;
+`0500`, `3389`), capped at 9999, and every other row keeps three (capped at 999). Nothing is rescaled
+by magnitude or divided by 10, so the displayed number is always the real one and the alert line's
+value (`CO2 1150 PPM`) matches the table. The earlier design divided both rows by 10 to stay inside
+three digits, with the scale in the label (`(PPM X10)`); a width test on the live panel on
+2026-10-07 showed a four-digit value fills the 36 px value cell exactly, edge to edge, with no overflow
+(the label column ends where the value cell begins), so the scaling was dropped. The cost is label
+length: the label column holds 22 characters (the font is monospaced) and a four-digit value's text
+starts 2 px after it, so the two four-digit rows use labels of 20 characters or fewer, which is why the
+PM0.3 label is `PARTICLES 0.3 (/DL)` rather than `PARTICULATE MATTER 0.3`.
 
 Temperature and humidity do not fit the table and are not shown in it (the advisor uses
-them). Widening the (V) column to four characters during the indoor phase was considered
-and set aside because it changes panel alignment.
+them). The (V) column itself is not widened, so panel alignment is unchanged.
 
 ### Rotation
 
