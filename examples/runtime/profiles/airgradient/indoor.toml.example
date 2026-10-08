@@ -1,0 +1,41 @@
+profile_id = "indoor"
+enabled = true
+# Short text shown after INDOOR in the ENV panel header and on the SRC line
+# (uppercase, 8 characters at most). Leave empty for plain "INDOOR".
+# label = "CAVE"
+# Poll cadence for the launcher's refresh loop (seconds); 30 to 60 is plenty.
+cache_ttl_sec = 30
+
+[device]
+# Address of the AirGradient ONE on your network (local API, no cloud). Required.
+host = ""
+timeout_sec = 5
+# How long a field the device omitted from a response (firmware 3.7.0 drops temperature,
+# humidity and compensated PM2.5 together about a fifth of the time) is carried forward.
+carry_max_age_sec = 600
+
+[advisor]
+enabled = true
+# Compute and log verdicts but never show an alert in any suite. Leave on for the first
+# week, then set false. See docs/airgradient-provider-design.md, Rollout.
+shadow = true
+# One row per minute of every advisor input under runtime/airgradient/<profile>/, for replays.
+log_inputs = true
+log_keep_days = 60
+
+# Every advisor threshold can be overridden here; names and defaults are the DEFAULTS
+# dictionary in providers/airgradient/ventilation_advisor.py (docs/ventilation-advisor-design.md).
+# [advisor.thresholds]
+# co2_enter = 1000
+# voc_need = 250
+
+[advisor.pollen]
+enabled = true
+# csv = ""   # default: $GTEX62_SHARED_ASSETS/data/pollen/pollen_mem_v2.csv
+threshold = 80
+categories = ["tree", "grass"]
+
+[advisor.outdoor]
+# The air and weather profiles are taken from the launching suite's bindings.
+air_max_age_sec = 7200
+wx_max_age_sec = 1800

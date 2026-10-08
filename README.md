@@ -143,11 +143,11 @@ domain. `site.toml` is not one of them.
 
 | Flag | Domain | Also requires |
 | --- | --- | --- |
-| `vpn`, `ap`, `modem`, `alerts`, `mtr`, `pihole` | VPN, AP, MODEM, ALERTS, MTR, PIHOLE | The launching suite lists the domain in its own `suites/<id>.toml` `[domains]` |
+| `vpn`, `ap`, `modem`, `alerts`, `mtr`, `pihole`, `airgradient` | VPN, AP, MODEM, ALERTS, MTR, PIHOLE, AIRGRADIENT | The launching suite lists the domain in its own `suites/<id>.toml` `[domains]` |
 | `media` | MEDIA (lyrics) | — |
 | `[providers.pfsense]` `status`, `router`, `pfblockerng`, `ifaces` | PFSENSE sub-caches | — |
 
-- **Dual-gated** (`vpn`/`ap`/`modem`/`alerts`/`mtr`/`pihole`): the flag **and**
+- **Dual-gated** (`vpn`/`ap`/`modem`/`alerts`/`mtr`/`pihole`/`airgradient`): the flag **and**
   the launching suite's `[domains]` `required`/`optional` list must both name
   the domain. `core.toml` is one global file, so the suite list is what keeps a
   suite with no consumer for these from polling a modem, VPN, AP or Pi5 for
@@ -237,6 +237,8 @@ suite-specific.
 Current provider domains include:
 
 - `air`
+- `airgradient` — indoor air quality from an AirGradient ONE's local HTTP API plus an
+  open/close-windows ventilation advisor; opt-in, see `docs/airgradient-provider-design.md`
 - `alerts`
 - `ap`
 - `astro`
@@ -260,8 +262,6 @@ Current provider domains include:
 - `vpn`
 - `weather`
 
-`airgradient` (indoor AQI) is designed but not yet built — see
-`docs/airgradient-provider-design.md`.
 
 Provider status files use the same basic shape:
 

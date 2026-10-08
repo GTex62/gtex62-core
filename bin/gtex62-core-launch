@@ -136,6 +136,11 @@ AP_ENABLED="$(parse_toml_section_value "$CORE_TOML" providers ap || true)"
 AP_ENABLED="${AP_ENABLED:-false}"
 MODEM_ENABLED="$(parse_toml_section_value "$CORE_TOML" providers modem || true)"
 MODEM_ENABLED="${MODEM_ENABLED:-false}"
+# AirGradient indoor air quality + ventilation advisor (providers/airgradient/). Dual-gated like
+# vpn/ap/modem: most installs do not own the device, so the flag here AND the launching suite
+# listing "airgradient" in its [domains] must both be true.
+AIRGRADIENT_ENABLED="$(parse_toml_section_value "$CORE_TOML" providers airgradient || true)"
+AIRGRADIENT_ENABLED="${AIRGRADIENT_ENABLED:-false}"
 ALERTS_ENABLED="$(parse_toml_section_value "$CORE_TOML" providers alerts || true)"
 ALERTS_ENABLED="${ALERTS_ENABLED:-false}"
 MTR_ENABLED="$(parse_toml_section_value "$CORE_TOML" providers mtr || true)"
@@ -155,6 +160,9 @@ if [[ "$AP_ENABLED" == "true" ]] && ! suite_has_domain "$SUITE_TOML" "ap"; then
 fi
 if [[ "$MODEM_ENABLED" == "true" ]] && ! suite_has_domain "$SUITE_TOML" "modem"; then
   MODEM_ENABLED="false"
+fi
+if [[ "$AIRGRADIENT_ENABLED" == "true" ]] && ! suite_has_domain "$SUITE_TOML" "airgradient"; then
+  AIRGRADIENT_ENABLED="false"
 fi
 if [[ "$ALERTS_ENABLED" == "true" ]] && ! suite_has_domain "$SUITE_TOML" "alerts"; then
   ALERTS_ENABLED="false"
@@ -201,6 +209,7 @@ ORB_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles orb || true)"
 VPN_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles vpn || true)"
 AP_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles ap || true)"
 MODEM_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles modem || true)"
+AIRGRADIENT_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles airgradient || true)"
 ALERTS_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles alerts || true)"
 MTR_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles mtr || true)"
 MEDIA_PROFILE="$(parse_toml_section_value "$SUITE_TOML" profiles media || true)"
@@ -221,6 +230,7 @@ ORB_PROFILE="${ORB_PROFILE:-home}"
 VPN_PROFILE="${VPN_PROFILE:-local}"
 AP_PROFILE="${AP_PROFILE:-main_router}"
 MODEM_PROFILE="${MODEM_PROFILE:-local}"
+AIRGRADIENT_PROFILE="${AIRGRADIENT_PROFILE:-indoor}"
 ALERTS_PROFILE="${ALERTS_PROFILE:-main_router}"
 MTR_PROFILE="${MTR_PROFILE:-pi5}"
 MEDIA_PROFILE="${MEDIA_PROFILE:-local}"
@@ -263,6 +273,8 @@ AP_TTL="$(parse_toml_section_value "$AP_PROFILE_TOML" ap cache_ttl_sec || true)"
 AP_TTL="${AP_TTL:-$(parse_toml_section_value "$SITE_TOML" ap cache_ttl_sec || true)}"
 MODEM_PROFILE_TOML="$CONFIG_ROOT/profiles/modem/${MODEM_PROFILE}.toml"
 MODEM_TTL="$(parse_toml_value "$MODEM_PROFILE_TOML" cache_ttl_sec || true)"
+AIRGRADIENT_PROFILE_TOML="$CONFIG_ROOT/profiles/airgradient/${AIRGRADIENT_PROFILE}.toml"
+AIRGRADIENT_TTL="$(parse_toml_value "$AIRGRADIENT_PROFILE_TOML" cache_ttl_sec || true)"
 # No profiles/alerts/{profile}.toml ships yet — fetch_alerts.sh has no
 # cache_ttl_sec notion of its own (it recomputes from scratch on every
 # invocation, no cache-TTL skip; see the script's own header comment), so
@@ -298,6 +310,7 @@ PFSENSE_IFACES_TTL="${PFSENSE_IFACES_TTL:-1}"
 VPN_TTL="${VPN_TTL:-10}"
 AP_TTL="${AP_TTL:-120}"
 MODEM_TTL="${MODEM_TTL:-300}"
+AIRGRADIENT_TTL="${AIRGRADIENT_TTL:-30}"
 ALERTS_TTL="${ALERTS_TTL:-60}"
 MTR_TTL="${MTR_TTL:-15}"
 NET_TTL="${NET_TTL:-60}"
@@ -343,6 +356,7 @@ mkdir -p \
   "$CACHE_ROOT/shared/pfsense/$AP_PROFILE" \
   "$CACHE_ROOT/shared/vpn/$VPN_PROFILE" \
   "$CACHE_ROOT/shared/modem/$MODEM_PROFILE" \
+  "$CACHE_ROOT/shared/airgradient/$AIRGRADIENT_PROFILE" \
   "$CACHE_ROOT/shared/alerts/$ALERTS_PROFILE" \
   "$CACHE_ROOT/shared/mtr/$MTR_PROFILE" \
   "$CACHE_ROOT/shared/net/$NET_PROFILE" \
@@ -373,6 +387,7 @@ PFSENSE_IFACES_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-pfsense-ifaces-refresh.pid"
 VPN_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-vpn-refresh.pid"
 AP_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-ap-refresh.pid"
 MODEM_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-modem-refresh.pid"
+AIRGRADIENT_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-airgradient-refresh.pid"
 ALERTS_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-alerts-refresh.pid"
 MTR_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-mtr-refresh.pid"
 NET_LOOP_PID_FILE="$PIDS_DIR/${SUITE_ID}-net-refresh.pid"
@@ -398,6 +413,7 @@ PFSENSE_IFACES_STAMP="$STAMPS_DIR/pfsense-ifaces-${PFSENSE_PROFILE}.stamp"
 VPN_STAMP="$STAMPS_DIR/vpn-${VPN_PROFILE}.stamp"
 AP_STAMP="$STAMPS_DIR/ap-${AP_PROFILE}.stamp"
 MODEM_STAMP="$STAMPS_DIR/modem-${MODEM_PROFILE}.stamp"
+AIRGRADIENT_STAMP="$STAMPS_DIR/airgradient-${AIRGRADIENT_PROFILE}.stamp"
 ALERTS_STAMP="$STAMPS_DIR/alerts-${ALERTS_PROFILE}.stamp"
 MTR_STAMP="$STAMPS_DIR/mtr-${MTR_PROFILE}.stamp"
 NET_STAMP="$STAMPS_DIR/net-${NET_PROFILE}.stamp"
@@ -470,6 +486,7 @@ cleanup_pidfile "$PFBLOCKERNG_LOOP_PID_FILE"
 cleanup_pidfile "$VPN_LOOP_PID_FILE"
 cleanup_pidfile "$AP_LOOP_PID_FILE"
 cleanup_pidfile "$MODEM_LOOP_PID_FILE"
+cleanup_pidfile "$AIRGRADIENT_LOOP_PID_FILE"
 cleanup_pidfile "$ALERTS_LOOP_PID_FILE"
 cleanup_pidfile "$MTR_LOOP_PID_FILE"
 cleanup_pidfile "$NET_LOOP_PID_FILE"
@@ -677,6 +694,9 @@ fi
 if [[ "$MODEM_ENABLED" == "true" ]]; then
   initial_refresh "modem-${MODEM_PROFILE}" "$MODEM_STAMP" "$CORE_DIR/providers/modem/fetch_modem.sh" "$MODEM_PROFILE"
 fi
+if [[ "$AIRGRADIENT_ENABLED" == "true" ]]; then
+  initial_refresh "airgradient-${AIRGRADIENT_PROFILE}" "$AIRGRADIENT_STAMP" "$CORE_DIR/providers/airgradient/fetch_airgradient.sh" "$AIRGRADIENT_PROFILE" "$AIR_PROFILE" "$WEATHER_PROFILE"
+fi
 if [[ "$ALERTS_ENABLED" == "true" ]]; then
   initial_refresh "alerts-${ALERTS_PROFILE}" "$ALERTS_STAMP" "$CORE_DIR/providers/alerts/fetch_alerts.sh" "$ALERTS_PROFILE" "$MTR_PROFILE" "$VPN_PROFILE" "$MODEM_PROFILE"
 fi
@@ -724,6 +744,9 @@ if [[ "$AP_ENABLED" == "true" ]]; then
 fi
 if [[ "$MODEM_ENABLED" == "true" ]]; then
   refresh_loop "modem-${MODEM_PROFILE}" "$MODEM_TTL" "$MODEM_STAMP" "$MODEM_LOOP_PID_FILE" "$CORE_DIR/providers/modem/fetch_modem.sh" "$MODEM_PROFILE"
+fi
+if [[ "$AIRGRADIENT_ENABLED" == "true" ]]; then
+  refresh_loop "airgradient-${AIRGRADIENT_PROFILE}" "$AIRGRADIENT_TTL" "$AIRGRADIENT_STAMP" "$AIRGRADIENT_LOOP_PID_FILE" "$CORE_DIR/providers/airgradient/fetch_airgradient.sh" "$AIRGRADIENT_PROFILE" "$AIR_PROFILE" "$WEATHER_PROFILE"
 fi
 if [[ "$ALERTS_ENABLED" == "true" ]]; then
   refresh_loop "alerts-${ALERTS_PROFILE}" "$ALERTS_TTL" "$ALERTS_STAMP" "$ALERTS_LOOP_PID_FILE" "$CORE_DIR/providers/alerts/fetch_alerts.sh" "$ALERTS_PROFILE" "$MTR_PROFILE" "$VPN_PROFILE" "$MODEM_PROFILE"

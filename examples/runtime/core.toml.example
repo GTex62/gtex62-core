@@ -29,7 +29,7 @@ allow_legacy_suites = true
 # This section is deliberately PARTIAL — it does not list every domain, and
 # is not meant to. It governs only the opt-in domains — the ones where
 # running them is an install/suite decision, not universal infrastructure:
-#   - dual-gated: vpn/ap/modem/alerts/mtr/pihole. The flag here AND the
+#   - dual-gated: vpn/ap/modem/alerts/mtr/pihole/airgradient. The flag here AND the
 #     launching suite listing the domain in its own suites/<id>.toml
 #     [domains] required/optional list (suite_has_domain() in
 #     bin/gtex62-core-launch) must both be true, so a suite with no consumer
@@ -63,6 +63,11 @@ allow_legacy_suites = true
 vpn = false
 ap = false
 modem = false
+# airgradient (providers/airgradient/fetch_airgradient.sh) polls an AirGradient ONE indoor air
+# quality monitor over its local HTTP API and runs the ventilation advisor — see
+# docs/airgradient-provider-design.md. Needs the device's address in
+# profiles/airgradient/<profile>.toml [device].host; dual-gated like vpn/ap/modem.
+airgradient = false
 # alerts ships true, unlike its neighbors: it has no hardware or network
 # dependency — pure computation over other domains' already-written caches,
 # no SSH/gate, no external calls — so defaulting it off would not protect

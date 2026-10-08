@@ -36,6 +36,7 @@ gtex62-core/
     gtex62-conky-launch           — Conky wrapper
   providers/
     air/           — AQI and pollution (AirNow + OpenWeather)
+    airgradient/   — indoor air quality (AirGradient ONE local API) + ventilation advisor
     alerts/        — cross-cutting alert banner watcher (thresholds over other domains' caches)
     ap/            — Zyxel access-point fleet status and named clients
     astro/         — astronomical data (moon phase, solar events)
@@ -114,6 +115,7 @@ time    = "local"
 ~/.cache/gtex62-core/
   shared/
     air/           — AQI + pollution cache
+    airgradient/   — indoor readings + ventilation verdict (status.json)
     alerts/        — banner.json alert queue + transition log
     astro/         — astronomical cache
     aviation/      — METAR/TAF cache
@@ -186,6 +188,7 @@ making fast-track meters (VLAN, ping) appear frozen.
 | Domain       | Default TTL    | Notes                                                                                                            |
 |--------------|----------------|------------------------------------------------------------------------------------------------------------------|
 | air          | 900s           | AQI + pollution — see env-provider-status.md                                                                     |
+| airgradient  | 30s            | Indoor air quality + ventilation advisor; opt-in, dual-gated — see airgradient-provider-design.md                |
 | alerts       | 60s            | Cross-cutting; recomputes from other domains' caches, no cache_ttl_sec of its own                                |
 | ap           | 120s           | Zyxel AP fleet status + named clients                                                                            |
 | astro        | 60s            | Moon phase, solar events — see astro-provider-status.md                                                          |

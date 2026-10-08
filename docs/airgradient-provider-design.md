@@ -5,7 +5,8 @@ for display in OSA's ENV panel (and potentially other suites) alongside the exis
 outdoor/OWM-sourced ENV data, plus an engine-side ventilation advisor that turns the
 readings into an "open windows / close windows" verdict.
 
-Revision 3 (2026-10-07). Status: **design only, not implemented.** Companion document:
+Revision 3 (2026-10-07). Status: **provider and advisor implemented and tested (2026-10-07); not enabled in
+any live runtime, OSA display not started, doctor row deferred.** Companion document:
 `ventilation-advisor-design.md` (rules, thresholds, reference code and the acceptance test).
 This revision renames the example profile from `cave` to `indoor` (a display `label` key carries
 a personal room name), records that firmware 3.7.0 intermittently omits fields and how the
@@ -165,42 +166,26 @@ indoor.toml.example`), following the generic names the other providers ship (`ho
 the optional `label` key, not in the profile name. Home Assistant entity names need not match
 anything in the engine.
 
-### Profile TOML (sketch)
+### Profile TOML
 
-```toml
-profile_id = "indoor"
-enabled = true
-# Short text shown after INDOOR in the ENV panel header and on the SRC line.
-# Uppercase, 8 characters at most; leave empty for plain "INDOOR".
-# label = "CAVE"
+The shipped template is `examples/runtime/profiles/airgradient/indoor.toml.example`; the installed
+copy is `~/.config/gtex62-core/profiles/airgradient/indoor.toml`. Keys:
 
-[device]
-# Address of the AirGradient ONE on your network (local API; no cloud involved).
-host = ""
-timeout_sec = 5
-carry_max_age_sec = 600
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `enabled` | `true` | `false` writes `state: "disabled"` and never contacts the device |
+| `label` | none | Short room name for the ENV panel (uppercased, 8 characters) |
+| `cache_ttl_sec` | 30 | Poll cadence; top-level like the vpn and modem profiles, which is where the launcher reads it |
+| `[device] host` | none, required | Address of the unit; empty gives `state: "error"` |
+| `[device] timeout_sec`, `carry_max_age_sec` | 5, 600 | HTTP timeout; how long an omitted field is carried forward |
+| `[advisor] enabled`, `shadow` | `true`, `true` | `shadow` computes and logs but never shows an alert |
+| `[advisor] log_inputs`, `log_keep_days` | `true`, 60 | Per-minute input log under `runtime/airgradient/<profile>/` |
+| `[advisor.thresholds]` | the advisor's `DEFAULTS` | Any threshold name from `ventilation_advisor.py`, numbers only |
+| `[advisor.pollen]` | on, 80, tree + grass | Optional `csv` path; defaults to the shared-assets pollen file |
+| `[advisor.outdoor] air_max_age_sec`, `wx_max_age_sec` | 7200, 1800 | Freshness limits for the outdoor caches |
 
-[cache]
-cache_ttl_sec = 30        # 30 to 60; the launcher's refresh loop honors it
-
-[advisor]
-enabled = true
-shadow = true             # compute and log, but never show an alert in any suite
-# Thresholds: every number in ventilation-advisor-design.md is a key here
-# (co2_enter, co2_leave, co2_severe, voc_need, pm_enter, pm_leave, rh_enter, rh_floor, ...).
-
-[advisor.pollen]
-enabled = true
-# csv = ""                # default: $GTEX62_SHARED_ASSETS/data/pollen/pollen_mem_v2.csv
-threshold = 80
-categories = ["tree", "grass"]
-
-[advisor.outdoor]
-# air and weather profiles are taken from the launching suite's bindings;
-# set these only to override.
-# air_profile = ""
-# weather_profile = ""
-```
+The air and weather profiles the advisor reads are the launching suite's own bindings, passed by
+the launcher as arguments 2 and 3 of `fetch_airgradient.sh`.
 
 ---
 
@@ -236,7 +221,7 @@ refers here.
   },
   "temp_f": 78.6,
   "humidity_pct": 56.35,
-  "dew_point_f": 62.5,
+  "dew_point_f": 61.8,
   "wifi_rssi": -67,
   "ventilation": {
     "verdict": "NEUTRAL",
@@ -264,6 +249,7 @@ field and the previous value was reused.
 | `"ok"` | HTTP fetch succeeded and all required fields were present (carried fields allowed, listed in `carried_fields`) |
 | `"degraded"` | Fetch failed/timed out or lacked required fields; fields hold last-known-good values |
 | `"disabled"` | Profile has `enabled = false` in TOML |
+| `"error"` | Configuration problem, nothing fetched: no profile TOML or no `[device].host` (the air and modem providers use the same value) |
 
 Matches the pfSense provider's three-value convention, so SitRep/OSA can reuse the same
 staleness-indicator display logic across providers without special-casing AirGradient.
@@ -357,13 +343,15 @@ and a short sustain filter. Full rules, thresholds, reference code and the accep
   document because the acceptance test is sensitive to them.
 - **State between polls.** History, latch flags, the current verdict and the alert clock persist in
   `runtime/airgradient/{profile}/advisor_state.json` (engine-private, not under `shared/`, matching
-  the alerts provider's `runtime/alerts/` state), written atomically. If the file is missing or
+  the alerts provider's `runtime/alerts/` state), written atomically; the same file holds the
+  last-good values the provider carries forward for omitted fields. If the file is missing or
   corrupt the advisor starts as `NEUTRAL`. All times are epoch seconds; a local-time datetime would
   break at the DST change on 2026-11-01.
-- **One writer.** Refresh loops are started per launching suite, so two suites running the domain
-  means two writers. A run takes an exclusive `flock` on the state file's lock, re-checks the cache
-  age after acquiring it and exits if the cache is fresh, and the advisor ignores any reading not
-  newer than the last one it processed.
+- **One writer.** The launcher already serializes runs per domain (`run_locked` in
+  `gtex62-core-launch`, a mkdir lock shared by all suites) and the script skips a run when the
+  cache is under 80% of the TTL old. The script also takes an exclusive `flock` and exits if
+  another run holds it (a second launcher or a manual run), re-checks the cache age once it holds
+  the lock, and the advisor ignores any reading not newer than the last one it processed.
 - **Never advise on bad data.** If the fetch is `degraded`, the advisor is not stepped: the verdict
   is held and OSA shows `AG STALE` once the reading is 3 minutes old. After an outage longer than
   10 minutes the history windows are cleared rather than bridged.
@@ -487,30 +475,32 @@ Tied to the condition, not a timer, with a cap:
 
 ## Wiring Checklist
 
-Core (`gtex62-core`):
+Core (`gtex62-core`), done 2026-10-07 unless marked:
 
-1. `providers/airgradient/fetch_airgradient.sh` (wrapper) and the Python module behind it; the
-   advisor as its own importable module so tests can load it without the HTTP code.
-2. `examples/runtime/profiles/airgradient/indoor.toml.example`, then re-run
+1. `providers/airgradient/fetch_airgradient.sh` (wrapper), `fetch_airgradient.py` (device fetch,
+   carry-forward, outdoor inputs, persistence, output) and `ventilation_advisor.py` (the reference
+   implementation, pure and importable; a test fails if it drifts from the advisor document).
+2. `examples/runtime/profiles/airgradient/indoor.toml.example`. Installing it needs
    `bin/gtex62-core-bootstrap-runtime` (the Bootstrap Gap: a missing profile TOML falls back to a
-   60-second TTL).
-3. Launcher (`bin/gtex62-core-launch`): parse the `airgradient` profile and its TOML path, TTL,
-   stamp and pid file, add the cache dir to the `mkdir` list, add `initial_refresh` and
-   `refresh_loop` entries, and pass the suite's air and weather profiles as arguments (the
-   `alerts` entry is the pattern for cross-domain reads).
-4. **Dual-gated like vpn**: `core.toml` `[providers] airgradient` (default false) plus the suite
-   listing `airgradient` in its `[domains]`, so installs without the device never start it. Update
-   the dual-gated list in the `core.toml.example` comment and in `README.md` § Provider Toggles.
-5. Suite binding templates: `airgradient = "indoor"` under `[profiles]` and the domain in the
-   `[domains]` list of `examples/runtime/suites/osa.toml.example`.
+   60-second TTL), then the device address in the installed copy. **Not yet run against the live
+   runtime config.**
+3. Launcher (`bin/gtex62-core-launch`): flag, suite gating, profile, TOML path, TTL, stamp, pid
+   file, `mkdir`, cleanup, `initial_refresh` and `refresh_loop`, with the suite's air and weather
+   profiles passed as arguments 2 and 3. Syntax-checked only; not yet run under a live launch.
+4. Dual-gated like vpn: `core.toml` `[providers] airgradient` (ships `false`) plus the suite listing
+   `airgradient` in its `[domains]`; `core.toml.example` and `README.md` § Provider Toggles updated.
+5. Suite binding template: `airgradient = "indoor"` under `[profiles]` and the domain in the
+   `[domains]` `optional` list of `examples/runtime/suites/osa.toml.example`. The installed
+   `suites/osa.toml` and `core.toml` are separate files and are changed by hand.
 6. Doctor: deferred until the provider and OSA are running. Then add a row for the new domain (the
    table is alphabetical and counts domains, so 21 becomes 22) and update `doctor-design.md` and
    `doctor-missing-conditions.md`; the row must read `state` as well as cache age, since a degraded
    run rewrites the file.
-7. Docs: `architecture.md` (directory list, cache list, TTL table), `README.md` domain count and
-   the "designed but not built" note, `docs/README.md` index, and a `CHANGELOG.md` entry.
-8. Tests under `tests/airgradient/`: the fixtures are already there; add the replay test, the
-   synthetic table, the persistence round-trip, partial-payload and gap cases.
+7. Docs: `architecture.md`, `README.md`, `docs/README.md` and `CHANGELOG.md` updated.
+8. Tests: `tests/airgradient/run-tests.sh` runs `test_advisor.py` (replay against the fixtures,
+   synthetic cases, state round-trip, gaps, alert cap, doc drift) and `test_fetch_airgradient.py`
+   (fake device on localhost: scaling, partial and failed responses, hold, shadow versus live,
+   outdoor inputs, pollen, thresholds, corrupt state, lock).
 
 OSA (`gtex62-osa`, separate repo and commit): `lua/suite/` reader for the new cache, the indoor
 table and header in `lua/ui/frame.lua`, the clock-based rotation, the alert on the `DATA //` line

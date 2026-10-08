@@ -20,6 +20,23 @@ this file and has not been backfilled — see each domain's own
 
 ## Unreleased
 
+**New `airgradient` domain (2026-10-07): indoor air quality plus a ventilation advisor.**
+`providers/airgradient/` polls an AirGradient ONE's local HTTP API (no cloud, no SSH), scales the
+readings and writes `shared/airgradient/<profile>/status.json`; the advisor
+(`ventilation_advisor.py`) turns them, with the outdoor air and weather caches and the seasonal
+pollen curve, into an `OPEN` / `BRIEF` / `CLOSE` / `NEUTRAL` verdict with a ready-to-display alert
+string. Opt-in and dual-gated like vpn/ap/modem: `core.toml` `[providers] airgradient = true` plus the
+suite listing `airgradient` in its `[domains]`, and the device address in
+`profiles/airgradient/<profile>.toml` (`examples/runtime/profiles/airgradient/indoor.toml.example`;
+re-run `gtex62-core-bootstrap-runtime`). Ships in shadow mode: verdicts are computed and logged, never
+shown. Firmware 3.7.0 intermittently drops temperature, humidity and compensated PM2.5 from a response;
+the provider carries the last values forward for up to 10 minutes rather than failing or using raw PM.
+Tests: `tests/airgradient/run-tests.sh` (replay of a week of real data against
+`tests/airgradient/fixtures/`, synthetic rule cases, a fake device). Design:
+[docs/airgradient-provider-design.md](docs/airgradient-provider-design.md) and
+[docs/ventilation-advisor-design.md](docs/ventilation-advisor-design.md). Not yet done: the OSA
+display and the doctor row; the launcher wiring is syntax-checked but has not been run under a live launch.
+
 **`air`: AirNow overlay was usually empty (fixed 2026-10-07).** AirNow's `aq/data` marks a
 not-yet-available raw concentration as `-999` on the newest one to two hours of rows while the
 validated `Value` is populated. `providers/air/fetch_air.sh` took `RawConcentration // Value`, so the

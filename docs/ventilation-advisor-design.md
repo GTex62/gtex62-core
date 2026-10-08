@@ -388,7 +388,7 @@ class Advisor:
         self.c = {**DEFAULTS, **(cfg or {})}
         self.latched = set()
         self.verdict, self.severity, self.reason = 'NEUTRAL', 'normal', 'Fine either way'
-        self.cls, self.alert_text = 'none', ''
+        self.cls, self.alert_text, self.notes = 'none', '', []
         self.since = self.alert_since = self.last_t = None
         self.samples, self.dps = [], []          # [t, co2, pm25, voc] / [t, dew_point]
 
@@ -456,13 +456,14 @@ class Advisor:
             escalated = self.severity == 'normal' and r['severity'] == 'severe' and r['verdict'] != 'NEUTRAL'
             self.reason, self.severity, self.cls, self.alert_text = \
                 r['reason'], r['severity'], r['cls'], r['alert_text']
+            self.notes = r['notes']
             if escalated:
                 self.alert_since = t
                 return 'escalate'
             return None
         if self.since is None or t - self.since >= c['dwell_s']:
             self.verdict, self.severity, self.reason = r['verdict'], r['severity'], r['reason']
-            self.cls, self.alert_text = r['cls'], r['alert_text']
+            self.cls, self.alert_text, self.notes = r['cls'], r['alert_text'], r['notes']
             self.since = self.alert_since = t
             return 'change'
         return None
