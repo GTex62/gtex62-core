@@ -347,7 +347,8 @@ and a short sustain filter. Full rules, thresholds, reference code and the accep
   from the existing ENV providers: `shared/air/<air_profile>/current.json` (`airnow.aqi`,
   `airnow.values.pm2_5`/`pm10`, falling back to `selected.pm2_5`/`pm10`) and
   `shared/weather/<weather_profile>/current.json` (`temp_f`, `humidity_pct`). Outdoor PM from
-  AirNow stations drives every PM rule; OpenWeather's modelled PM drives only the hazard rule.
+  AirNow stations drives every PM rule; the hazard rule also trips on OpenWeather's modelled PM
+  (either source), so an older station reading cannot mask a current spike.
   Each outdoor input has its own freshness flag, and a stale one switches off only the rules that
   need it.
 - **Time-based, not sample-based.** The sustain filter is the minimum over the last 180 seconds,
@@ -572,27 +573,20 @@ profile's search radius (hourly, with publication lag) or, failing that, from Op
 and may lag either way. No outdoor temperature or humidity was logged for the validation week, so
 the outdoor comfort-band and dew-point rules are untested on real data.
 
-**AirNow overlay is often empty.** On 2026-10-07 the raw AirNow file held PM2.5 from three
-stations while the cache's `airnow.values` was empty. Replaying the air provider's own filter on that
-file shows why: AirNow's newest one to two hours of rows carry `RawConcentration = -999.0` (its
-missing-value marker; the `Value` field is populated), and `fetch_air.sh` takes
-`RawConcentration // Value`, so the sentinel wins, fails the `>= 0` check and the row is dropped. The
-freshest usable reading is then 2 to 3 hours old and fails the default `max_age_sec` of 3600. With
-`max_age_sec = 10800` the same file yields PM2.5 11.7 (a 2-hour-old reading). `env-provider-status.md`
-documents the symptom (`airnow.aqi` present while `airnow.values` is empty) and the `max_age_sec`
-override, but attributes the empty overlay to `aq/data` returning nothing, which was not the case
-here. The advisor degrades gracefully (hazard rule only, from OpenWeather), but PM comparisons will
-be off much of the time until the air provider treats the sentinel as missing and/or its
-`max_age_sec` is raised. Both are changes to a provider every suite shares, so they are made
-separately from this work.
+**AirNow overlay.** Until 2026-10-07 the air provider's `airnow.values` was usually empty: AirNow's
+newest one to two hours of rows carry `RawConcentration = -999.0` (missing) and `fetch_air.sh` took it
+instead of the populated `Value`, so the freshest hour was dropped and the rest failed the 3600 s
+`max_age_sec`. Fixed the same day (sentinel treated as missing; example profile sets
+`max_age_sec = 7200`); details in `env-provider-status.md` and `CHANGELOG.md`. Profiles installed
+before then need `max_age_sec = 7200` added. Residual limits: readings are hourly and can be up to
+2 hours old, and the provider keeps the first-listed station per pollutant rather than the nearest.
 
 ---
 
 ## Open Items
 
-- Air provider: treat AirNow's `RawConcentration = -999` as missing (fall back to `Value`) and decide
-  on `max_age_sec` (see Known Constraints); correct the divergence explanation in
-  `env-provider-status.md` when that is done.
+- Air provider: pick the nearest station (or average) per pollutant instead of the first listed
+  (see Known Constraints).
 - Re-check thresholds after a few weeks of shadow mode, and in a different season, using
   `inputs.csv` for a replay that includes the outdoor rules.
 - Explain or accept the two long VOC episodes (2026-10-01 evening, peak 475; 2026-10-04

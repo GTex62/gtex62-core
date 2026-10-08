@@ -25,7 +25,7 @@ one-minute samples); thresholds are still defaults to be tuned (see Open Items).
 | --- | --- | --- |
 | Indoor | `co2_ppm`, `voc_index`, `pm.pm25_ugm3`, `temp_f`, `humidity_pct` | `shared/airgradient/<profile>/status.json` |
 | Indoor (derived) | `dp_rise_30`: indoor dew point now minus dew point at exactly 30 minutes ago (F), interpolated | engine keeps a 30-minute dew point history |
-| Outdoor air | `airnow.aqi`; `airnow.values.pm2_5` and `.pm10` when present; otherwise `selected.pm2_5` and `.pm10` | `shared/air/<air_profile>/current.json` |
+| Outdoor air | `airnow.aqi`; `selected.pm2_5` and `.pm10` (AirNow where present, else OpenWeather); `openweather.components.pm2_5` and `.pm10` | `shared/air/<air_profile>/current.json` |
 | Outdoor weather | `temp_f`, `humidity_pct` | `shared/weather/<weather_profile>/current.json` |
 | Pollen (optional) | `tree`, `grass`, `weed`, `mold` (0 to 100 seasonal index) | `pollen_mem_v2.csv`, day-of-year lookup, path from the profile TOML (see below) |
 
@@ -34,7 +34,11 @@ otherwise (`selected.*` falls back to OpenWeather's modelled value). AirNow read
 monitoring stations and, in the site owner's experience in this region, are the better source;
 OpenWeather's number is a model. Rules therefore use them differently:
 
-- Hard-close (rule 1) accepts either source, because it only fires on clearly hazardous air.
+- Hard-close (rule 1) trips on **either** source: the `selected` value or OpenWeather's own
+  component, whichever is higher (`owm_pm25`/`owm_pm10` in the reference code). An AirNow reading
+  can be up to 2 hours old (`max_age_sec = 7200`) while OpenWeather's model is current, and a fast
+  event such as smoke must not be masked by an older, calmer station reading. Recency does not make
+  the model the better estimate of ordinary conditions, which is why it never drives the soft rules.
 - The soft PM comparisons (indoor PM need relative to outdoor, outdoor PM drawback) run only with
   `pm_source = airnow`. With OpenWeather alone they are skipped and the indoor PM need falls back to
   its absolute trigger.
@@ -263,8 +267,9 @@ def humid_trip(rh, rise, latched, c=DEFAULTS):
 def advise(ind, out=None, latched=frozenset(), pollen=None, cfg=None):
     """Pure rule evaluation. `ind` holds sustained co2/pm25/voc (None while the
     sustain window is not yet warm), instantaneous temp_f/rh, and dp_rise_30.
-    `out` (all keys optional): aqi, pm25, pm10, pm_source ('airnow'|'owm'),
-    air_fresh, temp_f, rh, wx_fresh. Returns a structured dict."""
+    `out` (all keys optional): aqi, pm25, pm10 (the air cache's `selected` values), pm_source
+    ('airnow'|'owm'), owm_pm25, owm_pm10 (OpenWeather's own components), air_fresh, temp_f, rh,
+    wx_fresh. Returns a structured dict."""
     c = {**DEFAULTS, **(cfg or {})}
     o = out or {}
     co2, voc, pm = num(ind.get('co2')), num(ind.get('voc')), num(ind.get('pm25'))
@@ -273,6 +278,10 @@ def advise(ind, out=None, latched=frozenset(), pollen=None, cfg=None):
 
     air_ok = bool(o.get('air_fresh'))
     aqi, o25, o10 = num(o.get('aqi')), num(o.get('pm25')), num(o.get('pm10'))
+    # The hazard rule trips on either source: an hours-old station reading must not mask a
+    # current modelled spike (smoke, dust).
+    hz25 = max((x for x in (o25, num(o.get('owm_pm25'))) if x is not None), default=None)
+    hz10 = max((x for x in (o10, num(o.get('owm_pm10'))) if x is not None), default=None)
     # Soft PM comparisons need a station reading; OpenWeather's modelled PM only feeds hard-close.
     soft_pm = air_ok and o.get('pm_source') == 'airnow' and o25 is not None
     otemp, orh = num(o.get('temp_f')), num(o.get('rh'))
@@ -294,7 +303,7 @@ def advise(ind, out=None, latched=frozenset(), pollen=None, cfg=None):
                     notes=list(notes), alert_text=alert)
 
     # 1. hard close: outdoor air hazardous (never overridden)
-    if air_ok and (hi(aqi, c['hard_aqi']) or hi(o25, c['hard_pm25']) or hi(o10, c['hard_pm10'])):
+    if air_ok and (hi(aqi, c['hard_aqi']) or hi(hz25, c['hard_pm25']) or hi(hz10, c['hard_pm10'])):
         why = 'Close windows: outdoor air quality is poor'
         if hi(co2, c['co2_enter']):
             why += ' (CO2 is high; use an air purifier or a very short airing)'
@@ -598,11 +607,12 @@ an `OPEN` alert.
   week's input log (see the provider document) is meant to close this.
 - The new outdoor rules (humidity with drier outdoor air, free cooling, AirNow PM comparisons,
   pollen weighing) are covered by synthetic cases only.
-- AirNow's overlay is often empty in the air cache: the newest one to two hours of AirNow rows have
-  `RawConcentration = -999` (missing) and the air provider drops them instead of using `Value`, so the
-  freshest usable reading is often older than `max_age_sec` (default 3600), and `pm_source` will often
-  be `owm`. Details in `airgradient-provider-design.md` (Known Constraints). Fixing it is a separate
-  change to a provider every suite shares.
+- AirNow's overlay was usually empty in the air cache until 2026-10-07: the air provider took
+  AirNow's `RawConcentration = -999` (not yet available) instead of `Value` and discarded the newest
+  hour. Fixed in `fetch_air.sh`, with `max_age_sec = 7200` in the example profile (see
+  `env-provider-status.md`). `pm_source` is `owm` only when AirNow has nothing under 2 hours old.
+  The air provider also keeps the first-listed station per pollutant, not the nearest, so two
+  stations reporting the same hour can differ (9.7 against 6.7 on 2026-10-07).
 - Whether OSA shows the verdict as a status-line tag, a color on the ENV panel header, or
   only as a transient alert.
 - NOx index (1 to 6 all week) is not used; it is logged by the provider design but never
