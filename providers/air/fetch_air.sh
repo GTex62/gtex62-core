@@ -285,7 +285,9 @@ jq -n \
     ($airnow_data[0] // [])
     | map(
         (.Parameter | key_for) as $key |
-        (.RawConcentration // .Value // null) as $raw_value |
+        # AirNow marks a not-yet-available raw concentration as -999 (the newest hour or two);
+        # treat any negative/non-numeric raw as missing and use the validated Value instead.
+        (((.RawConcentration | try tonumber catch null) | select(. != null and . >= 0)) // .Value // null) as $raw_value |
         (.UTC | epoch_from_airnow) as $ts |
         select($key != null and $raw_value != null and $ts != null) |
         ($now - $ts) as $age |

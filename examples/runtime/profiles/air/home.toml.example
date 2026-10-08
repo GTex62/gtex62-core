@@ -24,3 +24,6 @@ enabled = true
 distance_miles = 25
 window_hours = 6
 owm_tolerance_sec = 3600
+# AirNow readings older than this are ignored. Hourly data stamped at the top of the hour is
+# already up to an hour old when published, so keep this at 7200 or more.
+max_age_sec = 7200

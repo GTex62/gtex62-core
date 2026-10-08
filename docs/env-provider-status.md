@@ -105,13 +105,23 @@ enabled = true
 distance_miles = 25
 window_hours = 6
 owm_tolerance_sec = 3600
+max_age_sec = 7200
 ```
 
 `baseline_provider` / `overlay_provider` are recorded but not currently branched on by
 the script — OpenWeather is always the base and AirNow is always the overlay regardless
-of these values. `max_age_sec` (AirNow per-pollutant staleness ceiling) defaults to
-`3600` and has no example key shown in the installed profile above; add
-`[airnow] max_age_sec = <seconds>` to override.
+of these values. `max_age_sec` (AirNow per-pollutant staleness ceiling) defaults to `3600`
+when the key is absent; the shipped example sets `7200` (profiles installed before that carry no
+key and keep 3600 until it is added). AirNow data is hourly, stamped at the top of the hour and
+published some time after, so a reading is routinely 1 to 2 hours old by the time it is usable;
+a 3600 ceiling is borderline even when everything works. `owm_tolerance_sec` is parsed and passed
+to the `jq` program but not used by it, so it currently has no effect.
+
+AirNow marks a raw concentration that is not yet available as `-999` (typically the newest one
+to two hours of `aq/data` rows, while the validated `Value` field is already populated). The
+script treats a negative or non-numeric `RawConcentration` as missing and uses `Value` instead.
+Before that fix (core, 2026-10-07) the `-999` was taken as the reading, rejected as negative, and
+the freshest hour was dropped, leaving only older readings that usually failed `max_age_sec`.
 
 Suite TOML binding:
 
@@ -153,11 +163,17 @@ air = "home"
 }
 ```
 
-The sample above is a real capture showing a common divergence: `airnow.aqi` is present
-(from `aq/observation`) while `airnow.values`/`timestamps` are empty (`aq/data` returned
-nothing inside the tolerance window) — so `selected` falls back entirely to OpenWeather
-even though AirNow AQI is being shown elsewhere. Don't assume a non-null `airnow.aqi`
-implies any AirNow-sourced pollutant concentration is in `selected`.
+The sample above is a real capture (2026-09-09) showing a common divergence: `airnow.aqi` is
+present (from `aq/observation`) while `airnow.values`/`timestamps` are empty — so `selected`
+falls back entirely to OpenWeather even though AirNow AQI is being shown elsewhere. Don't assume
+a non-null `airnow.aqi` implies any AirNow-sourced pollutant concentration is in `selected`.
+
+Empty `values` has two causes: `aq/data` returned no usable rows, or every usable row failed the
+`max_age_sec` ceiling. The second was the usual one until 2026-10-07, because of the `-999`
+raw-concentration handling described above; that capture (`latest_at` 86 minutes before
+`generated_at`, empty `values`) is consistent with it, though the raw file was not kept. On
+2026-10-07 a saved raw file holding PM2.5 from three stations produced an empty overlay under the
+old filter and `pm2_5 = 9.7` under the fixed one.
 
 | Key | Description |
 | --- | --- |
@@ -342,7 +358,12 @@ reader never catches either empty.
   sample above) because they come from two independent AirNow endpoints
   (`aq/observation` vs `aq/data`) with their own coverage/latency. A present
   `airnow.aqi` does not guarantee any pollutant in `selected` is AirNow-sourced rather
-  than OpenWeather baseline.
+  than OpenWeather baseline. (Empty `values` with data present in `raw_airnow_data.json` was
+  the `-999` raw-concentration bug, fixed 2026-10-07; see Configuration.)
+- **One station per pollutant, not the nearest.** `aq/data` returns every monitor in the
+  bounding box; the script keeps, per pollutant, the freshest reading and breaks ties by
+  response order, not by distance or by averaging. On 2026-10-07 two stations reported PM2.5
+  for the same hour (9.7 and 6.7 ug/m3) and the first listed was used, not the nearer one.
 - **`solar` has no error state for a failed Open-Meteo call** — only `curl` success
   toggles `meta.uv_source` between `"open-meteo"` and `"synthetic"`; `status.json` still
   reports `"ok"` either way, since the synthetic fallback always produces a value. A

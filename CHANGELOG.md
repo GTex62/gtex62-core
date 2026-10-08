@@ -18,6 +18,25 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
+## Unreleased
+
+**`air`: AirNow overlay was usually empty (fixed 2026-10-07).** AirNow's `aq/data` marks a
+not-yet-available raw concentration as `-999` on the newest one to two hours of rows while the
+validated `Value` is populated. `providers/air/fetch_air.sh` took `RawConcentration // Value`, so the
+sentinel won, failed the `>= 0` check and the freshest hour was dropped; the remaining readings were
+usually older than `max_age_sec` (3600), so `airnow.values` was empty and `selected` fell back to
+OpenWeather's modelled PM even with fresh station data in `raw_airnow_data.json`. Now a negative or
+non-numeric raw concentration is treated as missing and `Value` is used. `examples/runtime/profiles/
+air/home.toml.example` also sets `[airnow] max_age_sec = 7200` (hourly data is routinely 1 to 2 hours
+old when published); profiles installed earlier keep the 3600 default until the key is added.
+Visible effect: ENV panel pollutant values now come from AirNow stations when a reading under
+`max_age_sec` exists, instead of always from OpenWeather. Found while designing the AirGradient
+ventilation advisor ([docs/airgradient-provider-design.md](docs/airgradient-provider-design.md)).
+Unrelated to the new design: `owm_tolerance_sec` is parsed but unused, and the station choice is
+first-listed rather than nearest (both noted in [docs/env-provider-status.md](docs/env-provider-status.md)).
+
+---
+
 ## 0.11.0 — 2026-09-30
 
 Adds `lua/runtime/fonts.lua`, a shared font-availability check for suite theme files: `fc-list`
