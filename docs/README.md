@@ -24,8 +24,8 @@ investigated and judged not to warrant one (each is either trivial or its one re
 is already fully captured there). See [Architecture](architecture.md)'s provider
 directory listing for the full domain set.
 
-- [AirGradient Provider Design](airgradient-provider-design.md) — `airgradient` domain (its own domain, not part of `air`): indoor air quality over the device's local HTTP API, `status.json` schema, partial-payload handling, ENV-panel indoor view, wiring checklist; provider and advisor implemented, OSA display not yet
-- [Ventilation Advisor Design](ventilation-advisor-design.md) — engine-side open/close-windows verdict for the `airgradient` domain: rules, thresholds, tested reference code, acceptance test (fixtures in `tests/airgradient/fixtures/`); provider and advisor implemented, OSA display not yet
+- [AirGradient Provider Design](airgradient-provider-design.md) — `airgradient` domain (its own domain, not part of `air`): indoor air quality over the device's local HTTP API, `status.json` schema, partial-payload handling, ENV-panel indoor view, wiring checklist; provider, advisor and OSA display implemented, shadow mode
+- [Ventilation Advisor Design](ventilation-advisor-design.md) — engine-side open/close-windows verdict for the `airgradient` domain: rules, thresholds, tested reference code, acceptance test (fixtures in `tests/airgradient/fixtures/`); provider, advisor and OSA display implemented, shadow mode
 - [ENV Provider Status](env-provider-status.md) — `air` (OpenWeather + AirNow AQI/pollution) and `solar` (weather-derived UV/radiation) domains behind OSA's ENV/ATMOS panel: schemas, TTL-key mismatch between the two, `solar` status.json provider-field quirk
 - [AP Provider Status](ap-provider-status.md) — Zyxel access-point domain: auth/transport, MAC↔IP client join, MSMTCH mismatch detection
 - [Astro Provider Status](astro-provider-status.md) — sun/moon/planet positions (a *different* domain from `orb` — see its own Scope section), promoted out of the former `astro-schema.md`

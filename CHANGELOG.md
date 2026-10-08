@@ -34,8 +34,9 @@ the provider carries the last values forward for up to 10 minutes rather than fa
 Tests: `tests/airgradient/run-tests.sh` (replay of a week of real data against
 `tests/airgradient/fixtures/`, synthetic rule cases, a fake device). Design:
 [docs/airgradient-provider-design.md](docs/airgradient-provider-design.md) and
-[docs/ventilation-advisor-design.md](docs/ventilation-advisor-design.md). Not yet done: the OSA
-display and the doctor row; the launcher wiring is syntax-checked but has not been run under a live launch.
+[docs/ventilation-advisor-design.md](docs/ventilation-advisor-design.md). Not yet done: the
+doctor row. The OSA display shipped the same day in `gtex62-osa` (`1b8d6a4`) and the launcher wiring has
+run live (`osa-airgradient-refresh.pid`); the provider runs in shadow mode.
 
 **`air`: AirNow overlay was usually empty (fixed 2026-10-07).** AirNow's `aq/data` marks a
 not-yet-available raw concentration as `-999` on the newest one to two hours of rows while the

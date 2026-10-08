@@ -5,8 +5,8 @@ for display in OSA's ENV panel (and potentially other suites) alongside the exis
 outdoor/OWM-sourced ENV data, plus an engine-side ventilation advisor that turns the
 readings into an "open windows / close windows" verdict.
 
-Revision 3 (2026-10-07). Status: **provider and advisor implemented and tested (2026-10-07); not enabled in
-any live runtime, OSA display not started, doctor row deferred.** Companion document:
+Revision 3 (2026-10-07). Status: **provider, advisor and OSA display implemented and running in shadow mode
+(2026-10-07); doctor row deferred.** Companion document:
 `ventilation-advisor-design.md` (rules, thresholds, reference code and the acceptance test).
 This revision renames the example profile from `cave` to `indoor` (a display `label` key carries
 a personal room name), records that firmware 3.7.0 intermittently omits fields and how the
@@ -388,11 +388,11 @@ column layout, same (V) column. Pollen and the AQI bars do not change.
 
 | Row | Label | Shown value |
 | --- | --- | --- |
-| 1 | CARBON DIOXIDE | ppm divided by 10, label `(PPM X10)` |
+| 1 | CO2 (PPM X10) | ppm divided by 10 |
 | 2 | PARTICULATE MATTER 2.5 | ug/m3 |
 | 3 | PARTICULATE MATTER 10 | ug/m3 |
 | 4 | PARTICULATE MATTER 1 | ug/m3 |
-| 5 | PARTICULATE MATTER 0.3 | particles/dL divided by 10, label `(X10/DL)` |
+| 5 | PARTICLES 0.3 (X10/DL) | particles/dL divided by 10 |
 | 6 | VOC INDEX | index, 0 to 500 |
 | 7 | NOX INDEX | index, 0 to 500 |
 
@@ -400,6 +400,9 @@ Header reads `INDOOR // <LABEL> (V)` in place of `POLLUTION (V)`, or `INDOOR (V)
 no `label`. The SRC line reads `SRC // AG <LABEL>` (or `SRC // AG`) during the indoor phase. A null
 value (for instance PM0.3 on firmware older than 3.7.0, or a carried field past its maximum age)
 shows as dashes in its row.
+
+The table's label column holds 22 characters (the font is monospaced), which is why the CO2 and
+PM0.3 labels are abbreviated; "CARBON DIOXIDE (PPM X10)" is 24.
 
 **Fixed scaling, never switching.** The (V) column is three digits wide. CO2 and PM0.3
 routinely exceed 999 (CO2 1,150 ppm; PM0.3 1,856 to 3,389 particles/dL during vacuuming).
@@ -502,10 +505,15 @@ Core (`gtex62-core`), done 2026-10-07 unless marked:
    (fake device on localhost: scaling, partial and failed responses, hold, shadow versus live,
    outdoor inputs, pollen, thresholds, corrupt state, lock).
 
-OSA (`gtex62-osa`, separate repo and commit): `lua/suite/` reader for the new cache, the indoor
-table and header in `lua/ui/frame.lua`, the clock-based rotation, the alert on the `DATA //` line
-(currently `NOMINAL`, `PARTIAL`, `STALE`, `FAULT` in `env.lua`'s `data_status()`), and the
-`AG STALE` check.
+OSA (`gtex62-osa`, separate repo; commit `1b8d6a4`, done 2026-10-07): `lua/suite/env.lua` reads
+`shared/airgradient/<profile>/status.json` (profile from `[profiles] airgradient` in
+`suites/osa.toml`), draws the indoor table through a clock-driven rotation, puts the engine's
+alert text on the `DATA //` line in place of `NOMINAL` (never over an outdoor FAULT, PARTIAL or
+STALE), and shows `AG STALE` when the reading is over 3 minutes old. `lua/ui/frame.lua` takes the
+table title from `env.pollution_title()`. Everything is `pcall`-guarded so a failure leaves the
+outdoor view alone. Verified on the live panel in both phases; the alert and stale lines are
+covered by an offline harness only, since shadow mode hides alerts. OSA's own description is in
+`gtex62-osa/docs/atmos_meters.md`.
 
 ---
 
