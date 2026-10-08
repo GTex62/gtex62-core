@@ -22,9 +22,12 @@ enabled = true
 # Compute and log verdicts but never show an alert in any suite. Leave on for the first
 # week, then set false. See docs/airgradient-provider-design.md, Rollout.
 shadow = true
-# One row per minute of every advisor input under runtime/airgradient/<profile>/, for replays.
+# One row per minute of every advisor input (inputs-YYYYMMDD.csv), plus verdict_log.txt, for replays.
+# They go in log_dir (default <data_root>/airgradient/<profile>/logs, the persistent data root, not the
+# cache) and the input logs are kept log_keep_days days.
 log_inputs = true
 log_keep_days = 365
+# log_dir = "~/.local/share/gtex62-core/airgradient/indoor/logs"
 # A hole in the record longer than this many seconds is marked in verdict_log.txt ("gap" lines): either
 # "offline" (the machine was off or the suite closed) or "unreachable" (the device could not be read).
 # gap_log_sec = 300

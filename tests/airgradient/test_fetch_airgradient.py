@@ -92,12 +92,13 @@ BASE_T = (int(time.time()) + 10_000) // 60 * 60     # in the future so a real st
 
 class Scenario:
     def __init__(self, toml_extra="", host=None, ttl=0, advisor_extra="shadow = true", profile_toml=True,
-                 label="", air=None, wx=None, pollen_csv=None, enabled=True, advisor_enabled=True):
+                 label="", air=None, wx=None, pollen_csv=None, enabled=True, advisor_enabled=True, data_env=True):
         self.dir = Path(tempfile.mkdtemp(prefix="agtest_"))
         self.cfg, self.cache = self.dir / "config", self.dir / "cache"
         (self.cfg / "profiles" / "airgradient").mkdir(parents=True)
         (self.cache / "shared").mkdir(parents=True)
         self.t = BASE_T
+        self.data_env = data_env
         if profile_toml:
             lab = f'label = "{label}"\n' if label else ""
             pol = ""
@@ -125,6 +126,10 @@ class Scenario:
     def load(self):
         os.environ["GTEX62_CONFIG_DIR"], os.environ["GTEX62_CACHE_DIR"] = str(self.cfg), str(self.cache)
         os.environ["GTEX62_SHARED_ASSETS"] = str(self.dir / "assets")   # never read this machine's pollen file
+        if self.data_env:
+            os.environ["GTEX62_DATA_DIR"] = str(self.dir / "data")       # never write to the real data root
+        else:
+            os.environ.pop("GTEX62_DATA_DIR", None)
         sys.argv = ["fetch_airgradient.py", "indoor", "home", "home"]
         spec = importlib.util.spec_from_file_location("fetch_airgradient_t", SCRIPT)
         mod = importlib.util.module_from_spec(spec)
@@ -141,6 +146,10 @@ class Scenario:
 
     def status(self):
         return json.loads((self.cache / "shared" / "airgradient" / "indoor" / "status.json").read_text())
+
+    @property
+    def log_dir(self):
+        return self.dir / "data" / "airgradient" / "indoor" / "logs"
 
     @property
     def state_dir(self):
@@ -171,15 +180,16 @@ check("generated_at and attempted_at set", s["generated_at"] == iso(sc.t) == s["
 v = s["ventilation"]
 check("ventilation block present and NEUTRAL", v["verdict"] == "NEUTRAL" and v["class"] == "none" and v["shadow"] is True)
 check("no outdoor caches: all outdoor flags false", v["outdoor"] == {"pm_source": None, "air_fresh": False, "wx_fresh": False}, str(v["outdoor"]))
-check("state and input log written under runtime/, not shared/",
-      (sc.state_dir / "advisor_state.json").exists() and any(sc.state_dir.glob("inputs-*.csv")))
+check("state is engine-private under runtime/; the input log is in the data root; neither is in shared/",
+      (sc.state_dir / "advisor_state.json").exists() and any(sc.log_dir.glob("inputs-*.csv"))
+      and not list(sc.state_dir.glob("inputs-*.csv")) and not (sc.state_dir / "verdict_log.txt").exists())
 check("advisor state never lands in the shared cache",
       not list((sc.cache / "shared" / "airgradient" / "indoor").glob("advisor_state*")))
-rows = list(csv.DictReader(open(next(sc.state_dir.glob("inputs-*.csv")))))
+rows = list(csv.DictReader(open(next(sc.log_dir.glob("inputs-*.csv")))))
 check("input log has a header and one row", len(rows) == 1 and rows[0]["co2_ppm"] == "695" and rows[0]["complete"] == "1")
 sc.run(advance=10)
 check("two runs in the same minute still log one input row",
-      len(list(csv.DictReader(open(next(sc.state_dir.glob("inputs-*.csv")))))) == 1)
+      len(list(csv.DictReader(open(next(sc.log_dir.glob("inputs-*.csv")))))) == 1)
 
 # ---------------------------------------------------------------------------
 # 2. Partial responses (firmware 3.7.0 drops five fields together)
@@ -195,7 +205,7 @@ check("carried_fields lists them with their age",
       and all(c["age_sec"] == 60 for c in s["carried_fields"]), str(s["carried_fields"]))
 check("dew point still derived from carried inputs", s["dew_point_f"] is not None)
 check("generated_at advances on a partial response", s["generated_at"] == iso(sc.t))
-rows = list(csv.DictReader(open(next(sc.state_dir.glob("inputs-*.csv")))))
+rows = list(csv.DictReader(open(next(sc.log_dir.glob("inputs-*.csv")))))
 check("input log marks the response incomplete", rows[-1]["complete"] == "0")
 
 sc.run(advance=700)        # beyond carry_max_age_sec (600)
@@ -302,7 +312,7 @@ check("shadow: the advisor computes OPEN", v["verdict"] == "OPEN" and v["class"]
 check("shadow: no alert is ever shown", v["alert_visible"] is False and v["alert_text"] == "" and v["shadow"] is True)
 check("outdoor flags populated from the air and weather caches",
       v["outdoor"] == {"pm_source": "airnow", "air_fresh": True, "wx_fresh": True}, str(v["outdoor"]))
-log = (sc.state_dir / "verdict_log.txt").read_text().splitlines()
+log = (sc.log_dir / "verdict_log.txt").read_text().splitlines()
 check("verdict change is logged with its reason and outdoor flags",
       len(log) == 1 and "\tchange\tOPEN\tneed\t" in log[0] and "pm_source=airnow" in log[0], str(log))
 sc.done()
@@ -381,7 +391,7 @@ sc.done()
 # 7. Gap markers in the shadow log
 # ---------------------------------------------------------------------------
 def gap_lines(sc):
-    f = sc.state_dir / "verdict_log.txt"
+    f = sc.log_dir / "verdict_log.txt"
     return [l.split("\t") for l in f.read_text().splitlines() if "\tgap\t" in l] if f.exists() else []
 
 
@@ -429,6 +439,40 @@ sc.run(advance=10 * 3600)
 g = gap_lines(sc)
 check("shutdown during which the device was already down: one marker, 'offline'", len(g) == 1 and g[0][6].startswith("kind=offline"), str(g))
 sc.done()
+
+# ---------------------------------------------------------------------------
+# 8. Where the logs live
+# ---------------------------------------------------------------------------
+set_payload()
+shared = Path(tempfile.mkdtemp(prefix="agshared_"))
+(shared / "indoor_1min.csv").write_text("utc_time\n2026-10-01 00:00\n")
+(shared / "manifest.json").write_text("{}")
+(shared / "inputs-20200101.csv").write_text("epoch\n1\n")
+os.utime(shared / "inputs-20200101.csv", (1_577_836_800, 1_577_836_800))
+sc = Scenario(advisor_extra=f'shadow = true\nlog_dir = "{shared}"', air=clean_air, wx=clean_wx)
+drive(sc, 4, rco2=1200)
+check("[advisor] log_dir is honored: input log and verdict log go there", any(shared.glob("inputs-2*.csv")) and (shared / "verdict_log.txt").exists(),
+      str(sorted(p.name for p in shared.iterdir())))
+check("...and not into the default data-root folder or the runtime folder",
+      not sc.log_dir.exists() and not list(sc.state_dir.glob("inputs-*.csv")))
+check("pruning old input logs removes only inputs-*.csv: the export's files that share the folder are untouched",
+      not (shared / "inputs-20200101.csv").exists() and (shared / "indoor_1min.csv").read_text() == "utc_time\n2026-10-01 00:00\n"
+      and (shared / "manifest.json").read_text() == "{}")
+check("the advisor state and lock stay in the engine-private runtime folder",
+      (sc.state_dir / "advisor_state.json").exists() and not (shared / "advisor_state.json").exists())
+sc.done()
+shutil.rmtree(shared, ignore_errors=True)
+
+sc = Scenario(data_env=False, air=clean_air, wx=clean_wx)
+(sc.cfg / "core.toml").write_text(f'[paths]\ndata_root = "{sc.dir / "coredata"}"\n')
+sc.run(); sc.run(advance=60)
+check("without GTEX62_DATA_DIR, core.toml [paths] data_root decides: logs in <data_root>/airgradient/<profile>/logs",
+      any((sc.dir / "coredata" / "airgradient" / "indoor" / "logs").glob("inputs-*.csv")),
+      str(sorted(str(p.relative_to(sc.dir)) for p in sc.dir.rglob("inputs-*.csv"))))
+sc.done()
+
+real_home_logs = Path.home() / ".local" / "share" / "gtex62-core" / "airgradient" / "indoor" / "logs"
+check("none of these tests wrote into the real data root", not real_home_logs.exists())
 
 # Concurrency: a second writer while the lock is held backs off
 sc = Scenario()

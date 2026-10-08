@@ -179,7 +179,8 @@ copy is `~/.config/gtex62-core/profiles/airgradient/indoor.toml`. Keys:
 | `[device] host` | none, required | Address of the unit; empty gives `state: "error"` |
 | `[device] timeout_sec`, `carry_max_age_sec` | 5, 600 | HTTP timeout; how long an omitted field is carried forward |
 | `[advisor] enabled`, `shadow` | `true`, `true` | `shadow` computes and logs but never shows an alert |
-| `[advisor] log_inputs`, `log_keep_days` | `true`, 365 | Per-minute input log under `runtime/airgradient/<profile>/`; a year, to match the Home Assistant archive window |
+| `[advisor] log_inputs`, `log_keep_days` | `true`, 365 | Per-minute input log (`inputs-YYYYMMDD.csv`) in `log_dir`; a year, to match the Home Assistant archive window. Pruning touches only `inputs-*.csv`, so other files in that folder are safe |
+| `[advisor] log_dir` | `<data_root>/airgradient/<profile>/logs` | Where `verdict_log.txt` and the input logs go (`~` allowed). The data root is `$GTEX62_DATA_DIR`, else `core.toml` `[paths] data_root`, else `~/.local/share/gtex62-core` |
 | `[ha_export]` | absent (off) | Optional Home Assistant archive: `ha_db`, `prefix` (required), `thermostat`, `weather`, `keep_months` (12); see *History outside the engine* |
 | `[advisor.thresholds]` | the advisor's `DEFAULTS` | Any threshold name from `ventilation_advisor.py`, numbers only |
 | `[advisor.pollen]` | on, 80, tree + grass | Optional `csv` path; defaults to the shared-assets pollen file |
@@ -526,8 +527,11 @@ covered by an offline harness only, since shadow mode hides alerts. OSA's own de
 ## Rollout
 
 1. **Shadow mode** (`advisor.shadow = true`). Provider and advisor run live and write
-   `status.json`; OSA shows no alert. Two files are kept under
-   `runtime/airgradient/{profile}/` (not the cache: they cannot be regenerated):
+   `status.json`; OSA shows no alert. Two files are kept in the log folder: `[advisor] log_dir`, default
+   `<data_root>/airgradient/{profile}/logs/` (the data root, not the cache: they cannot be regenerated;
+   on the author's install `log_dir` points at the Home Assistant archive folder `ha_export/`, so the
+   whole dataset is in one place). Advisor state and the lock stay in the disposable
+   `runtime/airgradient/{profile}/`.
    - `verdict_log.txt`: one line per verdict change or escalation, with time, verdict, class,
      reason and the outdoor flags, plus a `gap` line whenever a hole longer than `gap_log_sec` (300 s)
      ends: `offline` when the provider itself was not running (the machine was off or the suite closed),
@@ -594,7 +598,7 @@ file, so a re-run never duplicates or loses rows); the tool never deletes an arc
 `keep_months = 0` keeps everything live. To analyze across the window, read the live CSV; for older
 months read the matching `.csv.gz` files (`manifest.json` lists them with row counts).
 
-**Ground truth.** `window_events.txt` next to the shadow logs holds window open/close events the user
+**Ground truth.** `window_events.txt` in the log folder holds window open/close events the user
 reported (UTC), so a replay can be checked against what actually happened (2026-10-07 night open all
 night; closed at 15:38Z on 10-08).
 
@@ -644,9 +648,6 @@ pollutant. Residual limit: readings are hourly and can be up to 2 hours old.
 
 - How a replay should join the Home Assistant archive with the engine's own outdoor log (`inputs-*.csv`):
   indoor from the archive wherever the engine log has a hole, outdoor from the engine log only.
-- The shadow logs live under `runtime/airgradient/<profile>/` in the cache root, which the architecture
-  docs call safe to delete; the data root (`~/.local/share/gtex62-core`, documented for persistent state)
-  is where irreplaceable logs belong. Decide whether to move them.
 - Re-check thresholds after a few weeks of shadow mode, and in a different season, using
   `inputs.csv` for a replay that includes the outdoor rules.
 - Explain or accept the two long VOC episodes (2026-10-01 evening, peak 475; 2026-10-04

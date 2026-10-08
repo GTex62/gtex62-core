@@ -42,12 +42,30 @@ OUT_DIR = CACHE_ROOT / "shared" / "airgradient" / PROFILE_ID
 STATUS_JSON = OUT_DIR / "status.json"
 FETCH_LOG = OUT_DIR / "fetch.log"
 TMP_DIR = CACHE_ROOT / "tmp"
-# Engine-private state and the shadow-week logs: runtime/, not shared/ (suites never read these,
-# and the input log cannot be regenerated, so it does not belong in a deletable cache).
+# Engine-private state and the lock: runtime/, not shared/ (suites never read these, and they are
+# disposable: the advisor restarts from NEUTRAL without them).
 STATE_DIR = CACHE_ROOT / "runtime" / "airgradient" / PROFILE_ID
 STATE_JSON = STATE_DIR / "advisor_state.json"
 LOCK_FILE = STATE_DIR / "lock"
-VERDICT_LOG = STATE_DIR / "verdict_log.txt"
+# The logs (verdict_log.txt, inputs-*.csv) are NOT disposable (the outdoor record in them exists nowhere
+# else), so they live in the data root, or wherever [advisor] log_dir says. Set in main().
+LOG_DIR = STATE_DIR
+
+
+def data_root() -> Path:
+    """Persistent data root: $GTEX62_DATA_DIR, else core.toml [paths] data_root, else ~/.local/share/gtex62-core."""
+    env = os.getenv("GTEX62_DATA_DIR") or os.getenv("GTEX62_CONKY_DATA_DIR")
+    if env:
+        return Path(env).expanduser()
+    configured = (load_toml(CONFIG_ROOT / "core.toml").get("paths") or {}).get("data_root")
+    return Path(str(configured or HOME / ".local" / "share" / "gtex62-core")).expanduser()
+
+
+def resolve_log_dir(advisor_cfg: dict) -> Path:
+    configured = advisor_cfg.get("log_dir")
+    if configured:
+        return Path(str(configured)).expanduser()
+    return data_root() / "airgradient" / PROFILE_ID / "logs"
 
 DEFAULT_TTL_SEC = 30
 DEFAULT_TIMEOUT_SEC = 5
@@ -312,8 +330,8 @@ def log_verdict(now: float, event: str, adv: "va.Advisor", flags: dict):
                       f"pm_source={flags.get('pm_source')} air_fresh={bool(flags.get('air_fresh'))} "
                       f"wx_fresh={bool(flags.get('wx_fresh'))}"])
     try:
-        STATE_DIR.mkdir(parents=True, exist_ok=True)
-        with open(VERDICT_LOG, "a", encoding="utf-8") as f:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        with open(LOG_DIR / "verdict_log.txt", "a", encoding="utf-8") as f:
             f.write(line + "\n")
     except OSError:
         pass
@@ -335,8 +353,8 @@ def log_gap(now: float, kind: str, start: float, why: str):
                       f"{kind} from {iso(start)} to {iso(now)} ({fmt_dur(now - start)}): {why}",
                       f"kind={kind} gap_sec={int(now - start)}"])
     try:
-        STATE_DIR.mkdir(parents=True, exist_ok=True)
-        with open(VERDICT_LOG, "a", encoding="utf-8") as f:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        with open(LOG_DIR / "verdict_log.txt", "a", encoding="utf-8") as f:
             f.write(line + "\n")
     except OSError:
         pass
@@ -360,8 +378,9 @@ def log_inputs(now: float, reading: dict, carried: list, out: dict, flags: dict,
            flags.get("pm_source"), int(bool(flags.get("air_fresh"))), out.get("temp_f"), out.get("rh"),
            int(bool(flags.get("wx_fresh"))), pol.get("tree"), pol.get("grass"), pol.get("weed"), pol.get("mold"),
            adv.verdict, adv.cls, adv.severity]
-    path = STATE_DIR / f"inputs-{datetime.fromtimestamp(now).strftime('%Y%m%d')}.csv"
+    path = LOG_DIR / f"inputs-{datetime.fromtimestamp(now).strftime('%Y%m%d')}.csv"
     try:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
         new = not path.exists()
         with open(path, "a", encoding="utf-8", newline="") as f:
             w = csv.writer(f)
@@ -370,7 +389,7 @@ def log_inputs(now: float, reading: dict, carried: list, out: dict, flags: dict,
             w.writerow(["" if v is None else v for v in row])
         if new:
             cutoff = now - keep_days * 86400
-            for old in STATE_DIR.glob("inputs-*.csv"):
+            for old in LOG_DIR.glob("inputs-*.csv"):
                 try:
                     if old.stat().st_mtime < cutoff:
                         old.unlink()
@@ -385,6 +404,7 @@ def log_inputs(now: float, reading: dict, carried: list, out: dict, flags: dict,
 # -----------------------------------------------------------------------
 
 def main():
+    global LOG_DIR
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     now = time.time()
@@ -406,6 +426,7 @@ def main():
     timeout = float(dev.get("timeout_sec") or DEFAULT_TIMEOUT_SEC)
     carry_max_age = float(dev.get("carry_max_age_sec") or DEFAULT_CARRY_MAX_AGE_SEC)
     adv_cfg_toml = profile.get("advisor", {}) or {}
+    LOG_DIR = resolve_log_dir(adv_cfg_toml)
     advisor_on = bool(adv_cfg_toml.get("enabled", True))
     shadow = bool(adv_cfg_toml.get("shadow", True))
     keep_days = int(adv_cfg_toml.get("log_keep_days") or DEFAULT_LOG_KEEP_DAYS)

@@ -20,6 +20,15 @@ this file and has not been backfilled — see each domain's own
 
 ## Unreleased
 
+**airgradient: the shadow logs move out of the cache (2026-10-08).** `verdict_log.txt` and the per-minute `inputs-*.csv`
+(the outdoor PM/AQI record exists nowhere else) were written under the cache root's `runtime/`, which the architecture
+docs call safe to delete. They now go to `[advisor] log_dir`, default `<data_root>/airgradient/<profile>/logs/` (data root:
+`$GTEX62_DATA_DIR`, else `core.toml` `[paths] data_root`, else `~/.local/share/gtex62-core`). Advisor state and the lock
+stay in the cache. `log_dir` can point anywhere, for example next to the Home Assistant archive. Existing logs are not
+moved automatically: copy `verdict_log.txt` and `inputs-*.csv` from `~/.cache/gtex62-core/runtime/airgradient/<profile>/`.
+Pruning old input logs only ever removes `inputs-*.csv`, so sharing a folder with other files is safe. Tests assert the
+new locations and that they never write to the real data root.
+
 **airgradient: gap markers in the shadow log, and a Home Assistant history export (2026-10-08).** The provider only
 runs while the suite does, so its log has holes wherever the machine is off. It now writes a `gap` line to
 `verdict_log.txt` whenever a hole longer than `[advisor] gap_log_sec` (default 300 s) ends: `offline` (the provider was
