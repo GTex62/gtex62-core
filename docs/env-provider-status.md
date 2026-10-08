@@ -115,7 +115,14 @@ when the key is absent; the shipped example sets `7200` (profiles installed befo
 key and keep 3600 until it is added). AirNow data is hourly, stamped at the top of the hour and
 published some time after, so a reading is routinely 1 to 2 hours old by the time it is usable;
 a 3600 ceiling is borderline even when everything works. `owm_tolerance_sec` is parsed and passed
-to the `jq` program but not used by it, so it currently has no effect.
+to the `jq` program but not used by it, so it currently has no effect. It is a leftover from the
+per-suite scripts this provider replaced (`gtex62-lcars` and `gtex62-tri-hud`
+`scripts/owm_air_fetch.sh`, and `gtex62-osa/docs/atmos_meters.md`, which still describes it): there,
+AirNow replaced OpenWeather for a pollutant only if its timestamp was no more than
+`AIRNOW_OWM_TOLERANCE` seconds older than the OpenWeather snapshot, with `AIRNOW_MAX_AGE` as the hard
+ceiling. The check was not carried into this provider (present since the initial commit). Because
+the OpenWeather snapshot is always about "now", restoring it would be a second age limit; at 3600 it
+would cancel the 7200 `max_age_sec`.
 
 AirNow marks a raw concentration that is not yet available as `-999` (typically the newest one
 to two hours of `aq/data` rows, while the validated `Value` field is already populated). The
