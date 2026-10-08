@@ -18,31 +18,42 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
-## Unreleased
+## 0.13.0 — 2026-10-08
 
-**Doctor: the AIRGRADIENT row, and a `partial` state for the provider (2026-10-08).** `fetch_doctor.sh`
-gains `do_airgradient()` (dual-gated and profile-gated like MODEM, 30s TTL), taking the PROVIDERS row that
-had been reserved for it (22 domains; `AGR` gauge, `AIRGRAD` in the DOMAIN column, which is 88px against
-`AIRGRADIENT`'s 92px). Four procedures: `AIRGRADIENT HOST NOT SET` (error), `AIRGRADIENT UNREACHABLE`
-(degraded), `AIRGRADIENT FIELDS MISSING` (partial) and `AIRGRADIENT NOT RUNNING` (stale: the loop stopped; a dead
-device never makes the file stale, so the generic "check API key / network" text would be wrong). The provider rewrites its file on every run, so a dead
-device never makes it go stale; Doctor's row engine raises WARN from the provider's own `state`. To keep to
-Doctor's "fixed at the source" rule (it never reads nested fields), the airgradient provider now reports
-`state:"partial"`, note `fields unavailable: ...`, when compensated PM2.5/temperature/humidity have had no value
-for longer than the carry window (not during the first window after it starts). OSA keeps showing the indoor
-view in that state. `suites/doctor.toml.example` now names and lists `airgradient` (still off unless the
-`core.toml` flag is set). The installed `suites/doctor.toml` is not rewritten by bootstrap: add
-`airgradient = "indoor"` under `[profiles]` and `"airgradient"` to `[domains]` to match. Tests:
-`tests/airgradient/test_doctor_row.py`; docs: `doctor-design.md`, `doctor-missing-conditions.md`,
-`airgradient-provider-design.md`. The Doctor suite's own QRH and display changes are in `gtex62-doctor`.
+Adds the AIRGRADIENT row to the Doctor provider (its 22nd domain), gives the airgradient provider a
+`partial` state, and makes the suite templates ship the domain fully off. Minor bump: a new Doctor row and
+provider state. Nothing to migrate unless you use AirGradient, in which case add the two lines below to your
+installed `suites/doctor.toml` (bootstrap never rewrites an installed suite file). Pairs with
+`gtex62-doctor` 0.2.0 (the row's display and QRH procedures) and `gtex62-osa` 0.4.1 (indoor view in the new
+state).
 
-**`airgradient` is off by default everywhere.** The domain already shipped disabled in the engine
-(`[providers] airgradient = false`, and a missing key counts as false), but
-`examples/runtime/suites/osa.toml.example` bound it and listed it in `[domains]`, so a fresh OSA install
-was pre-wired for a device most installs do not have. The template now carries the binding as a comment
+### Doctor: the AIRGRADIENT row
+
+`fetch_doctor.sh` gains `do_airgradient()` (dual-gated and profile-gated like MODEM, 30s TTL), taking the
+PROVIDERS row that had been reserved for it: 22 domains, `AGR` gauge, `AIRGRAD` in the DOMAIN column (88px
+against `AIRGRADIENT`'s 92px). Four procedures: `AIRGRADIENT HOST NOT SET` (error), `AIRGRADIENT UNREACHABLE`
+(degraded), `AIRGRADIENT FIELDS MISSING` (partial) and `AIRGRADIENT NOT RUNNING` (stale: the loop stopped; a
+dead device never makes the file stale, so the generic "check API key / network" text would be wrong). The
+provider rewrites its file on every run, so Doctor's row engine raises WARN from the provider's own `state`.
+
+To keep to Doctor's "fixed at the source" rule (it never reads nested fields), the airgradient provider now
+reports `state:"partial"`, note `fields unavailable: ...`, when compensated PM2.5, temperature or humidity have
+had no value for longer than the carry window (not during the first window after it starts). OSA keeps
+showing the indoor view in that state.
+
+`suites/doctor.toml.example` now names and lists `airgradient` (still off unless the `core.toml` flag is set).
+To match in an installed copy, add `airgradient = "indoor"` under `[profiles]` and `"airgradient"` to
+`[domains]`. Tests: `tests/airgradient/test_doctor_row.py`; docs: `doctor-design.md`,
+`doctor-missing-conditions.md`, `airgradient-provider-design.md`.
+
+### `airgradient` is off by default everywhere
+
+The domain already shipped disabled in the engine (`[providers] airgradient = false`, and a missing key counts
+as false), but `examples/runtime/suites/osa.toml.example` bound it and listed it in `[domains]`, so a fresh OSA
+install was pre-wired for a device most installs do not have. The template now carries the binding as a comment
 with the four enable steps and does not list the domain; `indoor.toml.example` says the same at the top.
-Existing installs are unaffected (bootstrap never rewrites an installed suite file), and enabling it is
-unchanged: the `core.toml` flag, the device address, and the binding plus the `[domains]` entry.
+Existing installs are unaffected, and enabling it is unchanged: the `core.toml` flag, the device address, and
+the binding plus the `[domains]` entry.
 
 ---
 
