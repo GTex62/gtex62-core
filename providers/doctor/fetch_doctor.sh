@@ -559,7 +559,9 @@ def do_airgradient():
             ("device unreachable", "AIRGRADIENT UNREACHABLE"),
             ("fields unavailable", "AIRGRADIENT FIELDS MISSING"),
         ])
-        generic_stale(row, "airgradient", "PROVIDER STALE")
+        # Stale or missing means the loop did not run (a dead device keeps the file fresh and reports
+        # "degraded"), so the generic "check API key / network" text would point the wrong way.
+        generic_stale(row, "airgradient", "AIRGRADIENT NOT RUNNING")
     finish(row, "airgradient")
 
 

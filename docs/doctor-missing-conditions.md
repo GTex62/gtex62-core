@@ -161,8 +161,10 @@ flag is DISABLED, which is the shipped default.
   fifth-category silent gap this doc closed everywhere else. It is closed the same way, at the source:
   the provider reports `state:"partial"`, note "fields unavailable: `<fields>`" →
   `AIRGRADIENT FIELDS MISSING`. Not reported in the first carry window after the provider starts.
-- **Loop not running:** the file stops being rewritten → ordinary STALE (`PROVIDER STALE`). Flag on but
-  the suite omits the domain → `DOMAIN NOT LISTED`.
+- **Loop not running:** the file stops being rewritten → STALE with its own procedure,
+  `AIRGRADIENT NOT RUNNING`, rather than the generic `PROVIDER STALE` (whose "check API key / network" text
+  is wrong for a keyless LAN device, and a dead device never causes this: it reports `degraded`). Flag on
+  but the suite omits the domain → `DOMAIN NOT LISTED`.
 - **Deliberately no Doctor condition:** a corrupt `advisor_state.json` (logged to `fetch.log`, restarts
   from NEUTRAL, self-heals); stale outdoor air or weather inputs (the AIR and WEATHER rows own those, and
   the advisor drops only the rules that need them); shadow mode (informational, and no INFORMATIONAL tag

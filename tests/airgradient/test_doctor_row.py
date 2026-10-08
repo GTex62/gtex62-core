@@ -103,9 +103,9 @@ check("Doctor does not read nested fields: state ok with null readings raises no
       row.get("state") == "nominal" and not entries, str(entries))
 
 row, entries, _, _ = run(status=ag_status(), age=120)
-check("loop dead (file old, state ok): STALE, PROVIDER STALE", row.get("state") == "warn" and entries and entries[0]["tag"] == "STALE" and entries[0]["proc"] == "PROVIDER STALE", str(entries))
+check("loop dead (file old, state ok): STALE, AIRGRADIENT NOT RUNNING (not the generic API-key text)", row.get("state") == "warn" and entries and entries[0]["tag"] == "STALE" and entries[0]["proc"] == "AIRGRADIENT NOT RUNNING", str(entries))
 row, entries, _, _ = run(status=None)
-check("flag on, nothing ever written: STALE / PROVIDER STALE, like the other loop domains", entries and entries[0]["tag"] == "STALE" and entries[0]["proc"] == "PROVIDER STALE", str(entries))
+check("flag on, nothing ever written: STALE / AIRGRADIENT NOT RUNNING", entries and entries[0]["tag"] == "STALE" and entries[0]["proc"] == "AIRGRADIENT NOT RUNNING", str(entries))
 row, entries, _, alerts = run(listed=False, status=None)
 check("flag on but the suite does not list the domain: DOMAIN NOT LISTED", entries and entries[0]["proc"] == "DOMAIN NOT LISTED" and any(a.get("domain") == "airgradient" for a in alerts), str(entries))
 
