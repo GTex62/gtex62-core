@@ -92,7 +92,7 @@ BASE_T = (int(time.time()) + 10_000) // 60 * 60     # in the future so a real st
 
 class Scenario:
     def __init__(self, toml_extra="", host=None, ttl=0, advisor_extra="shadow = true", profile_toml=True,
-                 label="", air=None, wx=None, pollen_csv=None, enabled=True, advisor_enabled=True, data_env=True):
+                 label="", air=None, wx=None, pollen_csv=None, enabled=True, advisor_enabled=True, data_env=True, aviation=None):
         self.dir = Path(tempfile.mkdtemp(prefix="agtest_"))
         self.cfg, self.cache = self.dir / "config", self.dir / "cache"
         (self.cfg / "profiles" / "airgradient").mkdir(parents=True)
@@ -110,6 +110,9 @@ class Scenario:
                 f'[advisor]\nenabled = {str(advisor_enabled).lower()}\n{advisor_extra}\nlog_inputs = true\n\n{pol}{toml_extra}\n',
                 encoding="utf-8")
         self.set_outdoor(air, wx)
+        if aviation is not None:
+            d = self.cache / "shared" / "aviation" / "home"; d.mkdir(parents=True, exist_ok=True)
+            (d / "current.json").write_text(json.dumps({"metar_raw": aviation}))
 
     def set_outdoor(self, air=None, wx=None):
         iso = lambda t: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))
@@ -473,6 +476,66 @@ sc.done()
 
 real_home_logs = Path.home() / ".local" / "share" / "gtex62-core" / "airgradient" / "indoor" / "logs"
 check("none of these tests wrote into the real data root", not real_home_logs.exists())
+
+# ---------------------------------------------------------------------------
+# 9. Outdoor wind for the input log (METAR primary, OpenWeather second column)
+# ---------------------------------------------------------------------------
+set_payload()
+sc = Scenario()
+mod = sc.load()
+NOW = 1_791_480_000                                   # 2026-10-08 16:00:00Z
+pw = lambda raw, now=NOW: mod.parse_metar_wind(raw, now)
+w = pw("METAR KMEM 081654Z 05004KT 10SM CLR 29/10 A3006 RMK AO2 SLP175 T02890100 $")
+check("METAR wind: from 050 at 4 kt, no gust, observation time parsed",
+      (w["wind_dir"], w["wind_kt"], w["wind_gust_kt"], w["wind_variable"]) == (50, 4.0, None, 0) and w["metar_obs"] == "2026-10-08T16:54:00Z", str(w))
+w = pw("METAR KMEM 081654Z AUTO 27015G25KT 10SM CLR 29/10 A3006")
+check("gusts parsed (270 at 15 gusting 25), AUTO reports handled", (w["wind_dir"], w["wind_kt"], w["wind_gust_kt"]) == (270, 15.0, 25.0), str(w))
+w = pw("SPECI KMEM 081654Z 00000KT 10SM CLR 29/10 A3006")
+check("calm (00000KT): speed 0 and no direction", (w["wind_kt"], w["wind_dir"]) == (0.0, None), str(w))
+w = pw("METAR KMEM 081654Z VRB03KT 10SM CLR 29/10 A3006")
+check("variable wind (VRB03KT): speed kept, no direction, flagged", (w["wind_kt"], w["wind_dir"], w["wind_variable"]) == (3.0, None, 1), str(w))
+w = pw("METAR XXXX 081654Z 05008MPS CAVOK 20/10 Q1015")
+check("metres per second are converted to knots", abs(w["wind_kt"] - 15.6) < 0.1, str(w))
+w = pw("METAR KMEM 081654Z 10SM CLR 29/10 A3006")
+check("a report with no wind group: no wind, observation time still set", "wind_kt" not in w and w["metar_obs"] == "2026-10-08T16:54:00Z", str(w))
+check("empty, missing and non-string input give nothing and never raise", pw("") == {} and pw(None) == {} and pw(123) == {} and pw("garbage text")  == {})
+w = mod.parse_metar_wind("METAR KMEM 302355Z 05004KT 10SM CLR", 1_790_899_200 + 60)   # now = 2026-10-01 00:01Z
+check("a report from the last minutes of the previous month is dated to that month", w["metar_obs"] == "2026-09-30T23:55:00Z", str(w))
+sc.done()
+
+# the log columns, and the header migration of a file started by an older version
+set_payload()
+raw = lambda sc_: "METAR KMEM %s 05004KT 10SM CLR 29/10 A3006" % time.strftime("%d%H%MZ", time.gmtime(sc_.t - 600))
+sc = Scenario(air=clean_air, wx=dict(clean_wx, wind_mph=4.61))
+sc.set_outdoor(wx=dict(clean_wx, wind_mph=4.61))
+dav = sc.cache / "shared" / "aviation" / "home"; dav.mkdir(parents=True, exist_ok=True)
+(dav / "current.json").write_text(json.dumps({"metar_raw": raw(sc)}))
+sc.run(); sc.run(advance=60)
+r = list(csv.DictReader(open(next(sc.log_dir.glob("inputs-*.csv")))))[-1]
+check("input log rows carry METAR wind and OpenWeather speed",
+      r["out_wind_kt"] == "4.0" and r["out_wind_dir"] == "50" and r["out_wind_gust_kt"] == "" and r["out_wind_mph_owm"] == "4.61" and r["metar_obs"].endswith("Z"), str({k: r[k] for k in r if "wind" in k or k == "metar_obs"}))
+sc.done()
+
+sc = Scenario(air=clean_air, wx=clean_wx)
+sc.log_dir.mkdir(parents=True, exist_ok=True)
+day = time.strftime("%Y%m%d", time.localtime(sc.t + 60))
+oldcols = ["epoch", "utc", "co2_ppm", "verdict"]
+with open(sc.log_dir / f"inputs-{day}.csv", "w", newline="") as fh:
+    w_ = csv.writer(fh); w_.writerow(oldcols); w_.writerow([1, "2026-10-08T00:00:00Z", 500, "NEUTRAL"])
+sc.run(advance=60)
+rows_m = list(csv.DictReader(open(sc.log_dir / f"inputs-{day}.csv")))
+check("a file started under an older header is rewritten once under the current one: old row kept and padded, new row aligned",
+      len(rows_m) == 2 and rows_m[0]["co2_ppm"] == "500" and rows_m[0]["out_wind_kt"] == "" and rows_m[1]["co2_ppm"] != "" and list(rows_m[0])[-1] == "out_wind_mph_owm", str(list(rows_m[0])[-3:]))
+sc.run(advance=60)
+check("later rows keep appending under the migrated header", len(list(csv.DictReader(open(sc.log_dir / f"inputs-{day}.csv")))) in (2, 3))
+sc.done()
+
+# no aviation cache at all: the log still works, wind columns blank
+sc = Scenario(air=clean_air, wx=clean_wx)
+sc.run(); sc.run(advance=60)
+r = list(csv.DictReader(open(next(sc.log_dir.glob("inputs-*.csv")))))[-1]
+check("without an aviation cache the wind columns are blank and nothing breaks", r["out_wind_kt"] == "" and r["metar_obs"] == "" and r["co2_ppm"] != "")
+sc.done()
 
 # Concurrency: a second writer while the lock is held backs off
 sc = Scenario()

@@ -20,6 +20,15 @@ this file and has not been backfilled — see each domain's own
 
 ## Unreleased
 
+**airgradient: the input log records outdoor wind (2026-10-08).** Whether open windows actually ventilate depends on
+the breeze (the two calmest nights on record were the two nights CO2 stayed near 500 with the windows open). The
+per-minute `inputs-*.csv` gains `out_wind_kt`, `out_wind_gust_kt`, `out_wind_dir`, `out_wind_variable`, `metar_obs`
+(parsed from the METAR in the aviation cache: an observation with direction and gusts, from KMEM, about 13 miles away,
+so the regional breeze, not the wind at the windows) and `out_wind_mph_owm` (OpenWeather, for comparison). Logging only:
+no advisor rule uses wind. The launcher passes the aviation profile as a fourth argument (defaults to `home`). A day's
+file started under the older header is rewritten once with the new columns (old rows padded); earlier days keep their
+old header, so read the logs by column name.
+
 **airgradient: the shadow logs move out of the cache (2026-10-08).** `verdict_log.txt` and the per-minute `inputs-*.csv`
 (the outdoor PM/AQI record exists nowhere else) were written under the cache root's `runtime/`, which the architecture
 docs call safe to delete. They now go to `[advisor] log_dir`, default `<data_root>/airgradient/<profile>/logs/` (data root:

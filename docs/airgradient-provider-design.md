@@ -186,8 +186,9 @@ copy is `~/.config/gtex62-core/profiles/airgradient/indoor.toml`. Keys:
 | `[advisor.pollen]` | on, 80, tree + grass | Optional `csv` path; defaults to the shared-assets pollen file |
 | `[advisor.outdoor] air_max_age_sec`, `wx_max_age_sec` | 7200, 1800 | Freshness limits for the outdoor caches |
 
-The air and weather profiles the advisor reads are the launching suite's own bindings, passed by
-the launcher as arguments 2 and 3 of `fetch_airgradient.sh`.
+The air and weather profiles the advisor reads, and the aviation profile the input log takes its METAR wind
+from, are the launching suite's own bindings, passed by the launcher as arguments 2, 3 and 4 of
+`fetch_airgradient.sh` (the aviation one defaults to `home`).
 
 ---
 
@@ -491,7 +492,7 @@ Core (`gtex62-core`), done 2026-10-07 unless marked:
    runtime config.**
 3. Launcher (`bin/gtex62-core-launch`): flag, suite gating, profile, TOML path, TTL, stamp, pid
    file, `mkdir`, cleanup, `initial_refresh` and `refresh_loop`, with the suite's air and weather
-   profiles passed as arguments 2 and 3. Syntax-checked only; not yet run under a live launch.
+   profiles passed as arguments 2, 3 and 4. Syntax-checked, and since run under a live launch.
 4. Dual-gated like vpn: `core.toml` `[providers] airgradient` (ships `false`) plus the suite listing
    `airgradient` in its `[domains]`; `core.toml.example` and `README.md` § Provider Toggles updated.
 5. Suite binding template: **off by default.** `examples/runtime/suites/osa.toml.example` carries the
@@ -537,9 +538,11 @@ covered by an offline harness only, since shadow mode hides alerts. OSA's own de
      ends: `offline` when the provider itself was not running (the machine was off or the suite closed),
      `unreachable` when it ran but could not read the device, each with when it started, when it ended and
      how long, so an analysis never mistakes a gap for a calm stretch;
-   - `inputs.csv`: one line per minute with every input the advisor saw (indoor readings, outdoor
+   - `inputs-YYYYMMDD.csv`: one line per minute with every input the advisor saw (indoor readings, outdoor
      AQI, PM2.5 and PM10 with `pm_source`, outdoor temperature and humidity, pollen values, the
-     verdict, and whether the device response was complete), rotated daily and kept 365 days
+     verdict, the outdoor wind (METAR speed, gust, direction and observation time from the aviation cache, plus
+     OpenWeather's speed for comparison; logged only, no rule uses it), and whether the device response was
+     complete), rotated daily and kept 365 days
      (at most about 80 MB if the machine never slept; far less in practice). This is what lets the next
      replay include outdoor data, which the first week lacked. The 60-day default it shipped with would
      have deleted the outdoor record that exists nowhere else just as the seasonal patterns became visible.

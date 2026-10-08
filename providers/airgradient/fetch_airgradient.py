@@ -10,12 +10,13 @@
 # ventilation_advisor.py (pure, no I/O); this file owns fetching, carry-forward
 # of fields the device intermittently omits, persistence and output.
 #
-# Usage: fetch_airgradient.py <profile> [<air_profile> [<weather_profile>]]
+# Usage: fetch_airgradient.py <profile> [<air_profile> [<weather_profile> [<aviation_profile>]]]
 import csv
 import fcntl
 import json
 import math
 import os
+import re
 import sys
 import time
 import tomllib
@@ -36,6 +37,7 @@ SHARED_ASSETS = Path(os.getenv("GTEX62_SHARED_ASSETS") or os.getenv("GTEX62_SHAR
 PROFILE_ID = sys.argv[1] if len(sys.argv) > 1 else "indoor"
 AIR_PROFILE = sys.argv[2] if len(sys.argv) > 2 else "home"
 WEATHER_PROFILE = sys.argv[3] if len(sys.argv) > 3 else "home"
+AVIATION_PROFILE = sys.argv[4] if len(sys.argv) > 4 else "home"
 
 PROFILE_TOML = CONFIG_ROOT / "profiles" / "airgradient" / f"{PROFILE_ID}.toml"
 OUT_DIR = CACHE_ROOT / "shared" / "airgradient" / PROFILE_ID
@@ -241,6 +243,58 @@ def gather_outdoor(now: float, air_max_age: float, wx_max_age: float):
     return out, flags
 
 
+_METAR_WIND = re.compile(r"^(VRB|\d{3})(\d{2,3})(?:G(\d{2,3}))?(KT|MPS)$")
+_METAR_TIME = re.compile(r"^(\d{2})(\d{2})(\d{2})Z$")
+
+
+def parse_metar_wind(raw, now: float):
+    """Wind and observation time from a raw METAR line, or {} if there is none. Speeds are knots.
+    `00000KT` is calm (direction None); `VRB05KT` has no direction either. Handles KT and MPS."""
+    out = {}
+    if not isinstance(raw, str) or not raw.strip():
+        return out
+    for tok in raw.strip().splitlines()[0].split():
+        m = _METAR_TIME.match(tok)
+        if m and "metar_obs" not in out:
+            day, hh, mm = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            n = datetime.fromtimestamp(now, timezone.utc)
+            for back in (0, 1):                         # this month, else the previous one (a report from just before a month turn)
+                y, mo = n.year, n.month - back
+                if mo == 0:
+                    y, mo = y - 1, 12
+                try:
+                    cand = datetime(y, mo, day, hh, mm, tzinfo=timezone.utc).timestamp()
+                except ValueError:
+                    continue
+                if cand <= now + 6 * 3600:
+                    out["metar_obs"] = iso(cand)
+                    break
+            continue
+        m = _METAR_WIND.match(tok)
+        if m:
+            scale = 1.0 if m.group(4) == "KT" else 1.943844
+            speed = int(m.group(2)) * scale
+            gust = int(m.group(3)) * scale if m.group(3) else None
+            out["wind_dir"] = None if (m.group(1) == "VRB" or speed == 0) else int(m.group(1))
+            out["wind_kt"] = round(speed, 1)
+            out["wind_gust_kt"] = None if gust is None else round(gust, 1)
+            out["wind_variable"] = int(m.group(1) == "VRB")
+            break
+    return out
+
+
+def gather_wind(now: float) -> dict:
+    """Outdoor wind for the input log only (no advisor rule uses it): the METAR from the aviation cache is the
+    primary (an observation, with direction and gusts); OpenWeather's speed from the weather cache is a second
+    column for comparison."""
+    av = read_json(CACHE_ROOT / "shared" / "aviation" / AVIATION_PROFILE / "current.json")
+    wind = parse_metar_wind(av.get("metar_raw") if isinstance(av, dict) else None, now)
+    wx = read_json(CACHE_ROOT / "shared" / "weather" / WEATHER_PROFILE / "current.json")
+    mph = va.num(wx.get("wind_mph")) if isinstance(wx, dict) else None
+    wind["wind_mph_owm"] = mph
+    return wind
+
+
 def read_pollen(csv_path: Path):
     """Seasonal pollen index for today's local day of year, or None if the file or row is missing."""
     try:
@@ -364,10 +418,32 @@ INPUT_COLUMNS = ["epoch", "utc", "co2_ppm", "pm25_ugm3", "pm10_ugm3", "pm1_ugm3"
                  "nox_index", "temp_f", "humidity_pct", "dew_point_f", "complete",
                  "out_aqi", "out_pm25", "out_pm10", "out_owm_pm25", "out_owm_pm10", "pm_source", "air_fresh",
                  "out_temp_f", "out_rh", "wx_fresh", "pollen_tree", "pollen_grass", "pollen_weed", "pollen_mold",
-                 "verdict", "class", "severity"]
+                 "verdict", "class", "severity",
+                 "out_wind_kt", "out_wind_gust_kt", "out_wind_dir", "out_wind_variable", "metar_obs", "out_wind_mph_owm"]
 
 
-def log_inputs(now: float, reading: dict, carried: list, out: dict, flags: dict, pollen, adv, keep_days: int):
+def ensure_header(path: Path):
+    """Today's file may have been started by an older version with fewer columns. Rewrite it once under the
+    current header (old rows padded with blanks) so appended rows line up; readers should use column names."""
+    try:
+        with open(path, newline="", encoding="utf-8") as f:
+            first = next(csv.reader(f), None)
+    except OSError:
+        return
+    if first is None or first == INPUT_COLUMNS:
+        return
+    with open(path, newline="", encoding="utf-8") as f:
+        old_rows = list(csv.DictReader(f))
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(INPUT_COLUMNS)
+        for r in old_rows:
+            w.writerow([r.get(c, "") or "" for c in INPUT_COLUMNS])
+    tmp.replace(path)
+
+
+def log_inputs(now: float, reading: dict, carried: list, out: dict, flags: dict, pollen, adv, keep_days: int, wind=None):
     """One row per minute: every input the advisor saw, so a later replay can include outdoor data."""
     pm = reading["pm"]
     pol = pollen or {}
@@ -378,10 +454,15 @@ def log_inputs(now: float, reading: dict, carried: list, out: dict, flags: dict,
            flags.get("pm_source"), int(bool(flags.get("air_fresh"))), out.get("temp_f"), out.get("rh"),
            int(bool(flags.get("wx_fresh"))), pol.get("tree"), pol.get("grass"), pol.get("weed"), pol.get("mold"),
            adv.verdict, adv.cls, adv.severity]
+    wd = wind or {}
+    row += [wd.get("wind_kt"), wd.get("wind_gust_kt"), wd.get("wind_dir"), wd.get("wind_variable"), wd.get("metar_obs"),
+            wd.get("wind_mph_owm")]
     path = LOG_DIR / f"inputs-{datetime.fromtimestamp(now).strftime('%Y%m%d')}.csv"
     try:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         new = not path.exists()
+        if not new:
+            ensure_header(path)
         with open(path, "a", encoding="utf-8", newline="") as f:
             w = csv.writer(f)
             if new:
@@ -510,7 +591,7 @@ def main():
         vent = vent_block(adv, now, flags, shadow)
         lg = state.get("log") or {}
         if do_log_inputs and lg.get("last_minute") != int(now // 60):
-            log_inputs(now, reading, carried, out, flags, pollen, adv, keep_days)
+            log_inputs(now, reading, carried, out, flags, pollen, adv, keep_days, gather_wind(now))
             lg["last_minute"] = int(now // 60)
         state["log"] = lg
         state["advisor"] = adv.to_state()

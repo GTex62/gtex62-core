@@ -695,7 +695,7 @@ if [[ "$MODEM_ENABLED" == "true" ]]; then
   initial_refresh "modem-${MODEM_PROFILE}" "$MODEM_STAMP" "$CORE_DIR/providers/modem/fetch_modem.sh" "$MODEM_PROFILE"
 fi
 if [[ "$AIRGRADIENT_ENABLED" == "true" ]]; then
-  initial_refresh "airgradient-${AIRGRADIENT_PROFILE}" "$AIRGRADIENT_STAMP" "$CORE_DIR/providers/airgradient/fetch_airgradient.sh" "$AIRGRADIENT_PROFILE" "$AIR_PROFILE" "$WEATHER_PROFILE"
+  initial_refresh "airgradient-${AIRGRADIENT_PROFILE}" "$AIRGRADIENT_STAMP" "$CORE_DIR/providers/airgradient/fetch_airgradient.sh" "$AIRGRADIENT_PROFILE" "$AIR_PROFILE" "$WEATHER_PROFILE" "$AVIATION_PROFILE"
 fi
 if [[ "$ALERTS_ENABLED" == "true" ]]; then
   initial_refresh "alerts-${ALERTS_PROFILE}" "$ALERTS_STAMP" "$CORE_DIR/providers/alerts/fetch_alerts.sh" "$ALERTS_PROFILE" "$MTR_PROFILE" "$VPN_PROFILE" "$MODEM_PROFILE"
@@ -746,7 +746,7 @@ if [[ "$MODEM_ENABLED" == "true" ]]; then
   refresh_loop "modem-${MODEM_PROFILE}" "$MODEM_TTL" "$MODEM_STAMP" "$MODEM_LOOP_PID_FILE" "$CORE_DIR/providers/modem/fetch_modem.sh" "$MODEM_PROFILE"
 fi
 if [[ "$AIRGRADIENT_ENABLED" == "true" ]]; then
-  refresh_loop "airgradient-${AIRGRADIENT_PROFILE}" "$AIRGRADIENT_TTL" "$AIRGRADIENT_STAMP" "$AIRGRADIENT_LOOP_PID_FILE" "$CORE_DIR/providers/airgradient/fetch_airgradient.sh" "$AIRGRADIENT_PROFILE" "$AIR_PROFILE" "$WEATHER_PROFILE"
+  refresh_loop "airgradient-${AIRGRADIENT_PROFILE}" "$AIRGRADIENT_TTL" "$AIRGRADIENT_STAMP" "$AIRGRADIENT_LOOP_PID_FILE" "$CORE_DIR/providers/airgradient/fetch_airgradient.sh" "$AIRGRADIENT_PROFILE" "$AIR_PROFILE" "$WEATHER_PROFILE" "$AVIATION_PROFILE"
 fi
 if [[ "$ALERTS_ENABLED" == "true" ]]; then
   refresh_loop "alerts-${ALERTS_PROFILE}" "$ALERTS_TTL" "$ALERTS_STAMP" "$ALERTS_LOOP_PID_FILE" "$CORE_DIR/providers/alerts/fetch_alerts.sh" "$ALERTS_PROFILE" "$MTR_PROFILE" "$VPN_PROFILE" "$MODEM_PROFILE"
