@@ -23,8 +23,9 @@ this file and has not been backfilled — see each domain's own
 **Doctor: the AIRGRADIENT row, and a `partial` state for the provider (2026-10-08).** `fetch_doctor.sh`
 gains `do_airgradient()` (dual-gated and profile-gated like MODEM, 30s TTL), taking the PROVIDERS row that
 had been reserved for it (22 domains; `AGR` gauge, `AIRGRAD` in the DOMAIN column, which is 88px against
-`AIRGRADIENT`'s 92px). Three procedures: `AIRGRADIENT HOST NOT SET` (error), `AIRGRADIENT UNREACHABLE`
-(degraded) and `AIRGRADIENT FIELDS MISSING` (partial). The provider rewrites its file on every run, so a dead
+`AIRGRADIENT`'s 92px). Four procedures: `AIRGRADIENT HOST NOT SET` (error), `AIRGRADIENT UNREACHABLE`
+(degraded), `AIRGRADIENT FIELDS MISSING` (partial) and `AIRGRADIENT NOT RUNNING` (stale: the loop stopped; a dead
+device never makes the file stale, so the generic "check API key / network" text would be wrong). The provider rewrites its file on every run, so a dead
 device never makes it go stale; Doctor's row engine raises WARN from the provider's own `state`. To keep to
 Doctor's "fixed at the source" rule (it never reads nested fields), the airgradient provider now reports
 `state:"partial"`, note `fields unavailable: ...`, when compensated PM2.5/temperature/humidity have had no value
