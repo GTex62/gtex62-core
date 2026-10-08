@@ -598,10 +598,11 @@ an `OPEN` alert.
   week's input log (see the provider document) is meant to close this.
 - The new outdoor rules (humidity with drier outdoor air, free cooling, AirNow PM comparisons,
   pollen weighing) are covered by synthetic cases only.
-- AirNow's overlay is often empty in the air cache because the air provider's `max_age_sec`
-  (default 3600) is shorter than AirNow's hourly cadence plus publication lag, so `pm_source` will
-  often be `owm`. Raising `max_age_sec` in the air profile is a separate change to a provider every
-  suite shares; decide before the shadow week.
+- AirNow's overlay is often empty in the air cache: the newest one to two hours of AirNow rows have
+  `RawConcentration = -999` (missing) and the air provider drops them instead of using `Value`, so the
+  freshest usable reading is often older than `max_age_sec` (default 3600), and `pm_source` will often
+  be `owm`. Details in `airgradient-provider-design.md` (Known Constraints). Fixing it is a separate
+  change to a provider every suite shares.
 - Whether OSA shows the verdict as a status-line tag, a color on the ENV panel header, or
   only as a transient alert.
 - NOx index (1 to 6 all week) is not used; it is logged by the provider design but never

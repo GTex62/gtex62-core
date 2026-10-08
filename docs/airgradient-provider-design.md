@@ -502,8 +502,10 @@ Core (`gtex62-core`):
    the dual-gated list in the `core.toml.example` comment and in `README.md` § Provider Toggles.
 5. Suite binding templates: `airgradient = "indoor"` under `[profiles]` and the domain in the
    `[domains]` list of `examples/runtime/suites/osa.toml.example`.
-6. Doctor: a row for the new domain (the table is alphabetical and counts domains, so 21 becomes
-   22); it must read `state` as well as cache age, since a degraded run rewrites the file.
+6. Doctor: deferred until the provider and OSA are running. Then add a row for the new domain (the
+   table is alphabetical and counts domains, so 21 becomes 22) and update `doctor-design.md` and
+   `doctor-missing-conditions.md`; the row must read `state` as well as cache age, since a degraded
+   run rewrites the file.
 7. Docs: `architecture.md` (directory list, cache list, TTL table), `README.md` domain count and
    the "designed but not built" note, `docs/README.md` index, and a `CHANGELOG.md` entry.
 8. Tests under `tests/airgradient/`: the fixtures are already there; add the replay test, the
@@ -570,18 +572,27 @@ profile's search radius (hourly, with publication lag) or, failing that, from Op
 and may lag either way. No outdoor temperature or humidity was logged for the validation week, so
 the outdoor comfort-band and dew-point rules are untested on real data.
 
-**AirNow overlay is often empty.** The air provider drops AirNow readings older than its
-`max_age_sec` (default 3600), which is close to AirNow's hourly cadence plus publication lag; on
-2026-10-07 the raw AirNow file held PM2.5 from three stations while the cache's `airnow.values` was
-empty. The advisor degrades gracefully (hazard rule only, from OpenWeather), but PM comparisons will
-be switched off much of the time until the air profile's `max_age_sec` is raised, a change to a
-provider every suite shares.
+**AirNow overlay is often empty.** On 2026-10-07 the raw AirNow file held PM2.5 from three
+stations while the cache's `airnow.values` was empty. Replaying the air provider's own filter on that
+file shows why: AirNow's newest one to two hours of rows carry `RawConcentration = -999.0` (its
+missing-value marker; the `Value` field is populated), and `fetch_air.sh` takes
+`RawConcentration // Value`, so the sentinel wins, fails the `>= 0` check and the row is dropped. The
+freshest usable reading is then 2 to 3 hours old and fails the default `max_age_sec` of 3600. With
+`max_age_sec = 10800` the same file yields PM2.5 11.7 (a 2-hour-old reading). `env-provider-status.md`
+documents the symptom (`airnow.aqi` present while `airnow.values` is empty) and the `max_age_sec`
+override, but attributes the empty overlay to `aq/data` returning nothing, which was not the case
+here. The advisor degrades gracefully (hazard rule only, from OpenWeather), but PM comparisons will
+be off much of the time until the air provider treats the sentinel as missing and/or its
+`max_age_sec` is raised. Both are changes to a provider every suite shares, so they are made
+separately from this work.
 
 ---
 
 ## Open Items
 
-- Decide whether to raise `max_age_sec` in the air profile (see Known Constraints).
+- Air provider: treat AirNow's `RawConcentration = -999` as missing (fall back to `Value`) and decide
+  on `max_age_sec` (see Known Constraints); correct the divergence explanation in
+  `env-provider-status.md` when that is done.
 - Re-check thresholds after a few weeks of shadow mode, and in a different season, using
   `inputs.csv` for a replay that includes the outdoor rules.
 - Explain or accept the two long VOC episodes (2026-10-01 evening, peak 475; 2026-10-04
