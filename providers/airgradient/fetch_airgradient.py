@@ -55,6 +55,7 @@ DEFAULT_CARRY_MAX_AGE_SEC = 600
 DEFAULT_AIR_MAX_AGE_SEC = 7200
 DEFAULT_WX_MAX_AGE_SEC = 1800
 DEFAULT_LOG_KEEP_DAYS = 60
+DEFAULT_GAP_LOG_SEC = 300
 STATE_VERSION = 1
 
 # A response missing any of these is a failed fetch. Everything else the device may omit.
@@ -318,6 +319,29 @@ def log_verdict(now: float, event: str, adv: "va.Advisor", flags: dict):
         pass
 
 
+def fmt_dur(sec: float) -> str:
+    sec = int(sec)
+    d, rem = divmod(sec, 86400)
+    h, rem = divmod(rem, 3600)
+    m = rem // 60
+    return " ".join(p for p in (f"{d}d" if d else "", f"{h}h" if h or d else "", f"{m}m") if p)
+
+
+def log_gap(now: float, kind: str, start: float, why: str):
+    """Mark a hole in the record in the same log as the verdicts, so a later analysis never mistakes it
+    for a calm stretch: kind "offline" = the provider itself was not running (the machine was off, or the
+    suite was closed); "unreachable" = it ran but could not read the device."""
+    line = "\t".join([iso(now), "gap", "", "", "",
+                      f"{kind} from {iso(start)} to {iso(now)} ({fmt_dur(now - start)}): {why}",
+                      f"kind={kind} gap_sec={int(now - start)}"])
+    try:
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        with open(VERDICT_LOG, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except OSError:
+        pass
+
+
 INPUT_COLUMNS = ["epoch", "utc", "co2_ppm", "pm25_ugm3", "pm10_ugm3", "pm1_ugm3", "pm03_per_dl", "voc_index",
                  "nox_index", "temp_f", "humidity_pct", "dew_point_f", "complete",
                  "out_aqi", "out_pm25", "out_pm10", "out_owm_pm25", "out_owm_pm10", "pm_source", "air_fresh",
@@ -385,6 +409,7 @@ def main():
     advisor_on = bool(adv_cfg_toml.get("enabled", True))
     shadow = bool(adv_cfg_toml.get("shadow", True))
     keep_days = int(adv_cfg_toml.get("log_keep_days") or DEFAULT_LOG_KEEP_DAYS)
+    gap_log_sec = float(adv_cfg_toml.get("gap_log_sec") or DEFAULT_GAP_LOG_SEC)
     do_log_inputs = bool(adv_cfg_toml.get("log_inputs", True))
     outdoor_cfg = adv_cfg_toml.get("outdoor", {}) or {}
     pol_cfg = adv_cfg_toml.get("pollen", {}) or {}
@@ -401,6 +426,15 @@ def main():
     now = time.time()
 
     state = load_state()
+    # Gap markers. last_run_t moves on every run, so a hole in it means the provider was not running at
+    # all; last_ok_t moves only on a good reading, so a hole there with last_run_t current means the device
+    # was down while the provider was up. One marker per hole, written by the first run after it.
+    offline_gap = False
+    last_run = state.get("last_run_t")
+    if isinstance(last_run, (int, float)) and now - last_run > gap_log_sec:
+        offline_gap = True
+        log_gap(now, "offline", last_run, "the provider was not running (machine off or suite closed)")
+    state["last_run_t"] = now
     prev = read_json(STATUS_JSON)
     prev = prev if isinstance(prev, dict) and prev.get("collector") == "airgradient" else None
     cfg = advisor_cfg(profile)
@@ -418,7 +452,13 @@ def main():
             flags = (doc.get("ventilation") or {}).get("outdoor") or {}
             doc["ventilation"] = vent_block(adv, now, flags, shadow)
         write_status(doc)
+        atomic_write(STATE_JSON, json.dumps(state, separators=(",", ":")) + "\n")   # keeps last_run_t current
         return 0
+
+    last_ok = state.get("last_ok_t")
+    if not offline_gap and isinstance(last_ok, (int, float)) and now - last_ok > gap_log_sec:
+        log_gap(now, "unreachable", last_ok, "the provider was running but could not read the device")
+    state["last_ok_t"] = now
 
     reading, carried, carry = build_reading(payload, state.get("carry"), now, carry_max_age)
     # state "partial": compensated fields (PM2.5, temperature, humidity) have had no value for longer

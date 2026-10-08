@@ -528,7 +528,10 @@ covered by an offline harness only, since shadow mode hides alerts. OSA's own de
    `status.json`; OSA shows no alert. Two files are kept under
    `runtime/airgradient/{profile}/` (not the cache: they cannot be regenerated):
    - `verdict_log.txt`: one line per verdict change or escalation, with time, verdict, class,
-     reason and the outdoor flags;
+     reason and the outdoor flags, plus a `gap` line whenever a hole longer than `gap_log_sec` (300 s)
+     ends: `offline` when the provider itself was not running (the machine was off or the suite closed),
+     `unreachable` when it ran but could not read the device, each with when it started, when it ended and
+     how long, so an analysis never mistakes a gap for a calm stretch;
    - `inputs.csv`: one line per minute with every input the advisor saw (indoor readings, outdoor
      AQI, PM2.5 and PM10 with `pm_source`, outdoor temperature and humidity, pollen values, the
      verdict, and whether the device response was complete), rotated daily and kept 60 days
@@ -543,6 +546,33 @@ covered by an offline harness only, since shadow mode hides alerts. OSA's own de
 
 Optionally record "opened" or "ignored" when you act on an alert; it is the cheapest way to
 judge whether the advice is useful.
+
+---
+
+## History outside the engine (Home Assistant)
+
+The provider only runs while the suite does, so its own log has holes wherever the machine is off, and
+those are often the most informative nights (windows open overnight). Home Assistant runs on an
+always-on host and records the same sensors, so it holds the indoor record for those hours. Facts as
+of 2026-10-08:
+
+- Raw history is kept for 10 days (`recorder: purge_keep_days: 10`); hourly long-term statistics
+  (mean, min, max) for all nine sensors are kept indefinitely (back to 2026-07-01 here).
+- It records every indoor channel, the cave thermostat (setpoint, whether the AC was cooling) and one
+  outdoor entity, `weather.forecast_home` (temperature, humidity, dew point, about hourly).
+- It does **not** hold outdoor PM2.5/PM10 or AQI, the advisor's verdicts or its inputs. Those exist only
+  in the engine's `inputs-*.csv` and `verdict_log.txt` (AirNow itself can supply recent outdoor PM history
+  to fill a gap; not tried).
+
+`scripts/airgradient-ha-export.py` archives what Home Assistant has into the engine's persistent data
+root, `<data_root>/airgradient/<profile>/ha_export/` (default `~/.local/share/gtex62-core/...`): a
+one-minute indoor series in the same convention as `tests/airgradient/fixtures/week_1min.csv` (verified
+equal to it on all 9,840 overlapping minutes), the weather entity, thermostat changes and the hourly
+statistics, with a `manifest.json`. It reads Home Assistant's database read-only, through a private
+copy, and **merges** with what is already archived (a new value wins; a blank never erases an archived
+value), so a re-run after the 10-day purge keeps the old rows. It is an analysis aid: nothing in the
+live provider or display depends on it, which keeps the earlier decision that the engine has no live
+Home Assistant access. The first export ran on 2026-10-08 and covers 2026-09-28 onward.
 
 ---
 
@@ -588,6 +618,12 @@ pollutant. Residual limit: readings are hourly and can be up to 2 hours old.
 
 ## Open Items
 
+- Investigate keeping the Home Assistant archive current automatically (a catch-up export at each
+  boot, or on the HA host) before more of the shadow week passes the 10-day purge, and how a replay should
+  join it with the engine's own outdoor log.
+- The shadow logs live under `runtime/airgradient/<profile>/` in the cache root, which the architecture
+  docs call safe to delete; the data root (`~/.local/share/gtex62-core`, documented for persistent state)
+  is where irreplaceable logs belong. Decide whether to move them.
 - Re-check thresholds after a few weeks of shadow mode, and in a different season, using
   `inputs.csv` for a replay that includes the outdoor rules.
 - Explain or accept the two long VOC episodes (2026-10-01 evening, peak 475; 2026-10-04

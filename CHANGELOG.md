@@ -18,6 +18,21 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
+## Unreleased
+
+**airgradient: gap markers in the shadow log, and a Home Assistant history export (2026-10-08).** The provider only
+runs while the suite does, so its log has holes wherever the machine is off. It now writes a `gap` line to
+`verdict_log.txt` whenever a hole longer than `[advisor] gap_log_sec` (default 300 s) ends: `offline` (the provider was
+not running) or `unreachable` (it ran but could not read the device), with start, end and duration. New
+`scripts/airgradient-ha-export.py` archives Home Assistant's indoor history (which HA keeps raw for only 10 days) into
+`<data_root>/airgradient/<profile>/ha_export/`: a one-minute series in the same convention as the replay fixture
+(checked equal on all 9,840 overlapping minutes), the outdoor weather entity, thermostat changes and hourly statistics.
+It reads HA's database read-only through a private copy and merges with earlier exports, so re-running after the purge
+keeps old rows. Optional and offline: nothing live depends on it. Tests: `tests/airgradient/test_ha_export.py` and new
+gap-marker cases in `test_fetch_airgradient.py`; design notes in `airgradient-provider-design.md`.
+
+---
+
 ## 0.13.1 — 2026-10-08
 
 Fixes the `air` provider's `airnow.aqi`, which was the last pollutant row AirNow listed rather than the overall AQI.

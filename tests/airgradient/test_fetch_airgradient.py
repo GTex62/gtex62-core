@@ -377,6 +377,59 @@ s = sc.status()
 check("advisor disabled: readings still published, ventilation null", s["state"] == "ok" and s["ventilation"] is None and s["co2_ppm"] == 695)
 sc.done()
 
+# ---------------------------------------------------------------------------
+# 7. Gap markers in the shadow log
+# ---------------------------------------------------------------------------
+def gap_lines(sc):
+    f = sc.state_dir / "verdict_log.txt"
+    return [l.split("\t") for l in f.read_text().splitlines() if "\tgap\t" in l] if f.exists() else []
+
+
+set_payload()
+sc = Scenario(air=clean_air, wx=clean_wx)
+sc.run()
+sc.run(advance=60)
+check("steady polling writes no gap marker", gap_lines(sc) == [])
+t_before = sc.t
+sc.run(advance=8 * 3600)
+g = gap_lines(sc)
+check("first run after an 8-hour shutdown writes one 'offline' marker", len(g) == 1 and g[0][6].startswith("kind=offline"), str(g))
+check("...naming when it started, when it ended and how long (8h 0m)",
+      iso(t_before) in g[0][5] and iso(sc.t) in g[0][5] and "(8h 0m)" in g[0][5] and g[0][6] == "kind=offline gap_sec=28800", g[0][5] if g else "")
+sc.run(advance=60)
+check("...and only one: the next run adds nothing", len(gap_lines(sc)) == 1)
+sc.run(advance=200)
+check("a short blip (200 s between runs) is not a gap", len(gap_lines(sc)) == 1)
+
+# device down for ten minutes while the provider keeps running: 'unreachable', not 'offline'
+STATE["mode"] = "500"
+for _ in range(10):
+    sc.run(advance=60)
+down_start = sc.t - 9 * 60
+set_payload()
+sc.run(advance=60)
+g = gap_lines(sc)
+check("device down 10 minutes then back: one 'unreachable' marker (and not 'offline')",
+      len(g) == 2 and g[1][6].startswith("kind=unreachable"), str(g[1:] ))
+check("...which says the provider was running", "could not read the device" in g[1][5], g[1][5] if len(g) > 1 else "")
+STATE["mode"] = "500"
+for _ in range(2):
+    sc.run(advance=60)
+set_payload()
+sc.run(advance=60)
+check("a two-minute device blip is not marked", len(gap_lines(sc)) == 2)
+sc.done()
+
+sc = Scenario(air=clean_air, wx=clean_wx)
+sc.run()
+STATE["mode"] = "500"
+sc.run(advance=60)
+set_payload()
+sc.run(advance=10 * 3600)
+g = gap_lines(sc)
+check("shutdown during which the device was already down: one marker, 'offline'", len(g) == 1 and g[0][6].startswith("kind=offline"), str(g))
+sc.done()
+
 # Concurrency: a second writer while the lock is held backs off
 sc = Scenario()
 import fcntl
