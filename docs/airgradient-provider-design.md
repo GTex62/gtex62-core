@@ -247,6 +247,7 @@ field and the previous value was reused.
 | Value | Meaning |
 | --- | --- |
 | `"ok"` | HTTP fetch succeeded and all required fields were present (carried fields allowed, listed in `carried_fields`) |
+| `"partial"` | Fetch succeeded, but the compensated PM2.5, temperature or humidity have had no value for longer than `carry_max_age_sec`, so the advisor is skipping the rules that need them. `note` is `fields unavailable: <fields>`. Not reported during the first `carry_max_age_sec` after the provider starts. Readings and verdict are still published, and OSA still shows the indoor view |
 | `"degraded"` | Fetch failed/timed out or lacked required fields; fields hold last-known-good values |
 | `"disabled"` | Profile has `enabled = false` in TOML |
 | `"error"` | Configuration problem, nothing fetched: no profile TOML or no `[device].host` (the air and modem providers use the same value) |
@@ -261,9 +262,9 @@ staleness-indicator display logic across providers without special-casing AirGra
 - `attempted_at` is the time of the last run, successful or not.
 - OSA shows `AG STALE` instead of any advice when `generated_at` is older than 3 minutes,
   regardless of `state`.
-- The cache file's mtime changes on every run, so the doctor provider's age-based STALE check will
-  not notice an unreachable device; the doctor row for this domain must also read `state` (see the
-  wiring checklist).
+- The cache file's mtime changes on every run, so Doctor's age-based STALE check alone would not notice
+  an unreachable device. It does not need to: Doctor's row engine already turns any provider `state` of
+  `degraded`, `partial` or `error` into WARN with its own note (see the Doctor row below).
 
 ### ventilation fields
 
@@ -497,10 +498,12 @@ Core (`gtex62-core`), done 2026-10-07 unless marked:
    the profile's `[device].host`, and the binding plus the `[domains]` `optional` entry in the
    installed `suites/<id>.toml` (all by hand; the installed `core.toml` and suite files are never
    rewritten by bootstrap).
-6. Doctor: deferred until the provider and OSA are running. Then add a row for the new domain (the
-   table is alphabetical and counts domains, so 21 becomes 22) and update `doctor-design.md` and
-   `doctor-missing-conditions.md`; the row must read `state` as well as cache age, since a degraded
-   run rewrites the file.
+6. Doctor, done 2026-10-08: `do_airgradient()` in `providers/doctor/fetch_doctor.sh` (dual-gated and
+   profile-gated, modelled on MODEM) adds the 22nd row, gauge code `AGR`, DOMAIN label `AIRGRAD`; the
+   Doctor suite (`gtex62-doctor`) gets three QRH procedures (`AIRGRADIENT HOST NOT SET`, `UNREACHABLE`,
+   `FIELDS MISSING`) and spends the row it had reserved. The provider's `partial` state exists for this:
+   Doctor never inspects nested fields, so a silent gap has to be reported through `state`. Tests:
+   `tests/airgradient/test_doctor_row.py`.
 7. Docs: `architecture.md`, `README.md`, `docs/README.md` and `CHANGELOG.md` updated.
 8. Tests: `tests/airgradient/run-tests.sh` runs `test_advisor.py` (replay against the fixtures,
    synthetic cases, state round-trip, gaps, alert cap, doc drift) and `test_fetch_airgradient.py`
@@ -592,5 +595,4 @@ pollutant. Residual limit: readings are hourly and can be up to 2 hours old.
   line may need to rise, or VOC may need a release threshold near 200.
 - Re-evaluate the humidity thresholds after the bathroom exhaust fan is repaired; the
   morning-shower episodes should shrink.
-- Whether the doctor row should show the advisor verdict, or only provider health.
 - Lua-side panel implementation (indoor table, rotation, alert line).

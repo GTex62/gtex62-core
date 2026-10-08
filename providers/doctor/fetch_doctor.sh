@@ -148,6 +148,7 @@ GITHUB_WINDOW_DAYS = 14
 NO_EXISTENCE_CHECK = {"net", "orb"}
 TTL_KEY = {
     "air": "cache.ttl_sec", "astro": "cache.refresh_sec", "calendar": "events.cache_ttl_sec",
+    "airgradient": "cache_ttl_sec",
     "modem": "cache_ttl_sec", "mtr": "cache_ttl_sec", "net": "cache.ttl_sec",
     "network": "cache.refresh_sec", "orb": "cache.ttl_sec", "pihole": "pihole.cache_ttl_sec",
     "pfsense": "cache_ttl_sec", "solar": "cache.refresh_sec", "system": "cache.refresh_sec",
@@ -277,7 +278,7 @@ PROFILE_DEFAULTS = {
     "network": "local", "connectivity": "default", "pfsense": "main_router",
     "net": "local", "orb": "home", "vpn": "local", "ap": "main_router",
     "modem": "local", "alerts": "main_router", "mtr": "pi5", "media": "local",
-    "github": "default",
+    "github": "default", "airgradient": "indoor",
 }
 
 
@@ -312,7 +313,7 @@ def core_flag(dotted):
     return v is True
 
 
-DUAL_GATED = {"vpn", "ap", "modem", "alerts", "mtr", "pihole"}
+DUAL_GATED = {"vpn", "ap", "modem", "alerts", "mtr", "pihole", "airgradient"}
 FLAG_ONLY = {"media"}
 
 PRIORITY = ["ERROR", "DEGRADED", "PARTIAL", "WAITING", "STALE", "MISSING", "REFRESH"]
@@ -536,6 +537,30 @@ def do_air():
     ])
     generic_stale(row, "air", "PROVIDER STALE")
     finish(row, "air")
+
+
+# ---- AIRGRADIENT (dual-gated, profile-gated). The provider rewrites status.json on every run,
+# including failed ones (generated_at, the last good reading, stays put), so cache AGE alone never
+# shows a dead device: it is the provider's own `state` ("degraded") that raises the WARN.
+def do_airgradient():
+    p = prof("airgradient")
+    row = Row("airgradient")
+    exists, pt = profile_toml("airgradient", p)
+    ttl, row.ttl_fallback = ttl_key(pt, exists, "cache_ttl_sec", 30, "airgradient")
+    path = status_path("airgradient", p)
+    doc = read_json(path)
+    row.freshness(path, ttl)
+    row.take_provider(doc)
+    if dual_gate(row, "airgradient"):
+        if profile_gated_disabled(row, doc, pt if exists else None):
+            return finish(row, "airgradient")
+        add_generic_provider_conds(row, doc, [
+            ("device host not configured", "AIRGRADIENT HOST NOT SET"),
+            ("device unreachable", "AIRGRADIENT UNREACHABLE"),
+            ("fields unavailable", "AIRGRADIENT FIELDS MISSING"),
+        ])
+        generic_stale(row, "airgradient", "PROVIDER STALE")
+    finish(row, "airgradient")
 
 
 # ---- ALERTS (dual-gated; no profile TOML ships, no state but "ok")
@@ -1107,7 +1132,7 @@ def do_weather():
     finish(row, "weather")
 
 
-for fn in (do_air, do_alerts, do_ap, do_astro, do_aviation, do_calendar, do_connect,
+for fn in (do_air, do_airgradient, do_alerts, do_ap, do_astro, do_aviation, do_calendar, do_connect,
            do_github, do_media, do_modem, do_mtr, do_net, do_network, do_orb,
            do_pfsense, do_pihole, do_solar, lambda: do_fast("system", 1, "SYSTEM NOT RUNNING"),
            lambda: do_fast("time", 1, "TIME NOT RUNNING"), do_vpn, do_weather):

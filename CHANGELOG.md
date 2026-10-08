@@ -20,6 +20,21 @@ this file and has not been backfilled — see each domain's own
 
 ## Unreleased
 
+**Doctor: the AIRGRADIENT row, and a `partial` state for the provider (2026-10-08).** `fetch_doctor.sh`
+gains `do_airgradient()` (dual-gated and profile-gated like MODEM, 30s TTL), taking the PROVIDERS row that
+had been reserved for it (22 domains; `AGR` gauge, `AIRGRAD` in the DOMAIN column, which is 88px against
+`AIRGRADIENT`'s 92px). Three procedures: `AIRGRADIENT HOST NOT SET` (error), `AIRGRADIENT UNREACHABLE`
+(degraded) and `AIRGRADIENT FIELDS MISSING` (partial). The provider rewrites its file on every run, so a dead
+device never makes it go stale; Doctor's row engine raises WARN from the provider's own `state`. To keep to
+Doctor's "fixed at the source" rule (it never reads nested fields), the airgradient provider now reports
+`state:"partial"`, note `fields unavailable: ...`, when compensated PM2.5/temperature/humidity have had no value
+for longer than the carry window (not during the first window after it starts). OSA keeps showing the indoor
+view in that state. `suites/doctor.toml.example` now names and lists `airgradient` (still off unless the
+`core.toml` flag is set). The installed `suites/doctor.toml` is not rewritten by bootstrap: add
+`airgradient = "indoor"` under `[profiles]` and `"airgradient"` to `[domains]` to match. Tests:
+`tests/airgradient/test_doctor_row.py`; docs: `doctor-design.md`, `doctor-missing-conditions.md`,
+`airgradient-provider-design.md`. The Doctor suite's own QRH and display changes are in `gtex62-doctor`.
+
 **`airgradient` is off by default everywhere.** The domain already shipped disabled in the engine
 (`[providers] airgradient = false`, and a missing key counts as false), but
 `examples/runtime/suites/osa.toml.example` bound it and listed it in `[domains]`, so a fresh OSA install

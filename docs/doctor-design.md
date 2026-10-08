@@ -111,7 +111,7 @@ domain with no fresh cache, and they are not the same state:
 | Situation | What is true | STATE |
 | --- | --- | --- |
 | Administratively off | Flag false in `core.toml`, or profile `enabled` not `true` — someone turned it off | DISABLED |
-| Flag on, suite omits it | Dual-gated domain (vpn/ap/modem/alerts/mtr/pihole) with its `core.toml` flag `true`, but absent from the launching suite's `[domains]` — nobody turned it off, the launcher just never started it | Not DISABLED. Derived like any other row: WARN (`MISSING`, or `STALE` past TTL) if no fresh cache exists, NOMINAL if another suite's launcher is keeping the shared cache fresh |
+| Flag on, suite omits it | Dual-gated domain (vpn/ap/modem/alerts/mtr/pihole/airgradient) with its `core.toml` flag `true`, but absent from the launching suite's `[domains]` — nobody turned it off, the launcher just never started it | Not DISABLED. Derived like any other row: WARN (`MISSING`, or `STALE` past TTL) if no fresh cache exists, NOMINAL if another suite's launcher is keeping the shared cache fresh |
 
 The second row is a misconfiguration, not a choice, so it must not borrow DISABLED's
 "by design" treatment — and it does not get a special exemption from the derivation rule
@@ -179,7 +179,7 @@ as the fast path (see "STATE is derived" above).
 
 ## Provider Table — Layout
 
-**Settled: alphabetical, all 21 domains, one flat table.** (Was 20 until PIHOLE was
+**Settled: alphabetical, all 22 domains, one flat table.** (Was 21 until AIRGRADIENT, the optional indoor air-quality provider, took the row that had been reserved for it; was 20 until PIHOLE was
 promoted out of the PFSENSE row into its own — it runs on Pi5 with its own script, SSH
 gate and TTL, same as MTR, so worst-state-wins under PFSENSE would have blamed the
 firewall for a Pi5 failure.) Bucketing by refresh behavior
@@ -195,7 +195,7 @@ itself switches representation depending on the domain's TTL:
 
 - **Duration** (plain seconds) for domains with TTL under roughly the 900s line — net,
   time, system, vpn, orb, alerts, astro, ap, pihole (60s in the shipped pfsense profile,
-  300s script fallback), weather, solar, modem, aviation, air,
+  300s script fallback), weather, solar, modem, aviation, air, airgradient (30s),
   network (5s default — resolved below, no longer "varies"). A duration reads faster
   than a clock-time diff at these scales. **A duration row whose TTL is under 10s shows a blank AGE by
   design (`fast_track`, today NET, SYSTEM, TIME and NETWORK):** the value would only cycle
@@ -359,7 +359,7 @@ file path or remediation text, in the table or DCM.
 **Two disable mechanisms — DISABLED must be derived from both.** Verified against
 `bin/gtex62-core-launch` and every fetch script (2026-09-19):
 
-- **`core.toml [providers]` flag** — `vpn`/`ap`/`modem`/`alerts`/`mtr`/`pihole` (dual-gated:
+- **`core.toml [providers]` flag** — `vpn`/`ap`/`modem`/`alerts`/`mtr`/`pihole`/`airgradient` (dual-gated:
   the flag *and* the launching suite's `[domains]` list), `media`, and the
   `[providers.pfsense]` sub-flags `status`/`router`/`pfblockerng`/`ifaces` (flag-only).
   A false flag means the loop never starts, so there is no `status.json` to read — Doctor
@@ -373,7 +373,7 @@ profile-gated domains, because they are universal infrastructure with no suite-r
 question to gate on, and a second copy of their on/off state would be able to disagree
 with the profile. README § Provider Toggles states the rationale.
 
-One consequence for the dual-gated six: a `true` flag does not by itself mean the domain
+One consequence for the dual-gated seven: a `true` flag does not by itself mean the domain
 is running — if the launching suite's `[domains]` list omits it, the launcher skips it and
 that suite starts no fetch loop for it. That is **not** DISABLED (see State Vocabulary):
 Doctor derives the row from cache freshness like any other, and surfaces the cause in
@@ -439,7 +439,7 @@ recomputed against a threshold/duration) that it wants its own small model rathe
 reusing alerts' severity-queue design.
 
 **Enabled in `core.toml` but absent from the suite's `[domains]`.** For a dual-gated domain
-(vpn/ap/modem/alerts/mtr/pihole) whose flag is `true`, whose cache is missing or stale,
+(vpn/ap/modem/alerts/mtr/pihole/airgradient) whose flag is `true`, whose cache is missing or stale,
 and which is not listed in Doctor's own launching suite (`suites/doctor.toml`), DCM
 names that as the cause in place of the generic "provider isn't running" text.
 Fixed text: "`<DOMAIN>` is enabled in `core.toml` but not listed in `[domains]` of
@@ -632,10 +632,10 @@ provider), so the two cannot drift apart.
 There is no fixed numeric cutoff beyond that observed boundary: 5s is confirmed too close,
 and the smallest eligible launcher default is VPN's 10s.
 
-**Final eligible set — eleven domains:** AIR, ALERTS, AP, ASTRO,
+**Final eligible set — twelve domains:** AIR, AIRGRADIENT, ALERTS, AP, ASTRO,
 AVIATION, MODEM, ORB, PIHOLE, SOLAR, VPN, WEATHER. Any future provider is admitted or
-excluded by the rule above with no edit here; a polling provider in the 30-60s range that
-`airgradient-provider-design.md` proposes for AirGradient would qualify automatically.
+excluded by the rule above with no edit here: AIRGRADIENT, a 30s polling provider
+(`airgradient-provider-design.md`), qualified under the rule with no change to it.
 
 NETWORK's exclusion stands on its own: its AGE is a real duration in the PROVIDERS table (see
 the AGE column), but at 5s it is too close to the flicker zone for a gauge. NET, SYSTEM and
@@ -650,7 +650,7 @@ all, not a blank one.** The gauge set is dynamic: a gauge is drawn for every eli
 whose STATE is not DISABLED.
 
 The row's width is therefore itself informational — fewer gauges means more eligible
-domains are disabled. Only eligible domains count toward it: of the eleven, four (AP,
+domains are disabled. Only eligible domains count toward it: of the twelve, five (AIRGRADIENT, AP,
 MODEM, PIHOLE, VPN) are DISABLED under the shipped defaults, leaving seven gauges. MTR,
 PFSENSE and MEDIA are DISABLED under the shipped defaults too (`core.toml.example` sets
 `mtr = false`, all four `[providers.pfsense]` sub-flags false, and `media = false` — see
@@ -680,6 +680,7 @@ needed.
 
 | Code | Domain | Note |
 | --- | --- | --- |
+| AGR | AIRGRADIENT | The PROVIDERS table's DOMAIN cell reads `AIRGRAD`: `AIRGRADIENT` is 92px at the table's font size and the column is 88px |
 | AIR | AIR | |
 | ALR | ALERTS | |
 | AP | AP (access points) | Deliberate two-letter exception |
@@ -701,18 +702,20 @@ panels stay visually height-aligned. RUNTIME and CONFIG are fixed-content panels
 paths and five config fields respectively) that never grow with provider count; they simply
 shift downward as DCM's height increases above them.
 
-PROVIDERS already has **one row reserved for the AirGradient air-quality provider**, beyond
-the 21 domains counted in Provider Table — Layout. Its design is in
-`airgradient-provider-design.md` (titled "AirGradient Engine Integration"):
-`shared/airgradient/{profile}/status.json`, written atomically, with the pfSense provider's
-three-value `state` convention. The aquarium / Home Assistant integration is a real future
-candidate but has **no design doc yet**, unlike AirGradient, so no table space is reserved
-for it — it is flagged here as a known future possibility only.
+PROVIDERS had **one row reserved for the AirGradient air-quality provider**, beyond the 21
+domains then counted in Provider Table — Layout; that row is now the real AIRGRADIENT row
+(`reserved_rows = 0` in the suite theme, so the box height is unchanged and the table is
+22 rows). The next addition follows the general rule above: one more PROVIDERS row and
+matching DCM height. AirGradient's design is in `airgradient-provider-design.md`
+(`shared/airgradient/{profile}/status.json`, written atomically, with `state` values
+`ok`/`partial`/`degraded`/`disabled`/`error`). The aquarium / Home Assistant integration is a
+real future candidate but has **no design doc yet**, so no table space is reserved for it — it is
+flagged here as a known future possibility only.
 
 ### Gauge-row capacity
 
 **Unconfirmed design assumption — see Open Questions.** The design assumes the gauge row
-fits comfortably beyond the eleven eligible domains, legibly with two-letter codes, up to the
+fits comfortably beyond the twelve eligible domains, legibly with two-letter codes, up to the
 fifteen candidates that existed before the eligibility exclusions were finalized. That was
 never verified in text; check it once the actual DCM panel is built. No overflow or widening
 logic is designed in the meantime. If a future addition ever pushes the eligible, enabled
@@ -885,6 +888,9 @@ trustworthy on its own — zero exceptions, zero domain-specific reads needed.
 | AIR | `PARTIAL` | no provider timestamp | "AIR cache has data but no reliable timestamp — check AirNow/OpenWeather API status" | `AIR NO TIMESTAMP` |
 | AIR | `DEGRADED` | note starts "openweather source invalid" | "OpenWeather AQI source down — check API key/quota" — fixed at the source 2026-09-17; only fires while the *other* source is still resolving a timestamp, otherwise it's the pre-existing `PARTIAL` row above | `AIR OPENWEATHER DEGRADED` |
 | AIR | `DEGRADED` | note starts "airnow source invalid" | "AirNow AQI source down — check API key/quota" — fixed at the source 2026-09-17, same shape as the OpenWeather row above; gated on AirNow actually being enabled, so a site that never configured it doesn't get falsely flagged | `AIR AIRNOW DEGRADED` |
+| AIRGRADIENT | `ERROR` | no `[device].host` (note starts "device host not configured") | "Set `[device].host` in the airgradient profile TOML" | `AIRGRADIENT HOST NOT SET` |
+| AIRGRADIENT | `DEGRADED` | note starts "device unreachable" (connection failed, non-200, not JSON, or a required field missing) | "AirGradient device unreachable — check the device (curl `/measures/current`); the row holds the last readings and OSA shows `AG STALE`" | `AIRGRADIENT UNREACHABLE` |
+| AIRGRADIENT | `PARTIAL` | note starts "fields unavailable" — compensated PM2.5/temperature/humidity have had no value for longer than the carry window (reported by the provider, never derived by Doctor from nested fields) | "AirGradient fields unavailable: `<fields>` — check device/firmware, power-cycle the unit" | `AIRGRADIENT FIELDS MISSING` |
 | ALERTS | `STALE` | Missing/stale `banner.json` | "Alerts provider isn't running — check `fetch_alerts.sh` is wired into the refresh loop" — **not** "check API key/network," alerts has no API of its own and always writes `state:"ok"` when it runs at all | `ALERTS NOT RUNNING` |
 | AP | `ERROR` | no AP IPs configured | "Set `[ap] ips`/`labels` in `site.toml`" | `AP NO IPS CONFIGURED` |
 | AP | `ERROR` | password file not found | "Create `~/.config/zyxel_ap/.pass`" | `AP PASSWORD FILE MISSING` |

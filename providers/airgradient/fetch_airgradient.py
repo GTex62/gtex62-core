@@ -260,7 +260,7 @@ def load_state() -> dict:
         return st
     if STATE_JSON.exists():
         log("advisor_state.json unreadable or from another version; starting from NEUTRAL")
-    return {"v": STATE_VERSION, "advisor": None, "carry": {}, "log": {}}
+    return {"v": STATE_VERSION, "advisor": None, "carry": {}, "log": {}, "first_t": None}
 
 
 # -----------------------------------------------------------------------
@@ -421,6 +421,16 @@ def main():
         return 0
 
     reading, carried, carry = build_reading(payload, state.get("carry"), now, carry_max_age)
+    # state "partial": compensated fields (PM2.5, temperature, humidity) have had no value for longer
+    # than the carry window, so the advisor is silently skipping the rules that need them. Not
+    # reported until the provider has itself been running for a full carry window: right after
+    # enabling there is nothing to carry yet, and a dropped response is normal.
+    if state.get("first_t") is None:
+        state["first_t"] = now
+    unavailable = [name for name, val in (("pm25_ugm3", reading["pm"]["pm25_ugm3"]),
+                                          ("temp_f", reading["temp_f"]),
+                                          ("humidity_pct", reading["humidity_pct"])) if val is None]
+    partial = bool(unavailable) and now - state["first_t"] >= carry_max_age
     out, flags = gather_outdoor(now, float(outdoor_cfg.get("air_max_age_sec") or DEFAULT_AIR_MAX_AGE_SEC),
                                 float(outdoor_cfg.get("wx_max_age_sec") or DEFAULT_WX_MAX_AGE_SEC))
     pollen = None
@@ -446,7 +456,9 @@ def main():
     state["carry"] = carry
     atomic_write(STATE_JSON, json.dumps(state, separators=(",", ":")) + "\n")
 
-    doc = envelope("ok", label, "", now, generated_at=iso(now), carried_fields=carried,
+    doc = envelope("partial" if partial else "ok", label,
+                   ("fields unavailable: " + ", ".join(unavailable)) if partial else "", now,
+                   generated_at=iso(now), carried_fields=carried,
                    device={"host": host, "serialno": payload.get("serialno"), "model": payload.get("model"),
                            "firmware": payload.get("firmware")},
                    ventilation=vent, **reading)

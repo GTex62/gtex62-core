@@ -203,10 +203,13 @@ s = sc.status()
 check("carried fields expire after carry_max_age_sec: null, never raw",
       (s["pm"]["pm25_ugm3"], s["temp_f"], s["humidity_pct"], s["dew_point_f"]) == (None, None, None, None), str(s))
 check("expired fields are not listed as carried", s["carried_fields"] == [])
+check("...and the provider reports state partial, naming the fields", s["state"] == "partial" and s["note"] == "fields unavailable: pm25_ugm3, temp_f, humidity_pct", f"{s['state']} {s['note']!r}")
+check("partial still publishes readings and a verdict", s["co2_ppm"] == 695 and s["ventilation"] is not None)
 check("required fields and PM1/PM10 still reported", s["co2_ppm"] == 695 and s["pm"]["pm10_ugm3"] == 2.5)
 set_payload()
 sc.run(advance=30)
 check("full response restores everything", sc.status()["pm"]["pm25_ugm3"] == 2.2 and sc.status()["carried_fields"] == [])
+check("...and state returns to ok", sc.status()["state"] == "ok" and sc.status()["note"] == "")
 sc.done()
 
 sc = Scenario()
@@ -216,6 +219,7 @@ s = sc.status()
 check("partial response with nothing to carry: ok, nulls, no crash",
       s["state"] == "ok" and s["pm"]["pm25_ugm3"] is None and s["temp_f"] is None and s["dew_point_f"] is None)
 check("verdict computed from what is available", s["ventilation"]["verdict"] == "NEUTRAL")
+check("startup grace: unavailable fields right after enabling are not yet partial", s["state"] == "ok" and s["note"] == "")
 sc.done()
 
 # ---------------------------------------------------------------------------

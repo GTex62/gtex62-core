@@ -26,10 +26,11 @@ vpn = "local"
 modem = "local"
 mtr = "pi5"
 media = "local"
+airgradient = "indoor"
 doctor = "local"
 
 # Closer to the full provider list than a curated subset — Doctor's whole
-# purpose is reporting on all of them. Listing vpn/ap/modem/alerts/mtr/pihole
+# purpose is reporting on all of them. Listing vpn/ap/modem/alerts/mtr/pihole/airgradient
 # here also lets gtex62-core-launch's suite_has_domain() gate keep those
 # providers running when Doctor is the launched suite and they are enabled
 # in core.toml [providers]. "doctor" itself gates providers/doctor/
@@ -38,6 +39,7 @@ doctor = "local"
 required = [
   "doctor",
   "air",
+  "airgradient",
   "alerts",
   "ap",
   "astro",

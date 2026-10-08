@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Runs the airgradient provider and advisor tests. Nothing real is touched: the provider test uses
+# Runs the airgradient provider, advisor and Doctor-row tests. Nothing real is touched: the provider test uses
 # a fake device on localhost and a temporary config/cache tree. Usage: tests/airgradient/run-tests.sh
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 rc=0
-for t in test_advisor.py test_fetch_airgradient.py; do
+for t in test_advisor.py test_fetch_airgradient.py test_doctor_row.py; do
   echo "== $t"
   python3 "$HERE/$t" || rc=1
 done

@@ -140,6 +140,34 @@ Missing-condition categories, as confirmed by this pass:
     fixed script's real output: it rendered `DATA // NOMINAL`, byte-identical to the
     healthy case — `gtex62-osa` was not modified.
 
+### AIRGRADIENT
+Added 2026-10-08. Verified against `providers/airgradient/fetch_airgradient.py` and exercised by
+`tests/airgradient/test_doctor_row.py`. Dual-gated (the `core.toml` flag and the suite's `[domains]`)
+**and** profile-gated (the fetch script writes `state:"disabled"` for `enabled = false`), so a missing
+flag is DISABLED, which is the shipped default.
+- **Missing profile TOML:** the script checks for it and writes `state:"error"` /
+  `"missing profile toml"` (generic `PROFILE TOML MISSING`). Not a silent case. A present profile with no
+  `cache_ttl_sec` key makes the launcher fall to its bash default of 30, which equals the shipped value,
+  so the generic `FALLBACK TTL` flag fires without any real cadence change.
+- **No device address:** `state:"error"`, note "device host not configured ..." → `AIRGRADIENT HOST NOT SET`.
+- **Device unreachable / bad reply:** `state:"degraded"`, note "device unreachable: `<reason>`" →
+  `AIRGRADIENT UNREACHABLE`. **The cache file is rewritten on every run, including failed ones**, so
+  mtime-based STALE never fires for a dead device; the row is WARN because Doctor's row engine treats
+  any provider `degraded`/`partial`/`error` as WARN. `generated_at` inside the file stays at the last
+  good reading.
+- **Compensated fields gone:** firmware 3.7.0 drops PM2.5-compensated, temperature and humidity together
+  in about one response in five; the provider carries the last values forward for 10 minutes. Past that
+  the advisor would silently skip every rule that needs them while `state` stayed `ok`, which is the
+  fifth-category silent gap this doc closed everywhere else. It is closed the same way, at the source:
+  the provider reports `state:"partial"`, note "fields unavailable: `<fields>`" →
+  `AIRGRADIENT FIELDS MISSING`. Not reported in the first carry window after the provider starts.
+- **Loop not running:** the file stops being rewritten → ordinary STALE (`PROVIDER STALE`). Flag on but
+  the suite omits the domain → `DOMAIN NOT LISTED`.
+- **Deliberately no Doctor condition:** a corrupt `advisor_state.json` (logged to `fetch.log`, restarts
+  from NEUTRAL, self-heals); stale outdoor air or weather inputs (the AIR and WEATHER rows own those, and
+  the advisor drops only the rules that need them); shadow mode (informational, and no INFORMATIONAL tag
+  exists).
+
 ### ALERTS
 - Confirmed: `fetch_alerts.sh` has no `cache_ttl_sec` of its own and no cache-TTL skip at
   all (see its header comment and the script's own structure — every invocation
