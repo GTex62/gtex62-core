@@ -18,17 +18,22 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
-## Unreleased
+## 0.13.1 — 2026-10-08
 
-**`air`: `airnow.aqi` was the last pollutant row, not the overall AQI (fixed 2026-10-08).** AirNow's observation
-endpoint returns one row per pollutant for the newest hour; `fetch_air.sh` kept whichever it read last. On
-2026-10-08 that was OZONE (AQI 15) while PM2.5 was 63 (Moderate), so the ENV panel showed `ANW 015` and the
-ventilation advisor's hard-close (`airnow.aqi >= 101`) had a blind spot: a bad PM2.5 or ozone day would have been
-missed whenever the other pollutant was listed last. It now takes the highest AQI among the newest rows (the overall
-AQI), ignoring AirNow's `-999` marker. Visible effect: the ANW AQI on the ENV panel (and in any suite reading
-`airnow.aqi`) can read higher than before, correctly. `tests/air/test_fetch_air.py` is new: it runs the real script
-offline against scratch trees and covers the AQI selection plus the earlier `-999`, nearest-monitor and `max_age_sec`
-fixes, which had no test.
+Fixes the `air` provider's `airnow.aqi`, which was the last pollutant row AirNow listed rather than the overall AQI.
+Patch bump: a bug fix, nothing to migrate.
+
+### `air`: `airnow.aqi` is now the overall AQI
+
+AirNow's observation endpoint returns one row per pollutant for the newest hour; `fetch_air.sh` kept whichever it read
+last. On 2026-10-08 that was OZONE (AQI 15) while PM2.5 was 63 (Moderate), so the ENV panel showed `ANW 015` and the
+ventilation advisor's hard-close (`airnow.aqi >= 101`) had a blind spot: a bad PM2.5 or ozone day would have been missed
+whenever the other pollutant was listed last. It now takes the highest AQI among the newest rows (the overall AQI),
+ignoring AirNow's `-999` marker. Visible effect: the ANW AQI on the ENV panel (and in any suite reading `airnow.aqi`)
+can read higher than before, correctly. `tests/air/test_fetch_air.py` is new: it runs the real script offline against
+scratch trees and covers the AQI selection plus the earlier `-999`, nearest-monitor and `max_age_sec` fixes, which had no
+test. `ventilation-advisor-design.md` also records what an all-night open-window night looks like in this room (CO2 stays
+near the outdoor night level; particle counts and the temperature slide are the distinguishing signals).
 
 ---
 
