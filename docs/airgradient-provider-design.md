@@ -574,7 +574,9 @@ of 2026-10-08:
 root, `<data_root>/airgradient/<profile>/ha_export/` (default `~/.local/share/gtex62-core/...`): a
 one-minute indoor series in the same convention as `tests/airgradient/fixtures/week_1min.csv` (verified
 equal to it on all 9,840 overlapping minutes), the weather entity, thermostat changes and the hourly
-statistics, with a `manifest.json`. It reads Home Assistant's database read-only, through a private
+statistics, with a `manifest.json`. The thermostat columns include whether the AC was cooling and whether the
+air handler's fan was running (`ac_fan_running`; the fan pulses on its own in `Circulation` mode, so it is not the
+same thing). A file written before that column existed is upgraded in place on the next run. It reads Home Assistant's database read-only, through a private
 copy, and **merges** with what is already archived (a new value wins; a blank never erases an archived
 value), so a re-run after the 10-day purge keeps the old rows. It is an analysis aid: nothing in the
 live provider or display depends on it, which keeps the earlier decision that the engine has no live

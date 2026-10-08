@@ -40,6 +40,12 @@ It reads HA's database read-only through a private copy and merges with earlier 
 keeps old rows. Optional and offline: nothing live depends on it. Tests: `tests/airgradient/test_ha_export.py` and new
 gap-marker cases in `test_fetch_airgradient.py`; design notes in `airgradient-provider-design.md`.
 
+**airgradient: the export records the air handler's fan (2026-10-08).** `indoor_1min.csv` gains `ac_fan_running` and
+`thermostat.csv` gains `fan_mode` and `fan_state`: a central system in "Circulation" mode pulses its fan (about 3 minutes
+on, 7 off) even when the AC is idle, and CO2 behaves differently with the fan and AC running (see
+`ventilation-advisor-design.md`). Older files are upgraded in place (old rows blank where Home Assistant no longer has
+the data); older monthly archives keep their old header and merge without loss.
+
 **airgradient: the Home Assistant export now runs itself, with a rolling 12-month window (2026-10-08).** New user timer
 `systemd/user/gtex62-airgradient-ha-export.timer` (boot + 5 minutes, then daily; the service retries every 15 minutes if
 the HA mount is down) runs the export as a catch-up job. Settings come from a new optional `[ha_export]` section of the

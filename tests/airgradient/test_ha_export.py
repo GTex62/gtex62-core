@@ -73,8 +73,9 @@ def make_db(path, minutes=range(20), co2_gap=range(5, 15), temp_unit="°C", drop
         state(2, ts, "1000"); state(3, ts, "4.0"); state(4, ts, "3.0"); state(5, ts, "6.0"); state(6, ts, "50")
         state(7, ts, "24.0", {"unit_of_measurement": temp_unit}); state(8, ts, "50"); state(9, ts, "2")
     state(7, T0 + 30, "24.0", {"unit_of_measurement": temp_unit})
-    state(10, T0, "cool", {"hvac_action": "idle", "temperature": 76, "current_temperature": 75})
-    state(10, T0 + 3 * 60 + 5, "cool", {"hvac_action": "cooling", "temperature": 76, "current_temperature": 76})
+    state(10, T0, "cool", {"hvac_action": "idle", "temperature": 76, "current_temperature": 75, "fan_mode": "Circulation", "fan_state": "Idle / off"})
+    state(10, T0 + 2 * 60 + 5, "cool", {"hvac_action": "idle", "temperature": 76, "current_temperature": 75, "fan_mode": "Circulation", "fan_state": "Running / running low"})
+    state(10, T0 + 3 * 60 + 5, "cool", {"hvac_action": "cooling", "temperature": 76, "current_temperature": 76, "fan_mode": "Circulation", "fan_state": "Running / running low"})
     state(11, T0 + 10, "sunny", {"temperature": 70, "humidity": 60, "dew_point": 55, "pressure": 30.0})
     state(11, T0 + 600, "cloudy", {"temperature": 69, "humidity": 62, "dew_point": 55.5, "pressure": 30.0})
     con.execute("insert into statistics_meta values (1,'sensor.t_carbon_dioxide','ppm')")
@@ -123,13 +124,29 @@ check("PM, VOC, NOx, humidity columns present", ind[1]["pm25_ugm3"] == "3.0" and
 wx = rows(out / "outdoor_weather.csv")
 check("outdoor weather rows with their attributes", len(wx) == 2 and wx[0]["condition"] == "sunny" and wx[1]["temperature"] == "69" and wx[1]["dew_point"] == "55.5", str(wx))
 th = rows(out / "thermostat.csv")
-check("thermostat changes recorded", len(th) == 2 and th[1]["hvac_action"] == "cooling", str(th))
+check("thermostat changes recorded, with fan mode and state", len(th) == 3 and th[2]["hvac_action"] == "cooling"
+      and th[0]["fan_mode"] == "Circulation" and th[0]["fan_state"] == "Idle / off" and th[1]["fan_state"] == "Running / running low", str(th))
+check("indoor rows carry whether the fan was running, as of each minute start",
+      ind[0]["ac_fan_running"] == "0" and ind[2]["ac_fan_running"] == "1" and ind[3]["ac_fan_running"] == "1", f"{ind[0]['ac_fan_running']} {ind[2]['ac_fan_running']} {ind[3]['ac_fan_running']}")
 st = rows(out / "statistics_hourly.csv")
 check("hourly statistics only for the AirGradient sensors", len(st) == 1 and st[0]["statistic_id"] == "sensor.t_carbon_dioxide" and st[0]["max"] == "520.0" and st[0]["unit"] == "ppm", str(st))
 mf = json.loads((out / "manifest.json").read_text())
 check("manifest records coverage, entities and the resampling rule",
       mf["files"]["indoor_1min.csv"]["rows"] == 19 and "sensor.t_carbon_dioxide" in mf["entities"].values() and "start of each minute" in mf["resample"] and "changes only" in mf["resample"], str(mf["files"]["indoor_1min.csv"]))
 
+# an archive written before the fan columns existed is upgraded in place: old rows blank, new rows filled
+old_out = d / "oldheader"
+run(db, old_out)
+legacy = rows(old_out / "indoor_1min.csv")
+cols_old = [c for c in legacy[0] if c != "ac_fan_running"]
+with open(old_out / "indoor_1min.csv", "w", newline="", encoding="utf-8") as fh:
+    w = csv.writer(fh); w.writerow(cols_old); w.writerows([[r[c] for c in cols_old] for r in legacy[:10]])    # only the first 10 minutes, old header
+with open(old_out / "thermostat.csv", "w", newline="", encoding="utf-8") as fh:
+    w = csv.writer(fh); w.writerow(["utc_time", "local_time", "mode", "hvac_action", "setpoint", "current_temperature"])
+run(db, old_out)
+up = rows(old_out / "indoor_1min.csv")
+check("an indoor_1min.csv with the old header is upgraded in place and refilled from Home Assistant", "ac_fan_running" in up[0] and len(up) == 19 and up[0]["ac_fan_running"] == "0" and up[3]["ac_fan_running"] == "1", str(list(up[0])[-3:]))
+check("a thermostat.csv with the old header gains the fan columns", "fan_state" in rows(old_out / "thermostat.csv")[0] and rows(old_out / "thermostat.csv")[1]["fan_state"] == "Running / running low")
 # whole-recorder silence: no sensor records for 10 minutes. Default allows 15, so held; --max-silence-sec 300 blanks
 db_sil = d / "ha_sil.db"
 make_db(db_sil, minutes=range(30), co2_gap=(), silent=range(10, 21))
@@ -225,6 +242,21 @@ make_db(d / "jan2.db", t0=epoch_of("2026-01-15 03:30"), minutes=range(5))
 run(d / "jan2.db", rw, "--keep-months", "3", "--today", "2027-02-01")
 check("rows for an already-archived month merge into its file (no duplicates, nothing lost)",
       len(gz_rows(arc)) == 19 + 4 and len({r["utc_time"] for r in gz_rows(arc)}) == 23, str(len(gz_rows(arc))))
+# a monthly archive written before the fan column existed merges with new-header rows without loss
+oa = d / "oldarc"
+(oa / "archive").mkdir(parents=True)
+old_cols = ["local_time", "utc_time", "co2_ppm", "pm03_per_dl", "pm1_ugm3", "pm25_ugm3", "pm10_ugm3", "voc_index", "temp_f",
+            "humidity_pct", "nox_index", "dew_point_f", "thermostat_setpoint_f", "ac_cooling"]
+with gzip.open(oa / "archive" / "indoor_1min-2026-01.csv.gz", "wt", newline="", encoding="utf-8") as fh:
+    w = csv.writer(fh)
+    w.writerow(old_cols)
+    w.writerow(["2026-01-14 20:50", "2026-01-15 02:50", "480", "900", "4", "3", "6", "40", "70", "50", "1", "50", "76", "0"])
+    w.writerow(["2026-01-14 20:51", "2026-01-15 02:51", "481", "901", "4", "3", "6", "40", "70", "50", "1", "50", "76", "0"])
+run(old_db, oa, "--keep-months", "3", "--today", TODAY)
+merged_old = gz_rows(oa / "archive" / "indoor_1min-2026-01.csv.gz")
+check("an old-header archive file merges with new rows: nothing lost, new column present, old rows blank in it",
+      len(merged_old) == 19 + 2 and "ac_fan_running" in merged_old[0] and merged_old[0]["co2_ppm"] == "480" and merged_old[0]["ac_fan_running"] == "")
+
 # boundary: a row dated exactly on the cutoff stays live, the day before is archived
 rb = d / "boundary"
 run(edge_db, rb, "--keep-months", "3", "--today", TODAY)
