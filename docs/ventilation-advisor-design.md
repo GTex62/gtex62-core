@@ -593,6 +593,20 @@ an `OPEN` alert.
   night. An hour later RH and dew point jumped together with CO2 (RH 59.8 to 65.9 percent, dew point 57.5 to
   61.4 F, 16:30 to 16:50Z), an indoor moisture source with the windows closed: the advisor moved to `BRIEF`
   ("indoor RH 60% and drier outside") on its own rules, which is what the humidity-with-outdoor-data rule is for.
+- **The air handler measurably lowers CO2 (analysis of the Home Assistant archive, 2026-09-28 to 10-08, 14,900
+  minutes; thermostat `climate.thermostat_cave`).** While the AC is cooling for more than half of a half hour,
+  CO2 falls about 18 to 20 ppm per hour (median 13 to 15) in every time band; while the AC is idle it drifts up
+  +3 (night), +10 (day) and +14 (evening) ppm per hour. The thermostat is in `Circulation` fan mode, so with the
+  AC idle the fan pulses on its own, about 3 minutes on and 7 off (a 10-minute cycle, roughly 30 percent duty), and
+  runs continuously while cooling; there are too few windows with the circulation fan alone at 50 percent duty or
+  more to measure its effect. Net, a cooling hour moves CO2 about 25 to 35 ppm relative to an idle one: real and
+  consistent, but an order of magnitude smaller than an open window (CO2 619 to 471 ppm in about 8 minutes on
+  10-07). It also does not explain a night's baseline by itself: the nights with the most AC time (99 to 191
+  minutes) ended around 533 to 546 ppm at 07:00, the AC-idle nights around 486 to 500, and the last (open-window,
+  AC-idle) night 529, so occupancy earlier in the evening, window state and outdoor night-time CO2 (which can sit
+  above a closed room's level) are mixed in and cannot be separated from this data. A ceiling fan turned to high at
+  17:23Z on 10-08 changed nothing visible (CO2 607 to 627 over the next ten minutes): it stirs the room, it does not
+  exchange air. For analysis, the AC and fan state should be inputs next to the sensor data.
 - **CO2 cannot detect every window opening.** On the morning of 10-07 CO2 rose while the window
   was open (565 to 742 ppm), probably because someone was in the room. Humidity was the signal
   that showed it.
