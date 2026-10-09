@@ -18,7 +18,12 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
-## Unreleased
+## 0.14.0 — 2026-10-09
+
+Rounds out the AirGradient provider after 0.13.x: a Home Assistant history export that runs itself, gap markers in
+the shadow log, logs moved out of the disposable cache, the air handler's fan state and outdoor wind recorded for
+analysis. All of it is optional and logging-only; no advisor rule changed. Minor bump: new behavior and a changed log
+location.
 
 **airgradient: the input log records outdoor wind (2026-10-08).** Whether open windows actually ventilate depends on
 the breeze (the two calmest nights on record were the two nights CO2 stayed near 500 with the windows open). The
@@ -63,6 +68,16 @@ names as defaults. The live CSVs hold `keep_months` months (default 12, 0 = all)
 into `ha_export/archive/<file>-YYYY-MM.csv.gz`, merged per month. The provider's `log_keep_days` default rises from 60 to
 365 so its own outdoor record (which exists nowhere else) lasts as long as the archive window. Tests: retention,
 boundary, archive-merge, never-delete, profile-config and override cases in `test_ha_export.py`.
+
+### Upgrading
+
+Pull the latest and restart your suite. If you use the AirGradient provider:
+
+- Existing shadow logs are not moved: copy `verdict_log.txt` and `inputs-*.csv` from
+  `~/.cache/gtex62-core/runtime/airgradient/<profile>/` to the new `log_dir` (default
+  `<data_root>/airgradient/<profile>/logs/`), or point `[advisor] log_dir` at the folder you already use.
+- The Home Assistant export is opt-in: add an `[ha_export]` section (with `prefix`) to the airgradient profile, then
+  install the user timer from `systemd/user/` (see `airgradient-provider-design.md`).
 
 ---
 

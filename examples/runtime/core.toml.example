@@ -1,5 +1,5 @@
 core_id = "gtex62-core"
-version = "0.13.1"
+version = "0.14.0"
 
 [paths]
 config_root = "__RUNTIME_ROOT__"
