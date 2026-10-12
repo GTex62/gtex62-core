@@ -18,6 +18,19 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
+## Unreleased — 2026-10-12
+
+### GitHub: retry a transient traffic-API failure once
+
+`fetch_github_traffic.py` retries a failed `gh api .../traffic/clones` call once, after a
+3s backoff, before counting it as a real failure. The `OnBootSec=10m`-triggered run hit a
+transient failure twice in three days (2026-10-10: all 11 repos; 2026-10-12: one repo),
+each time with `gh auth`/rate-limit clean — consistent with the network not being fully up
+this early in boot. A second, persistent failure still logs to `fetch.log` and reports
+`state:"error"` exactly as before; see `docs/doctor-missing-conditions.md`'s GITHUB entry.
+
+---
+
 ## 0.14.0 — 2026-10-09
 
 Rounds out the AirGradient provider after 0.13.x: a Home Assistant history export that runs itself, gap markers in
