@@ -68,6 +68,24 @@ def fetch_json(cmd: list) -> dict:
     return json.loads(out)
 
 
+# One retry after a short backoff. Added 2026-10-12: the OnBootSec=10m-triggered run hit
+# a transient `gh api` failure on 2026-10-10 (all repos) and again on 2026-10-12 (one
+# repo) — gh auth/rate-limit were both clean each time, consistent with the network/DNS
+# not being fully up yet this early in boot. A single retry absorbs that without masking
+# a real, persistent failure (still only two attempts, still logged and reported as ERROR
+# if both fail).
+def fetch_json_retried(cmd: list, retries: int = 1, backoff_sec: float = 3.0) -> dict:
+    last_exc = None
+    for attempt in range(retries + 1):
+        try:
+            return fetch_json(cmd)
+        except Exception as exc:
+            last_exc = exc
+            if attempt < retries:
+                time.sleep(backoff_sec)
+    raise last_exc
+
+
 def gh_created_at(repo: str):
     try:
         out = subprocess.run(
@@ -150,7 +168,7 @@ def main():
         note = item.get("note")
         complete_lifetime_override = item.get("complete_lifetime")
         try:
-            payload = fetch_json(["gh", "api", f"repos/{repo}/traffic/clones"])
+            payload = fetch_json_retried(["gh", "api", f"repos/{repo}/traffic/clones"])
         except Exception as exc:
             msg = f"{datetime.now().astimezone().isoformat()} WARN fetch failed for {repo}: {exc}"
             with LOG_FILE.open("a", encoding="utf-8") as fh:
