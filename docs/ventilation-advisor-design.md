@@ -639,10 +639,11 @@ an `OPEN` alert.
   the room. With the room empty it fell only while the AC ran (784 to 747, about 25 ppm per hour from 03:00 to
   04:45) and otherwise sat at 750 to 780 for eight hours, creeping up about 5 ppm per hour (748 at 05:00, 773 at
   10:30): no decay toward outdoor air at all. After re-entry it rose about 3 ppm per minute (773 to 836 in
-  about 25 minutes). At 11:10 the user opened a window and set the ceiling fan to high (outdoor 84 F, dew point
-  54 F, wind from 240 degrees at 8 knots gusting 17, from the KMEM METAR): CO2 went 820, 688 (+2 min), 630 (+4),
+  about 25 minutes). At 11:10 the user opened a window and set the ceiling fan to high (outdoor 84 to 86 F at 49 to 54%
+  RH, wind from 240 degrees at 8 knots gusting 17, from the KMEM METAR): CO2 went 820, 688 (+2 min), 630 (+4),
   540 (+10), 502 (+12), and settled at about 490 (+13 to 16); VOC 198 to 20; RH 61 to 53%; temperature 75.1
-  to 77.5 F; PM2.5 2.6 to 5.2. So the overnight plateau was an absence of fresh air, not a source or a slow
+  to 77.5 F (the indoor dew point barely moved, 60.8 to about 59 F, so the RH fall was the warming, not drier
+  air); PM2.5 2.6 to 5.2. So the overnight plateau was an absence of fresh air, not a source or a slow
   sensor: the AC recirculates room air and brings in almost none. The rise to about 750 to 800 is what a day of
   occupancy adds to a closed room, and only outside air removes it. It also explains why morning CO2 was 400s
   with windows open or in cooler weather and 600 to 770 now. The advisor stayed NEUTRAL throughout (CO2 never
