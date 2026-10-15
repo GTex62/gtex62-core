@@ -668,10 +668,14 @@ an `OPEN` alert.
   (RH 66 to 56%), VOC from 235 to 39, and the room temperature not at all (79.8 to 79.5 F, outdoor 90 F). The A/C started
   cooling at 13:08:36 (the thermostat reading rose to 76.5 F with the shower's heat) and ran for the whole airing, so this
   decay includes the AC, and the dew point fall includes its dehumidifying; the earlier 11:10 test, with the AC idle,
-  is the clean one. Note: the reported outdoor humidity (44 to 54% RH at 84 to 90 F, a dew point near 65 F) came from a
-  station about 13 miles away; in the 11:10 test the indoor dew point stayed at or below that figure (60.8 to about
-  59 F), so the reported outdoor humidity may read high compared with the air at the window. Not settled; watch it in the
-  post-DST review, because the "drier outside" rule depends on it.
+  is the clean one. Note on the outdoor figures: temperature and RH come from OpenWeather's current conditions for the
+  site coordinates (the weather provider), and the wind from the KMEM METAR (an airport about 13 miles away, flat and
+  open). The site is a heavily wooded lot with tall trees, so the wind at the windows is certainly lower than the METAR
+  and the shaded air is probably cooler than reported (the room did not warm at all with a reported 90 F outside). Trees
+  would raise the local humidity, not lower it. In the 11:10 test the indoor dew point stayed at or below the reported
+  outdoor figure (a dew point near 65 F; indoor 60.8 to about 59 F), so the reported humidity may read high compared
+  with the air at the window; not settled, and the AC confounds the second airing. Watch it in the post-DST review,
+  because the "drier outside" rule depends on it.
 
 ---
 
