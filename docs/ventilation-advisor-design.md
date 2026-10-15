@@ -668,7 +668,12 @@ an `OPEN` alert.
   (RH 66 to 56%), VOC from 235 to 39, and the room temperature not at all (79.8 to 79.5 F, outdoor 90 F). The A/C started
   cooling at 13:08:36 (the thermostat reading rose to 76.5 F with the shower's heat) and ran for the whole airing, so this
   decay includes the AC, and the dew point fall includes its dehumidifying; the earlier 11:10 test, with the AC idle,
-  is the clean one. Note on the outdoor figures: temperature and RH come from OpenWeather's current conditions for the
+  is the clean one. Site layout (from the user): the office is over the garage; outside its door a hallway is open to the first floor on one
+  side (stairwell and a balcony), so warm, CO2-laden house air rises up the stairs and, with the right air flow, fills
+  the office area. That is consistent with a closed-window office that still trades air quickly with the house, with the
+  room reading about 4 F warmer than the thermostat downstairs, and with an empty-room overnight plateau near 750 (the
+  household asleep downstairs); it is not yet separated from fan and door effects. No garage-exhaust signature shows in the
+  data (the NOx index never exceeded 6 in 17 days). Note on the outdoor figures: temperature and RH come from OpenWeather's current conditions for the
   site coordinates (the weather provider), and the wind from the KMEM METAR (an airport about 13 miles away, flat and
   open). The site is a heavily wooded lot with tall trees, so the wind at the windows is certainly lower than the METAR
   and the shaded air is probably cooler than reported (the room did not warm at all with a reported 90 F outside). Trees
