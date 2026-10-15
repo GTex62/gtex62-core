@@ -652,6 +652,27 @@ an `OPEN` alert.
   (`out_wind_*` columns) but not yet related to the clearing rate; this is a single test, with a window and a
   high ceiling fan together.
 
+- **Closed window, same afternoon (2026-10-15, times from the user).** The window was shut at 11:37 local with the user at the
+  desk, the ceiling fan on high, the AC idle (the thermostat sits elsewhere in the house and read 75.5 F against a
+  setpoint of 76 while the room sensor read 78 F). CO2 rose from about 490 at about 12 ppm per minute (500, 548 at +4 min,
+  597 at +8, 629 at +13, 651 at +17) and levelled at about 655 from 11:56: a time constant of about 6 minutes, so the
+  closed room still exchanged air quickly with something (the rest of the house through the door and the AC return, or
+  leakage). It was therefore not a sealed room, and it levelled well below the 750 to 780 of the empty overnight plateau.
+  The door state was not recorded. Whether the room trades air with the house or with outdoors, and how much the fan
+  matters, is not yet separated; a repeat with the door shut and the fan off would show it.
+- **A shower, and a second airing (same afternoon).** A 30 minute shower from about 12:35 to 13:05 raised the indoor RH
+  from 56 to 66% and the dew point from 61.8 to 67.3 F while CO2 went from 726 to about 805 ppm. The advisor changed to
+  `BRIEF` at 13:03 ("indoor RH 65% and drier outside"; alert text `BRIEF OPEN // DRIER OUT`, the first alert shown with
+  `shadow = false`) and back to `CLOSE` at 13:13: exactly the 10 minute dwell, while the windows were open and CO2 was
+  still 673. Opening the windows at 13:10 took CO2 from 803 to 501 ppm in 16 minutes, the dew point from 67.6 to 62.6 F
+  (RH 66 to 56%), VOC from 235 to 39, and the room temperature not at all (79.8 to 79.5 F, outdoor 90 F). The A/C started
+  cooling at 13:08:36 (the thermostat reading rose to 76.5 F with the shower's heat) and ran for the whole airing, so this
+  decay includes the AC, and the dew point fall includes its dehumidifying; the earlier 11:10 test, with the AC idle,
+  is the clean one. Note: the reported outdoor humidity (44 to 54% RH at 84 to 90 F, a dew point near 65 F) came from a
+  station about 13 miles away; in the 11:10 test the indoor dew point stayed at or below that figure (60.8 to about
+  59 F), so the reported outdoor humidity may read high compared with the air at the window. Not settled; watch it in the
+  post-DST review, because the "drier outside" rule depends on it.
+
 ---
 
 ## Open Items
