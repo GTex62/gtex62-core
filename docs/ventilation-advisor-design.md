@@ -565,7 +565,7 @@ an `OPEN` alert.
 
 ---
 
-## Observations that shaped the rules (2026-10-06 to 08)
+## Observations that shaped the rules (2026-10-06 to 15)
 
 - **Opening a window moves everything at once.** The 19:28 opening on 10-07 took CO2 from 619
   to 471 ppm (about 10 air changes per hour from a curve fit), VOC from 162 to 20, and RH
@@ -632,6 +632,24 @@ an `OPEN` alert.
   recollection of closing the window for the night; but that recollection of window state
   across the week is not fully reliable, and flat PM could also mean continuing outdoor
   infiltration, so this is not yet a clean closed-room decay measurement.
+
+- **A sealed room does not decay, and an opened one clears in minutes (2026-10-14 to 15, window state and
+  times reported by the user).** Windows closed all night, user in the room until about 03:00, then out until about
+  10:40; AC cycling, setpoint 75 then 74 F. CO2 climbed from about 590 (18:00) to 798 ppm (02:30) with the user in
+  the room. With the room empty it fell only while the AC ran (784 to 747, about 25 ppm per hour from 03:00 to
+  04:45) and otherwise sat at 750 to 780 for eight hours, creeping up about 5 ppm per hour (748 at 05:00, 773 at
+  10:30): no decay toward outdoor air at all. After re-entry it rose about 3 ppm per minute (773 to 836 in
+  about 25 minutes). At 11:10 the user opened a window and set the ceiling fan to high (outdoor 84 F, dew point
+  54 F, wind from 240 degrees at 8 knots gusting 17, from the KMEM METAR): CO2 went 820, 688 (+2 min), 630 (+4),
+  540 (+10), 502 (+12), and settled at about 490 (+13 to 16); VOC 198 to 20; RH 61 to 53%; temperature 75.1
+  to 77.5 F; PM2.5 2.6 to 5.2. So the overnight plateau was an absence of fresh air, not a source or a slow
+  sensor: the AC recirculates room air and brings in almost none. The rise to about 750 to 800 is what a day of
+  occupancy adds to a closed room, and only outside air removes it. It also explains why morning CO2 was 400s
+  with windows open or in cooler weather and 600 to 770 now. The advisor stayed NEUTRAL throughout (CO2 never
+  reached `co2_enter` = 1000), so on days like this a lower `co2_enter` (about 800) would have said OPEN
+  earlier; to be considered in the post-DST review rather than changed now. Wind direction is logged
+  (`out_wind_*` columns) but not yet related to the clearing rate; this is a single test, with a window and a
+  high ceiling fan together.
 
 ---
 
