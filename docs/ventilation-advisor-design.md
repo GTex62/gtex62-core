@@ -682,6 +682,21 @@ an `OPEN` alert.
   with the air at the window; not settled, and the AC confounds the second airing. Watch it in the post-DST review,
   because the "drier outside" rule depends on it.
 
+- **A cold-front morning with the windows open (2026-10-16, times from the user).** The office windows face south. After
+  a night with the room empty and the AC idle but the air handler fan running continuously (CO2 fell slowly, 608 at 04:00
+  to 581 at 06:20, about 10 ppm per hour, the opposite of the previous night's creep), the user opened the windows at 06:25
+  with the ceiling fan on low. The front had already passed: reported outdoor 68 F, 77% RH (a dew point near 61 F, only
+  1 to 2 F below the 62 F of the previous afternoon, so the drier air lagged the wind shift), wind from 350 degrees at 14
+  knots (METAR). With the wind from the north the south-facing windows are on the leeward side, and the CO2 floor
+  (where the occupant's output balances the exchange, user at the desk) was about 520 ppm, about 100 above outdoor air,
+  against about 480 on 10-15 when the southwest wind blew straight in with the fan on high. As the METAR wind rose to 16
+  knots gusting 28 the floor fell to about 470 (07:06 local); the user felt the air arrive in gusts. The room cooled only
+  0.9 F in the first hour (75.2 to 74.3 F) with 65 to 67 F outside, and the outdoor dew point fell to about 57.5 F, about 2 F
+  below the room's 59 F. The advisor stayed `NEUTRAL` (no need: CO2 under 1000, RH 59%); a cool, dry morning by itself is
+  not a trigger in the current rules. The METAR wind is the airport's open-field wind; what matters at the windows is
+  its direction relative to them as well as its speed, and the log has no window orientation, so this stays an annotation
+  for the review, not an input.
+
 ---
 
 ## Open Items
