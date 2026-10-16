@@ -88,10 +88,14 @@ def make_db(path, minutes=range(20), co2_gap=range(5, 15), temp_unit="°C", drop
     con.commit(); con.close()
 
 
+EMPTY_CFG = tempfile.mkdtemp(prefix="agha_nocfg_")   # so the real profile's [ha_export] never leaks into a test
+
+
 def run(db, out, *extra):
     r = subprocess.run([sys.executable, str(SCRIPT), "--ha-db", str(db), "--out", str(out), "--prefix", "sensor.t_",
                         "--thermostat", "climate.t", "--weather", "weather.t", "--tz", "America/Chicago", *extra],
-                       capture_output=True, text=True, timeout=120)
+                       capture_output=True, text=True, timeout=120,
+                       env=dict(os.environ, GTEX62_CONFIG_DIR=EMPTY_CFG, GTEX62_CONKY_CONFIG_DIR=EMPTY_CFG))
     return r
 
 
@@ -205,7 +209,7 @@ check("a blank in a later export never erases an archived value (per-cell merge)
 # errors
 r = run(d / "nope.db", out)
 check("missing database: clear message and exit 2", r.returncode == 2 and "not found" in r.stderr, r.stderr[-120:])
-r = subprocess.run([sys.executable, str(SCRIPT), "--ha-db", str(db), "--out", str(d / "o2"), "--prefix", "sensor.none_"], capture_output=True, text=True)
+r = subprocess.run([sys.executable, str(SCRIPT), "--ha-db", str(db), "--out", str(d / "o2"), "--prefix", "sensor.none_"], capture_output=True, text=True, env=dict(os.environ, GTEX62_CONFIG_DIR=EMPTY_CFG, GTEX62_CONKY_CONFIG_DIR=EMPTY_CFG))
 check("no matching AirGradient entities: exit 3", r.returncode == 3 and "check --prefix" in r.stderr, r.stderr[-120:])
 db3 = d / "ha3.db"; make_db(db3, temp_unit="°F")
 run(db3, d / "o3")
@@ -331,6 +335,7 @@ check("zone_thermostats in the profile (a list) are exported, with the main ther
       r.returncode == 0 and len(rows(d / "zonecfg" / "zone_thermostats.csv")) == 3 and not (d / "zonecfg" / "thermostat.csv").exists(), r.stderr[-200:])
 
 shutil.rmtree(d, ignore_errors=True)
+shutil.rmtree(EMPTY_CFG, ignore_errors=True)
 print()
 if FAILURES:
     print(f"{len(FAILURES)} FAILED: " + "; ".join(FAILURES))
