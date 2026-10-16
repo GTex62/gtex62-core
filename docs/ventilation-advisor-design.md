@@ -653,7 +653,7 @@ an `OPEN` alert.
   high ceiling fan together.
 
 - **Closed window, same afternoon (2026-10-15, times from the user).** The window was shut at 11:37 local with the user at the
-  desk, the ceiling fan on high, the AC idle (the Cave thermostat, whose position relative to the office sensor is not recorded, read 75.5 F against a
+  desk, the ceiling fan on high, the AC idle (the Cave thermostat, in the second-floor hallway, read 75.5 F against a
   setpoint of 76 while the room sensor read 78 F). CO2 rose from about 490 at about 12 ppm per minute (500, 548 at +4 min,
   597 at +8, 629 at +13, 651 at +17) and levelled at about 655 from 11:56: a time constant of about 6 minutes, so the
   closed room still exchanged air quickly with something (the rest of the house through the door and the AC return, or
@@ -671,7 +671,7 @@ an `OPEN` alert.
   is the clean one. Site layout (from the user): the office is over the garage; outside its door a hallway is open to the first floor on one
   side (stairwell and a balcony), so warm, CO2-laden house air rises up the stairs and, with the right air flow, fills
   the office area. That is consistent with a closed-window office that still trades air quickly with the house, with the
-  room sensor reading about 4 F warmer than the Cave thermostat (position not recorded; the house also has Main and Bed thermostats in Home Assistant, not yet exported), and with an empty-room overnight plateau near 750 (the
+  room sensor reading about 4 F warmer than the Cave thermostat (which sits in the second-floor hallway between the stairs and the balcony, across from the stairs, where air from the first floor reaches it first, so the Cave zone is controlled by hallway air rather than office air; the house also has Main and Bed thermostats in Home Assistant, not yet exported), and with an empty-room overnight plateau near 750 (the
   household asleep downstairs); it is not yet separated from fan and door effects. No garage-exhaust signature shows in the
   data (the NOx index never exceeded 6 in 17 days). Note on the outdoor figures: temperature and RH come from OpenWeather's current conditions for the
   site coordinates (the weather provider), and the wind from the KMEM METAR (an airport about 13 miles away, flat and
