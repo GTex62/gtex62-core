@@ -33,6 +33,17 @@ this early in boot. A second, persistent failure still logs to `fetch.log` and r
 
 ## Unreleased
 
+**airgradient advisor: thunder and rain close the windows (2026-10-16).** The advisor knew nothing about the weather overhead, so
+it could say to open the windows in a thunderstorm. New rule 1b (after the poor-air hard close): thunder now (METAR present
+weather, OpenWeather condition code) or in the TAF within `[advisor] storm_lookahead_min` (default 180) is a hard `CLOSE`
+(`CLOSE WIN // STORM`) whatever the wind does, since a storm front swings it. Rain now is a hard `CLOSE` (`CLOSE WIN // RAIN`)
+only with the wind from within `wind_side_deg` (default 90) of `window_facing_deg`, the direction the windows face (unset by
+default: without it rain is a note, "raining: a wind shift could blow rain in"); rain in the TAF with the forecast wind toward the
+windows is a soft drawback (`BRIEF` instead of `OPEN`), otherwise a note. The input log gains `out_rain_min`, `out_ts_min`
+and `out_wind_deg`. An advisory `CLOSE` that turns into a hazard under the same verdict (or one hazard replacing another)
+now starts a new alert; before, only a change of verdict did. The reference code in the design doc is updated with the
+module. Tests: `test_advisor.py`, `test_fetch_airgradient.py` (TAF and METAR parsing, end to end).
+
 **airgradient export: other zones' thermostats (2026-10-16).** A house heats and cools by zone, and the room with the
 sensor is rarely the room with the thermostat (the stairwell hallway can read 4 F cooler than the office above the garage).
 New optional `[ha_export] zone_thermostats = ["climate.<zone>", ...]` (or repeatable `--zone-thermostat`) writes every

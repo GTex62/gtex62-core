@@ -27,6 +27,14 @@ one-minute samples); thresholds are still defaults to be tuned (see Open Items).
 | Indoor (derived) | `dp_rise_30`: indoor dew point now minus dew point at exactly 30 minutes ago (F), interpolated | engine keeps a 30-minute dew point history |
 | Outdoor air | `airnow.aqi` (the overall AQI: the highest pollutant sub-index, as the air provider has computed it since 2026-10-08); `selected.pm2_5` and `.pm10` (AirNow where present, else OpenWeather); `openweather.components.pm2_5` and `.pm10` | `shared/air/<air_profile>/current.json` |
 | Outdoor weather | `temp_f`, `humidity_pct` | `shared/weather/<weather_profile>/current.json` |
+| Outdoor weather hazards | thunder and rain now: OpenWeather `wx_code` (200s thunder; 300s and 500s drizzle and rain) while `wx_fresh`, or present weather in the METAR (TS, RA, DZ, SH, VCTS; a report under 90 minutes old); expected: present weather in the TAF groups (FM, BECMG, TEMPO, PROB) that start within the look-ahead (`[advisor] storm_lookahead_min`, default 180) | `shared/weather/<weather_profile>/current.json`, `shared/aviation/<aviation_profile>/current.json` (`metar_raw`, `taf_raw`; the TAF is ignored if that cache is over 2 hours old) |
+| Wind direction | OpenWeather `wind_deg` while `wx_fresh`, else the METAR wind (variable or calm = unknown); for forecast rain, the wind of the TAF group that carries the rain | same files |
+
+The provider turns these into `ts_min` and `rain_min` (minutes until thunder or rain at the site: 0 means under way, absent means
+none expected) and `wind_deg` / `rain_wind_deg`; the advisor itself stays pure. `[advisor] window_facing_deg` (the compass direction
+the windows face; 180 for south) switches the rain rules on, and `wind_side_deg` (default 90) is the half-angle that counts as
+"toward the windows". The TAF and METAR describe the airport, not the house; OpenWeather is closer to the site, so it is used first for
+rain now and for the wind direction.
 | Pollen (optional) | `tree`, `grass`, `weed`, `mold` (0 to 100 seasonal index) | `pollen_mem_v2.csv`, day-of-year lookup, path from the profile TOML (see below) |
 
 **Outdoor PM source.** `pm_source` is `airnow` when `airnow.values.pm2_5` is present and `owm`
@@ -91,6 +99,20 @@ worth telling anyone about.
    either PM source. Verdict is `CLOSE` (class `hazard`) regardless of indoor readings or pollen. If
    indoor CO2 is also >= 1000, the message adds "use an air purifier or a very short airing".
    Skipped unless `air_fresh`.
+1b. **Weather hard close** (the user's site rules; thunder needs no configuration, rain needs the window
+   direction):
+   - **Thunderstorm** now (METAR or OpenWeather) or in the TAF within the look-ahead (default 180 minutes):
+     `CLOSE` class `hazard`, `CLOSE WIN // STORM`. A storm front can swing the wind violently, so no wind
+     direction is consulted.
+   - **Rain** (rain, drizzle or showers) **now** with the wind coming from within 90 degrees of the direction the
+     windows face (`window_facing_deg`; a south-facing office is 180, so any wind from the southern half):
+     `CLOSE` class `hazard`, `CLOSE WIN // RAIN`. Variable or unknown wind counts as the window side. Rain now
+     with the wind from the other half is a note only ("raining: a wind shift could blow rain in"): airing out
+     is still fine, but watch the radar.
+   - **Rain forecast** (TAF) within the look-ahead with the forecast wind toward the windows: a soft drawback
+     ("rain expected within N min with the wind toward the windows"), so a need is `BRIEF` instead of `OPEN`;
+     otherwise a note ("rain expected within N min").
+   - Without `window_facing_deg` rain is only ever a note; thunder still closes.
 2. **Indoor humidity trip** (indoor data only):
    - Enter when indoor RH >= 70%, **or** indoor RH >= 66% with the dew point up 4 F or more in 30
      minutes.
@@ -158,8 +180,9 @@ dictionary lists them.
 
 ## Alert behavior
 
-- **Alert on verdict change only**, not on every poll. A change of verdict, or severity going from
-  `normal` to `severe` under the same verdict, starts a new alert.
+- **Alert on verdict change only**, not on every poll. A change of verdict, severity going from
+  `normal` to `severe` under the same verdict, or a `hazard` with a different alert text (outdoor air to
+  thunderstorm, say; an advisory `CLOSE` that becomes a hazard) starts a new alert.
 - **Hysteresis** so values near a threshold do not flap: enter `OPEN` for CO2 at >= 1000
   but leave it below 800; enter on indoor PM2.5 >= 9 but leave below 6; humidity trip as in
   rule 2.
@@ -204,6 +227,8 @@ free cooling.
 | `BRIEF`, humidity trip with severe need | `BRIEF OPEN // CO2 1700 PPM` or `BRIEF OPEN // VOC 270` |
 | `CLOSE`, hazard | `CLOSE WIN // OUTDOOR AIR` |
 | `CLOSE`, humidity | `CLOSE WIN // HUMID INSIDE` |
+| `CLOSE`, hazard, thunder | `CLOSE WIN // STORM` |
+| `CLOSE`, hazard, rain toward the windows | `CLOSE WIN // RAIN` |
 | `CLOSE`, advisory, `NEUTRAL` | none |
 
 The earlier `HUMID OUTSIDE` text is gone: outdoor air being more humid is now only an advisory
@@ -241,6 +266,7 @@ DEFAULTS = dict(
     rh_need=60, rh_block=50, dp_margin=2,
     cool_indoor=78, cool_delta=5, out_hot=85, out_cold=55,
     pollen_note=50, pollen_threshold=80, pollen_categories=('tree', 'grass'),
+    window_facing_deg=None, wind_side_deg=90,
 )
 
 def num(x):
@@ -257,6 +283,20 @@ def dewpoint_f(temp_f, rh):
     g = math.log(rh / 100.0) + a * c / (b + c)
     return (b * g / (a - g)) * 1.8 + 32
 
+def angle_diff(a, b):
+    d = abs(a - b) % 360
+    return min(d, 360 - d)
+
+def wind_on_windows(wind_deg, c=DEFAULTS):
+    """Would rain be blown in? True when the wind comes from within wind_side_deg of the direction the
+    windows face; unknown or variable wind counts as yes (the cautious answer). None when the profile
+    does not say which way the windows face."""
+    facing = num(c['window_facing_deg'])
+    if facing is None:
+        return None
+    d = num(wind_deg)
+    return True if d is None else angle_diff(d, facing) <= c['wind_side_deg']
+
 def humid_trip(rh, rise, latched, c=DEFAULTS):
     """Entry: RH >= 70, or RH >= 66 with dew point up >= 4F in 30 min.
     Release (hysteresis): RH < 66 and dew point rise < 2F."""
@@ -267,7 +307,8 @@ def humid_trip(rh, rise, latched, c=DEFAULTS):
 def advise(ind, out=None, latched=frozenset(), pollen=None, cfg=None):
     """Pure rule evaluation. `ind` holds sustained co2/pm25/voc (None while the
     sustain window is not yet warm), instantaneous temp_f/rh, and dp_rise_30.
-    `out` (all keys optional): aqi, pm25, pm10 (the air cache's `selected` values), pm_source
+    `out` (all keys optional): ts_min and rain_min (minutes until thunder / rain at the site, 0 = now,
+    absent = none expected), wind_deg and rain_wind_deg (wind now / in the forecast rain period), aqi, pm25, pm10 (the air cache's `selected` values), pm_source
     ('airnow'|'owm'), owm_pm25, owm_pm10 (OpenWeather's own components), air_fresh, temp_f, rh,
     wx_fresh. Returns a structured dict."""
     c = {**DEFAULTS, **(cfg or {})}
@@ -309,6 +350,16 @@ def advise(ind, out=None, latched=frozenset(), pollen=None, cfg=None):
             why += ' (CO2 is high; use an air purifier or a very short airing)'
         return res('CLOSE', why, 'hazard', alert='CLOSE WIN // OUTDOOR AIR')
 
+    # 1b. hard close: thunder now or expected (the wind can shift violently), or rain now with the wind
+    # blowing onto the windows. Rain with the wind away from them is only a note (see 5).
+    ts, rain = num(o.get('ts_min')), num(o.get('rain_min'))
+    if ts is not None:
+        when = 'now' if ts <= 0 else f"expected within {ts:.0f} min"
+        return res('CLOSE', 'Close windows: thunderstorm ' + when, 'hazard', alert='CLOSE WIN // STORM')
+    if rain is not None and rain <= 0 and wind_on_windows(o.get('wind_deg'), c):
+        return res('CLOSE', 'Close windows: raining with the wind toward the windows', 'hazard',
+                   alert='CLOSE WIN // RAIN')
+
     # 2. indoor humidity trip (needs no outdoor data)
     tripped = rh is not None and humid_trip(rh, rise, 'humid' in latched, c)
     if tripped and not drier:
@@ -344,10 +395,14 @@ def advise(ind, out=None, latched=frozenset(), pollen=None, cfg=None):
             needs.append(('cool', 'free cooling available', 'COOLER OUTSIDE'))
     if soft_pm and o25 > c['pm_enter'] and pm is not None and o25 >= pm + c['pm_margin']:
         blocks.append(('pm_out', f"outdoor PM2.5 {o25:.0f}"))
+    if rain is not None and rain > 0 and wind_on_windows(o.get('rain_wind_deg', o.get('wind_deg')), c):
+        blocks.append(('rain', f"rain expected within {rain:.0f} min with the wind toward the windows"))
 
     # 5. pollen: annotation always; a soft drawback only when there is a need to weigh it against
     pol = pollen or {}
     notes = []
+    if rain is not None and not any(b[0] == 'rain' for b in blocks):
+        notes.append('raining: a wind shift could blow rain in' if rain <= 0 else f"rain expected within {rain:.0f} min")
     if hi(voc, c['voc_note']) and voc < c['voc_need']:
         notes.append(f"VOC index {voc:.0f} (relative, informational)")
     high = {k: num(pol.get(k)) for k in ('tree', 'grass', 'weed', 'mold')}
@@ -453,7 +508,8 @@ class Advisor:
         r = advise(dict(co2=co2, pm25=pm, voc=voc, temp_f=ind.get('temp_f'), rh=rh, dp_rise_30=rise),
                    out, frozenset(self.latched), pollen, c)
         if r['verdict'] == self.verdict:
-            escalated = self.severity == 'normal' and r['severity'] == 'severe' and r['verdict'] != 'NEUTRAL'
+            escalated = (self.severity == 'normal' and r['severity'] == 'severe' and r['verdict'] != 'NEUTRAL') \
+                or (r['cls'] == 'hazard' and r['alert_text'] != self.alert_text)
             self.reason, self.severity, self.cls, self.alert_text = \
                 r['reason'], r['severity'], r['cls'], r['alert_text']
             self.notes = r['notes']

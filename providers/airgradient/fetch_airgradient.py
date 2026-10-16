@@ -74,6 +74,7 @@ DEFAULT_TIMEOUT_SEC = 5
 DEFAULT_CARRY_MAX_AGE_SEC = 600
 DEFAULT_AIR_MAX_AGE_SEC = 7200
 DEFAULT_WX_MAX_AGE_SEC = 1800
+DEFAULT_STORM_LOOKAHEAD_MIN = 180
 DEFAULT_LOG_KEEP_DAYS = 365
 DEFAULT_GAP_LOG_SEC = 300
 STATE_VERSION = 1
@@ -295,6 +296,193 @@ def gather_wind(now: float) -> dict:
     return wind
 
 
+# -----------------------------------------------------------------------
+# Weather hazards for the advisor: thunder and rain now (METAR, OpenWeather) and expected (TAF)
+# -----------------------------------------------------------------------
+
+_WX_TOKEN = re.compile(r"^(?:[-+]|VC)?(?:MI|BC|PR|DR|BL|SH|TS|FZ)*(?:DZ|RA|SN|SG|IC|PL|GR|GS|UP)*$")
+
+
+def wx_token_flags(tok: str):
+    """(thunder, rain) for one METAR/TAF present-weather token. Thunder is any TS (VCTS included: a storm
+    within 5 to 10 miles of the airport, which is about the distance to the house). Rain is RA, DZ or SH
+    (showers). Snow, mist and the like count as neither."""
+    if not tok or not _WX_TOKEN.match(tok):
+        return False, False
+    return "TS" in tok, ("RA" in tok or "DZ" in tok or "SH" in tok)
+
+
+def parse_metar_weather(raw, now: float):
+    """Present weather in a raw METAR: {'ts': bool, 'rain': bool, 'obs': epoch or None}. Empty if no METAR."""
+    if not isinstance(raw, str) or not raw.strip():
+        return {}
+    toks = raw.strip().splitlines()[0].split()
+    ts = rain = False
+    for tok in toks[2:]:
+        if tok == "RMK":
+            break
+        t, r = wx_token_flags(tok)
+        ts, rain = ts or t, rain or r
+    obs = None
+    meta = parse_metar_wind(raw, now)
+    if meta.get("metar_obs"):
+        obs = parse_iso(meta["metar_obs"])
+    return {"ts": ts, "rain": rain, "obs": obs}
+
+
+_TAF_DDHH = re.compile(r"^(\d{2})(\d{2})/(\d{2})(\d{2})$")
+_TAF_FM = re.compile(r"^FM(\d{2})(\d{2})(\d{2})$")
+_TAF_ISSUE = re.compile(r"^(\d{2})(\d{2})(\d{2})Z$")
+
+
+def _resolve_day_hour(day: int, hour: int, minute: int, ref: float):
+    """The UTC epoch of day-of-month/hour/minute nearest to `ref` (a TAF carries no month)."""
+    n = datetime.fromtimestamp(ref, timezone.utc)
+    best = None
+    for dm in (-1, 0, 1):
+        y, mo = n.year, n.month + dm
+        if mo == 0:
+            y, mo = y - 1, 12
+        elif mo == 13:
+            y, mo = y + 1, 1
+        try:
+            base = datetime(y, mo, day, 0, 0, tzinfo=timezone.utc).timestamp() + hour * 3600 + minute * 60
+        except ValueError:
+            continue
+        if best is None or abs(base - ref) < abs(best - ref):
+            best = base
+    return best
+
+
+def _taf_wind(toks):
+    """Wind direction from a group's tokens: degrees, None for variable or calm, and a flag for 'none given'."""
+    for tok in toks:
+        w = _METAR_WIND.match(tok)
+        if w:
+            return (None if (w.group(1) == "VRB" or int(w.group(2)) == 0) else int(w.group(1))), True
+    return None, False
+
+
+def parse_taf(raw, now: float):
+    """Forecast periods from a raw TAF: a list of {start, end, ts, rain, wind_deg} (epoch seconds; wind_deg None
+    for variable or calm). FM groups replace the prevailing conditions from their time; BECMG, TEMPO and PROBnn
+    groups are taken as possible within their own window (the cautious reading). A group without a wind
+    takes the prevailing wind. [] if unparseable."""
+    if not isinstance(raw, str) or not raw.strip():
+        return []
+    toks = raw.split()
+    issue = None
+    k = 0
+    while k < len(toks) and not _TAF_DDHH.match(toks[k]):
+        m = _TAF_ISSUE.match(toks[k])
+        if m and issue is None:
+            issue = _resolve_day_hour(int(m.group(1)), int(m.group(2)), int(m.group(3)), now)
+        k += 1
+    if k >= len(toks) or issue is None:
+        return []
+    m = _TAF_DDHH.match(toks[k])
+    start = _resolve_day_hour(int(m.group(1)), int(m.group(2)), 0, issue)
+    end = _resolve_day_hour(int(m.group(3)), int(m.group(4)), 0, start)
+    if start is None or end is None:
+        return []
+    groups = [{"kind": "prevailing", "start": start, "end": end, "toks": []}]
+    k += 1
+    while k < len(toks):
+        tok = toks[k]
+        mfm = _TAF_FM.match(tok)
+        if mfm:
+            t0 = _resolve_day_hour(int(mfm.group(1)), int(mfm.group(2)), int(mfm.group(3)), issue)
+            groups.append({"kind": "prevailing", "start": t0, "end": end, "toks": []})
+            k += 1
+            continue
+        if tok in ("BECMG", "TEMPO") or re.match(r"^PROB\d\d$", tok):
+            j = k + 1
+            if tok.startswith("PROB") and j < len(toks) and toks[j] == "TEMPO":
+                j += 1
+            mv = _TAF_DDHH.match(toks[j]) if j < len(toks) else None
+            if mv:
+                a = _resolve_day_hour(int(mv.group(1)), int(mv.group(2)), 0, issue)
+                b = _resolve_day_hour(int(mv.group(3)), int(mv.group(4)), 0, a or issue)
+                if a is None or b is None:
+                    return []
+                groups.append({"kind": "sibling", "start": a, "end": b, "toks": []})
+                k = j + 1
+                continue
+        groups[-1]["toks"].append(tok)
+        k += 1
+    prev = [g for g in groups if g["kind"] == "prevailing"]
+    for n, g in enumerate(prev):                       # a prevailing group ends where the next one starts
+        g["end"] = prev[n + 1]["start"] if n + 1 < len(prev) else end
+    periods = []
+    for g in groups:
+        deg, given = _taf_wind(g["toks"])
+        if not given:
+            cover = [p for p in prev if p["start"] <= g["start"] < p["end"]]
+            deg = cover[-1].get("wind_deg") if cover else None
+        g["wind_deg"] = deg
+        ts = rain = False
+        for tok in g["toks"]:
+            t, r = wx_token_flags(tok)
+            ts, rain = ts or t, rain or r
+        periods.append({"start": g["start"], "end": g["end"], "ts": ts, "rain": rain, "wind_deg": deg})
+    return periods
+
+
+def taf_outlook(raw, now: float, lookahead_s: float):
+    """What the TAF expects within the look-ahead: {'ts_min', 'rain_min', 'rain_wind_deg'} (minutes from now,
+    0 = under way), each None when nothing is expected. {} when the TAF is missing, unparseable or already over."""
+    periods = parse_taf(raw, now)
+    if not periods or max(p["end"] for p in periods) <= now:
+        return {}
+    horizon = now + lookahead_s
+    ts_min = rain_min = rain_wind = None
+    for per in sorted(periods, key=lambda x: x["start"]):
+        if per["end"] <= now or per["start"] >= horizon:
+            continue
+        mins = max(0.0, (per["start"] - now) / 60.0)
+        if per["ts"] and (ts_min is None or mins < ts_min):
+            ts_min = mins
+        if per["rain"] and (rain_min is None or mins < rain_min):
+            rain_min, rain_wind = mins, per["wind_deg"]
+    return {"ts_min": ts_min, "rain_min": rain_min, "rain_wind_deg": rain_wind}
+
+
+def weather_hazard(now: float, lookahead_s: float, wx_fresh: bool, aviation_max_age: float = 7200) -> dict:
+    """Advisor inputs for thunder and rain, and the wind that decides whether rain would blow in:
+    now = METAR present weather (a report under 90 minutes old) or OpenWeather's condition code (fresh);
+    expected = the TAF within the look-ahead. OpenWeather's wind direction is used when fresh, else the METAR's.
+    Keys are present only when there is something to report (the advisor treats absent as none)."""
+    out = {}
+    wx = read_json(CACHE_ROOT / "shared" / "weather" / WEATHER_PROFILE / "current.json")
+    av = read_json(CACHE_ROOT / "shared" / "aviation" / AVIATION_PROFILE / "current.json")
+    code = va.num(wx.get("wx_code")) if isinstance(wx, dict) and wx_fresh else None
+    ts_now = rain_now = False
+    if code is not None:
+        ts_now = 200 <= code < 300
+        rain_now = 300 <= code < 400 or 500 <= code < 600
+    metar_raw = av.get("metar_raw") if isinstance(av, dict) else None
+    mw = parse_metar_weather(metar_raw, now)
+    if mw.get("obs") is not None and -300 <= now - mw["obs"] <= 5400:
+        ts_now, rain_now = ts_now or mw["ts"], rain_now or mw["rain"]
+    wind_deg = va.num(wx.get("wind_deg")) if isinstance(wx, dict) and wx_fresh else None
+    if wind_deg is None:
+        wind_deg = parse_metar_wind(metar_raw, now).get("wind_dir")
+    out["wind_deg"] = wind_deg
+    gen = parse_iso(av.get("generated_at")) if isinstance(av, dict) else None
+    soon = {}
+    if gen is not None and -60 <= now - gen <= aviation_max_age:
+        soon = taf_outlook(av.get("taf_raw"), now, lookahead_s)
+    ts_min = 0.0 if ts_now else soon.get("ts_min")
+    rain_min = 0.0 if rain_now else soon.get("rain_min")
+    if ts_min is not None:
+        out["ts_min"] = ts_min
+    if rain_min is not None:
+        out["rain_min"] = rain_min
+        if not rain_now and soon.get("rain_min") is not None:
+            out["rain_wind_deg"] = soon.get("rain_wind_deg")
+    return out
+
+
 def read_pollen(csv_path: Path):
     """Seasonal pollen index for today's local day of year, or None if the file or row is missing."""
     try:
@@ -319,6 +507,10 @@ def advisor_cfg(profile: dict) -> dict:
     for k, v in (adv.get("thresholds", {}) or {}).items():
         if k in va.DEFAULTS and isinstance(v, (int, float)) and not isinstance(v, bool):
             cfg[k] = v
+    for k in ("window_facing_deg", "wind_side_deg"):
+        v = adv.get(k)
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and 0 <= v <= 360:
+            cfg[k] = float(v)
     pol = adv.get("pollen", {}) or {}
     if isinstance(pol.get("threshold"), (int, float)):
         cfg["pollen_threshold"] = pol["threshold"]
@@ -419,7 +611,8 @@ INPUT_COLUMNS = ["epoch", "utc", "co2_ppm", "pm25_ugm3", "pm10_ugm3", "pm1_ugm3"
                  "out_aqi", "out_pm25", "out_pm10", "out_owm_pm25", "out_owm_pm10", "pm_source", "air_fresh",
                  "out_temp_f", "out_rh", "wx_fresh", "pollen_tree", "pollen_grass", "pollen_weed", "pollen_mold",
                  "verdict", "class", "severity",
-                 "out_wind_kt", "out_wind_gust_kt", "out_wind_dir", "out_wind_variable", "metar_obs", "out_wind_mph_owm"]
+                 "out_wind_kt", "out_wind_gust_kt", "out_wind_dir", "out_wind_variable", "metar_obs", "out_wind_mph_owm",
+                 "out_rain_min", "out_ts_min", "out_wind_deg"]
 
 
 def ensure_header(path: Path):
@@ -456,7 +649,7 @@ def log_inputs(now: float, reading: dict, carried: list, out: dict, flags: dict,
            adv.verdict, adv.cls, adv.severity]
     wd = wind or {}
     row += [wd.get("wind_kt"), wd.get("wind_gust_kt"), wd.get("wind_dir"), wd.get("wind_variable"), wd.get("metar_obs"),
-            wd.get("wind_mph_owm")]
+            wd.get("wind_mph_owm"), out.get("rain_min"), out.get("ts_min"), out.get("wind_deg")]
     path = LOG_DIR / f"inputs-{datetime.fromtimestamp(now).strftime('%Y%m%d')}.csv"
     try:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -575,6 +768,9 @@ def main():
     partial = bool(unavailable) and now - state["first_t"] >= carry_max_age
     out, flags = gather_outdoor(now, float(outdoor_cfg.get("air_max_age_sec") or DEFAULT_AIR_MAX_AGE_SEC),
                                 float(outdoor_cfg.get("wx_max_age_sec") or DEFAULT_WX_MAX_AGE_SEC))
+    if advisor_on:
+        out.update(weather_hazard(now, float(adv_cfg_toml.get("storm_lookahead_min") or DEFAULT_STORM_LOOKAHEAD_MIN) * 60,
+                                  flags["wx_fresh"]))
     pollen = None
     if advisor_on and pol_cfg.get("enabled", True):
         csv_path = Path(str(pol_cfg.get("csv") or "")) if pol_cfg.get("csv") else \

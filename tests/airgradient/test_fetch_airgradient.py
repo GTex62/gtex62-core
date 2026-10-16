@@ -525,7 +525,7 @@ with open(sc.log_dir / f"inputs-{day}.csv", "w", newline="") as fh:
 sc.run(advance=60)
 rows_m = list(csv.DictReader(open(sc.log_dir / f"inputs-{day}.csv")))
 check("a file started under an older header is rewritten once under the current one: old row kept and padded, new row aligned",
-      len(rows_m) == 2 and rows_m[0]["co2_ppm"] == "500" and rows_m[0]["out_wind_kt"] == "" and rows_m[1]["co2_ppm"] != "" and list(rows_m[0])[-1] == "out_wind_mph_owm", str(list(rows_m[0])[-3:]))
+      len(rows_m) == 2 and rows_m[0]["co2_ppm"] == "500" and rows_m[0]["out_wind_kt"] == "" and rows_m[1]["co2_ppm"] != "" and list(rows_m[0])[-1] == "out_wind_deg", str(list(rows_m[0])[-3:]))
 sc.run(advance=60)
 check("later rows keep appending under the migrated header", len(list(csv.DictReader(open(sc.log_dir / f"inputs-{day}.csv")))) in (2, 3))
 sc.done()
@@ -548,6 +548,168 @@ check("a run while another holds the lock exits without writing",
 fcntl.flock(holder, fcntl.LOCK_UN); holder.close()
 sc.run(advance=1)
 check("and works normally once the lock is free", sc.status()["state"] == "ok")
+sc.done()
+
+# ---------------------------------------------------------------------------
+# 10. Weather hazards: thunder and rain now (METAR, OpenWeather) and expected (TAF), wind against the windows
+# ---------------------------------------------------------------------------
+set_payload()
+sc = Scenario()
+mod = sc.load()
+flags = mod.wx_token_flags
+check("present weather: RA, -RA, +TSRA, VCTS, VCSH, DZ are weather; BR, FG, SN, BKN020, KMEM are not",
+      flags("RA") == (False, True) and flags("-RA") == (False, True) and flags("+TSRA") == (True, True) and flags("VCTS") == (True, False)
+      and flags("VCSH") == (False, True) and flags("DZ") == (False, True) and flags("BR") == (False, False) and flags("FG") == (False, False)
+      and flags("SN") == (False, False) and flags("BKN020") == (False, False) and flags("KMEM") == (False, False) and flags("") == (False, False))
+NOWW = 1_792_155_000                                  # 2026-10-16 12:50:00Z
+mw = lambda raw: mod.parse_metar_weather(raw, NOWW)
+check("METAR present weather: thunder and rain found, the remarks section ignored",
+      mw("METAR KMEM 161254Z 35013G27KT 3SM -TSRA BKN023 18/12 A3014 RMK AO2")["ts"] is True
+      and mw("METAR KMEM 161254Z 35013KT 10SM BKN023 18/12 A3014 RMK AO2 RAB05")["rain"] is False
+      and mw("METAR KMEM 161254Z 35013KT 4SM RA BR OVC010 18/12 A3014")["rain"] is True and mw("")  == {})
+TAF1 = ("TAF KMEM 161120Z 1612/1718 18010KT P6SM SCT040\n FM161700 19012KT P6SM BKN030\n TEMPO 1618/1621 4SM -TSRA BKN025CB\n"
+        " PROB30 1620/1623 VRB25G40KT 1SM +TSRA\n FM170000 36010KT P6SM SCT050")
+per = mod.parse_taf(TAF1, NOWW)
+check("TAF: five groups, FM replaces the prevailing period, TEMPO and PROB are windows of their own",
+      len(per) == 5 and per[1]["start"] - per[0]["start"] == 5 * 3600 and per[0]["end"] == per[1]["start"], str(per))
+check("TAF: a group without a wind takes the prevailing one; VRB gives none; TS and rain flagged",
+      per[2]["wind_deg"] == 190 and per[2]["ts"] and per[2]["rain"] and per[3]["wind_deg"] is None and per[3]["ts"] and per[4]["wind_deg"] == 360)
+o3 = mod.taf_outlook(TAF1, NOWW, 3 * 3600)
+o6 = mod.taf_outlook(TAF1, NOWW, 6 * 3600)
+check("TAF look-ahead: the 18Z thunder is 4.5 h away: outside 3 h, inside 6 h, with the wind of that group",
+      o3 == {"ts_min": None, "rain_min": None, "rain_wind_deg": None} and o6["ts_min"] == 310.0 and o6["rain_min"] == 310.0 and o6["rain_wind_deg"] == 190, str((o3, o6)))
+check("TAF already over, empty or garbage: nothing, and never raises",
+      mod.taf_outlook(TAF1, 1_792_400_000, 3 * 3600) == {} and mod.taf_outlook("", NOWW, 3600) == {} and mod.taf_outlook(None, NOWW, 3600) == {}
+      and mod.parse_taf("garbage in, garbage out", NOWW) == [])
+sc.done()
+
+
+def hours(sc_, **kw):
+    return dict(kw)
+
+
+def ddhh(t):
+    g = time.gmtime(t)
+    return "%02d%02d" % (g.tm_mday, g.tm_hour)
+
+
+def aviation_cache(sc_, metar=None, taf=None, age=0):
+    d = sc_.cache / "shared" / "aviation" / "home"; d.mkdir(parents=True, exist_ok=True)
+    iso_ = lambda t: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))
+    (d / "current.json").write_text(json.dumps({"generated_at": iso_(sc_.t - age), "metar_raw": metar, "taf_raw": taf}))
+
+
+def taf_with(sc_, wx_group, start_min, wind="18010KT", base_wind="18010KT"):
+    """A TAF issued an hour ago, valid 24 h, with one TEMPO group starting `start_min` minutes from now."""
+    t0 = sc_.t + 60 * start_min
+    iss = time.gmtime(sc_.t - 3600)
+    return ("TAF KMEM %02d%02d%02dZ %s/%s %s P6SM SCT040\n TEMPO %s/%s %s %s" %
+            (iss.tm_mday, iss.tm_hour, iss.tm_min, ddhh(sc_.t - 3600), ddhh(sc_.t + 23 * 3600), base_wind,
+             ddhh(t0), ddhh(t0 + 7200), wind, wx_group))
+
+
+ONFACE = "shadow = false\nwindow_facing_deg = 180"
+sc = Scenario(advisor_extra=ONFACE, air=clean_air, wx=dict(clean_wx, wx_code=500, wind_deg=200))
+v = drive(sc, 3, rco2=1200)["ventilation"]
+check("raining with the wind from the south toward south-facing windows: hard CLOSE, alert shown, even with a CO2 need",
+      v["verdict"] == "CLOSE" and v["class"] == "hazard" and v["alert_visible"] and v["alert_text"] == "CLOSE WIN // RAIN", str(v))
+cols = list(csv.DictReader(open(next(sc.log_dir.glob("inputs-*.csv")))))[-1]
+check("the weather inputs are in the input log", cols["out_rain_min"] == "0.0" and cols["out_ts_min"] == "" and cols["out_wind_deg"] == "200.0", str(cols))
+sc.done()
+
+sc = Scenario(advisor_extra=ONFACE, air=clean_air, wx=dict(clean_wx, wx_code=500, wind_deg=20))
+v = drive(sc, 3, rco2=1200)["ventilation"]
+check("raining with the wind from the north: airing is still advised, with a wind-shift note",
+      v["verdict"] == "OPEN" and "raining: a wind shift could blow rain in" in v["reason"], str(v))
+sc.done()
+
+sc = Scenario(advisor_extra=ONFACE, air=clean_air, wx=dict(clean_wx, wx_code=502, wind_deg=270))
+v = drive(sc, 3, rco2=1200)["ventilation"]
+check("wind from the west is exactly 90 degrees from a south window: still the window side", v["alert_text"] == "CLOSE WIN // RAIN", str(v))
+sc.done()
+sc = Scenario(advisor_extra=ONFACE, air=clean_air, wx=dict(clean_wx, wx_code=502, wind_deg=269.0 - 180 + 180 - 180))
+v = drive(sc, 3, rco2=1200)["ventilation"]
+check("wind from 89 degrees (north-east side, 91 from the windows): not the window side", v["alert_text"] != "CLOSE WIN // RAIN", str(v))
+sc.done()
+
+sc = Scenario(advisor_extra="shadow = false", air=clean_air, wx=dict(clean_wx, wx_code=500, wind_deg=200))
+v = drive(sc, 3, rco2=1200)["ventilation"]
+check("without window_facing_deg rain is only a note", v["verdict"] == "OPEN" and "raining: a wind shift" in v["reason"], str(v))
+sc.done()
+
+sc = Scenario(advisor_extra=ONFACE, air=clean_air, wx=dict(clean_wx, wx_code=211, wind_deg=20))
+v = drive(sc, 3, rco2=1200)["ventilation"]
+check("OpenWeather thunderstorm: hard CLOSE regardless of the wind direction",
+      v["verdict"] == "CLOSE" and v["alert_text"] == "CLOSE WIN // STORM" and "thunderstorm now" in v["reason"], str(v))
+sc.done()
+sc = Scenario(advisor_extra="shadow = false", air=clean_air, wx=dict(clean_wx, wx_code=211))
+v = drive(sc, 3, rco2=1200)["ventilation"]
+check("thunder closes even with no window direction configured", v["alert_text"] == "CLOSE WIN // STORM", str(v))
+sc.done()
+
+sc = Scenario(advisor_extra=ONFACE, air=clean_air, wx=dict(clean_wx, wx_code=800, wind_deg=200))
+aviation_cache(sc, metar="METAR KMEM %s 18010KT 3SM +TSRA BKN020 24/20 A2990" % time.strftime("%d%H%MZ", time.gmtime(sc.t - 600)), taf=None)
+v = drive(sc, 3, rco2=1200)["ventilation"]
+check("a METAR thunderstorm closes even when OpenWeather says clear", v["alert_text"] == "CLOSE WIN // STORM", str(v))
+sc.done()
+sc = Scenario(advisor_extra=ONFACE, air=clean_air, wx=dict(clean_wx, wx_code=800, wind_deg=200))
+aviation_cache(sc, metar="METAR KMEM %s 18010KT 3SM +TSRA BKN020 24/20 A2990" % time.strftime("%d%H%MZ", time.gmtime(sc.t - 3 * 3600)), taf=None)
+v = drive(sc, 3, rco2=1200)["ventilation"]
+check("a METAR more than 90 minutes old is not 'now'", v["verdict"] == "OPEN", str(v))
+sc.done()
+
+sc = Scenario(advisor_extra=ONFACE, air=clean_air, wx=dict(clean_wx, wx_code=800, wind_deg=200))
+aviation_cache(sc, metar=None, taf=taf_with(sc, "-TSRA BKN025CB", 90))
+v = drive(sc, 3, rco2=1200)["ventilation"]
+check("TAF thunder 90 minutes out: hard CLOSE, 'expected within', minutes counted from now",
+      v["alert_text"] == "CLOSE WIN // STORM" and "expected within" in v["reason"], str(v))
+sc.done()
+sc = Scenario(advisor_extra=ONFACE, air=clean_air, wx=dict(clean_wx, wx_code=800, wind_deg=200))
+aviation_cache(sc, metar=None, taf=taf_with(sc, "-TSRA BKN025CB", 240))
+v = drive(sc, 3, rco2=1200)["ventilation"]
+check("TAF thunder four hours out is beyond the 180 minute look-ahead", v["verdict"] == "OPEN", str(v))
+sc.done()
+sc = Scenario(advisor_extra=ONFACE + "\nstorm_lookahead_min = 360", air=clean_air, wx=dict(clean_wx, wx_code=800, wind_deg=200))
+aviation_cache(sc, metar=None, taf=taf_with(sc, "-TSRA BKN025CB", 240))
+v = drive(sc, 3, rco2=1200)["ventilation"]
+check("storm_lookahead_min = 360 brings it in", v["alert_text"] == "CLOSE WIN // STORM", str(v))
+sc.done()
+sc = Scenario(advisor_extra=ONFACE, air=clean_air, wx=dict(clean_wx, wx_code=800, wind_deg=200))
+aviation_cache(sc, metar=None, taf=taf_with(sc, "-TSRA BKN025CB", 90), age=4 * 3600)
+v = drive(sc, 3, rco2=1200)["ventilation"]
+check("an aviation cache more than 2 hours old is not trusted for the TAF", v["verdict"] == "OPEN", str(v))
+sc.done()
+
+sc = Scenario(advisor_extra=ONFACE, air=clean_air, wx=dict(clean_wx, wx_code=800, wind_deg=200))
+aviation_cache(sc, metar=None, taf=taf_with(sc, "-RA BKN025", 60, wind="19012KT"))
+v = drive(sc, 12, rco2=1200)["ventilation"]       # past the 10 minute dwell: the first minutes published CLOSE (block, no sustained CO2 yet)
+check("TAF rain expected with the forecast wind toward the windows: a soft drawback, so BRIEF not OPEN",
+      v["verdict"] == "BRIEF" and "rain expected within" in v["reason"] and "toward the windows" in v["reason"], str(v))
+sc.done()
+sc = Scenario(advisor_extra=ONFACE, air=clean_air, wx=dict(clean_wx, wx_code=800, wind_deg=200))
+aviation_cache(sc, metar=None, taf=taf_with(sc, "-RA BKN025", 60, wind="36012KT"))
+v = drive(sc, 3, rco2=1200)["ventilation"]
+check("TAF rain with the forecast wind from the north: OPEN, with a note", v["verdict"] == "OPEN" and "rain expected within" in v["reason"], str(v))
+sc.done()
+
+# an advisory CLOSE that becomes a hazard under the same verdict still raises an alert
+sc = Scenario(advisor_extra=ONFACE, air=clean_air, wx=dict(clean_wx, temp_f=92.0, wx_code=800, wind_deg=200))
+drive(sc, 4, rco2=450)
+v1 = sc.status()["ventilation"]
+sc.set_outdoor(wx=dict(clean_wx, temp_f=92.0, wx_code=211, wind_deg=200))
+drive(sc, 2, rco2=450)
+v2 = sc.status()["ventilation"]
+check("a hot-outside advisory CLOSE shows nothing, then a thunderstorm under the same verdict raises the STORM alert",
+      v1["verdict"] == "CLOSE" and v1["class"] == "advisory" and not v1["alert_visible"] and v2["class"] == "hazard"
+      and v2["alert_visible"] and v2["alert_text"] == "CLOSE WIN // STORM", str((v1, v2)))
+sc.done()
+
+sc = Scenario(advisor_extra=ONFACE, air=clean_air, wx=dict(clean_wx, wx_code=500, wind_deg=200))
+sc.set_outdoor(wx=dict(clean_wx, wx_code=500, wind_deg=200))
+(sc.cache / "shared" / "weather" / "home" / "current.json").write_text(json.dumps(
+    {"provider_updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(sc.t - 7200)), **clean_wx, "wx_code": 500, "wind_deg": 200}))
+v = drive(sc, 3, rco2=1200)["ventilation"]
+check("a stale weather cache is not used for 'raining now'", v["verdict"] == "OPEN", str(v))
 sc.done()
 
 server.shutdown()

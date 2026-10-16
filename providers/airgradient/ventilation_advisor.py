@@ -20,6 +20,7 @@ DEFAULTS = dict(
     rh_need=60, rh_block=50, dp_margin=2,
     cool_indoor=78, cool_delta=5, out_hot=85, out_cold=55,
     pollen_note=50, pollen_threshold=80, pollen_categories=('tree', 'grass'),
+    window_facing_deg=None, wind_side_deg=90,
 )
 
 def num(x):
@@ -36,6 +37,20 @@ def dewpoint_f(temp_f, rh):
     g = math.log(rh / 100.0) + a * c / (b + c)
     return (b * g / (a - g)) * 1.8 + 32
 
+def angle_diff(a, b):
+    d = abs(a - b) % 360
+    return min(d, 360 - d)
+
+def wind_on_windows(wind_deg, c=DEFAULTS):
+    """Would rain be blown in? True when the wind comes from within wind_side_deg of the direction the
+    windows face; unknown or variable wind counts as yes (the cautious answer). None when the profile
+    does not say which way the windows face."""
+    facing = num(c['window_facing_deg'])
+    if facing is None:
+        return None
+    d = num(wind_deg)
+    return True if d is None else angle_diff(d, facing) <= c['wind_side_deg']
+
 def humid_trip(rh, rise, latched, c=DEFAULTS):
     """Entry: RH >= 70, or RH >= 66 with dew point up >= 4F in 30 min.
     Release (hysteresis): RH < 66 and dew point rise < 2F."""
@@ -46,7 +61,8 @@ def humid_trip(rh, rise, latched, c=DEFAULTS):
 def advise(ind, out=None, latched=frozenset(), pollen=None, cfg=None):
     """Pure rule evaluation. `ind` holds sustained co2/pm25/voc (None while the
     sustain window is not yet warm), instantaneous temp_f/rh, and dp_rise_30.
-    `out` (all keys optional): aqi, pm25, pm10 (the air cache's `selected` values), pm_source
+    `out` (all keys optional): ts_min and rain_min (minutes until thunder / rain at the site, 0 = now,
+    absent = none expected), wind_deg and rain_wind_deg (wind now / in the forecast rain period), aqi, pm25, pm10 (the air cache's `selected` values), pm_source
     ('airnow'|'owm'), owm_pm25, owm_pm10 (OpenWeather's own components), air_fresh, temp_f, rh,
     wx_fresh. Returns a structured dict."""
     c = {**DEFAULTS, **(cfg or {})}
@@ -88,6 +104,16 @@ def advise(ind, out=None, latched=frozenset(), pollen=None, cfg=None):
             why += ' (CO2 is high; use an air purifier or a very short airing)'
         return res('CLOSE', why, 'hazard', alert='CLOSE WIN // OUTDOOR AIR')
 
+    # 1b. hard close: thunder now or expected (the wind can shift violently), or rain now with the wind
+    # blowing onto the windows. Rain with the wind away from them is only a note (see 5).
+    ts, rain = num(o.get('ts_min')), num(o.get('rain_min'))
+    if ts is not None:
+        when = 'now' if ts <= 0 else f"expected within {ts:.0f} min"
+        return res('CLOSE', 'Close windows: thunderstorm ' + when, 'hazard', alert='CLOSE WIN // STORM')
+    if rain is not None and rain <= 0 and wind_on_windows(o.get('wind_deg'), c):
+        return res('CLOSE', 'Close windows: raining with the wind toward the windows', 'hazard',
+                   alert='CLOSE WIN // RAIN')
+
     # 2. indoor humidity trip (needs no outdoor data)
     tripped = rh is not None and humid_trip(rh, rise, 'humid' in latched, c)
     if tripped and not drier:
@@ -123,10 +149,14 @@ def advise(ind, out=None, latched=frozenset(), pollen=None, cfg=None):
             needs.append(('cool', 'free cooling available', 'COOLER OUTSIDE'))
     if soft_pm and o25 > c['pm_enter'] and pm is not None and o25 >= pm + c['pm_margin']:
         blocks.append(('pm_out', f"outdoor PM2.5 {o25:.0f}"))
+    if rain is not None and rain > 0 and wind_on_windows(o.get('rain_wind_deg', o.get('wind_deg')), c):
+        blocks.append(('rain', f"rain expected within {rain:.0f} min with the wind toward the windows"))
 
     # 5. pollen: annotation always; a soft drawback only when there is a need to weigh it against
     pol = pollen or {}
     notes = []
+    if rain is not None and not any(b[0] == 'rain' for b in blocks):
+        notes.append('raining: a wind shift could blow rain in' if rain <= 0 else f"rain expected within {rain:.0f} min")
     if hi(voc, c['voc_note']) and voc < c['voc_need']:
         notes.append(f"VOC index {voc:.0f} (relative, informational)")
     high = {k: num(pol.get(k)) for k in ('tree', 'grass', 'weed', 'mold')}
@@ -232,7 +262,8 @@ class Advisor:
         r = advise(dict(co2=co2, pm25=pm, voc=voc, temp_f=ind.get('temp_f'), rh=rh, dp_rise_30=rise),
                    out, frozenset(self.latched), pollen, c)
         if r['verdict'] == self.verdict:
-            escalated = self.severity == 'normal' and r['severity'] == 'severe' and r['verdict'] != 'NEUTRAL'
+            escalated = (self.severity == 'normal' and r['severity'] == 'severe' and r['verdict'] != 'NEUTRAL') \
+                or (r['cls'] == 'hazard' and r['alert_text'] != self.alert_text)
             self.reason, self.severity, self.cls, self.alert_text = \
                 r['reason'], r['severity'], r['cls'], r['alert_text']
             self.notes = r['notes']

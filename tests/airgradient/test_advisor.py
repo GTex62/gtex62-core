@@ -201,6 +201,47 @@ for ind, out in ((dict(co2=99999), clean()), (dict(co2=1200, rh=73), clean(temp_
     r = va.advise({**BASE, **ind}, out)
     check(f"alert text fits 29 characters: {r['alert_text']!r}", len(r["alert_text"]) <= 29)
 
+# Weather hard closes: thunder, and rain with the wind onto the windows (south-facing windows: facing 180)
+W = lambda **k: clean(**k)
+def advise_w(ind, out, facing=180.0, **cfg):
+    return va.advise({**BASE, **ind}, out, frozenset(), None, {"window_facing_deg": facing, **cfg})
+r = advise_w(dict(co2=1700), W(ts_min=0.0, wind_deg=20))
+check("thunder now beats even a severe need and ignores the wind", r["verdict"] == "CLOSE" and r["cls"] == "hazard" and r["alert_text"] == "CLOSE WIN // STORM", str(r))
+r = advise_w(dict(co2=1200), W(ts_min=95.0))
+check("thunder expected: hard close with the minutes in the reason", r["verdict"] == "CLOSE" and "expected within 95 min" in r["reason"], str(r))
+r = va.advise({**BASE, **dict(co2=1200)}, W(ts_min=0.0))
+check("thunder closes with no window direction configured", r["alert_text"] == "CLOSE WIN // STORM")
+r = advise_w(dict(co2=450), W(aqi=150, ts_min=0.0))
+check("a poor-air hazard still comes first (same CLOSE, its own text)", r["alert_text"] == "CLOSE WIN // OUTDOOR AIR", str(r))
+for deg, hard in ((180, True), (270, True), (90, True), (271, False), (89, False), (0, False), (None, True)):
+    r = advise_w(dict(co2=1200), W(rain_min=0.0, wind_deg=deg))
+    check(f"rain now, wind from {deg}: {'hard CLOSE' if hard else 'only a note'} (90 degrees either side of a south window; unknown counts as toward)",
+          (r["alert_text"] == "CLOSE WIN // RAIN") == hard and (hard or (r["verdict"] == "OPEN" and any("raining" in n for n in r["notes"]))), str(r))
+r = va.advise({**BASE, **dict(co2=1200)}, W(rain_min=0.0, wind_deg=180))
+check("rain with no window direction is a note only", r["verdict"] == "OPEN" and any("raining" in n for n in r["notes"]), str(r))
+r = advise_w(dict(co2=1200), W(rain_min=40.0, rain_wind_deg=190, wind_deg=20))
+check("rain forecast with the forecast wind toward the windows: BRIEF (the forecast wind decides, not the current one)",
+      r["verdict"] == "BRIEF" and "rain" in r["blocks"], str(r))
+r = advise_w(dict(co2=1200), W(rain_min=40.0, rain_wind_deg=10, wind_deg=190))
+check("rain forecast with the wind from the north: OPEN plus a note", r["verdict"] == "OPEN" and any("rain expected within 40 min" in n for n in r["notes"]), str(r))
+r = advise_w(dict(co2=1700), W(rain_min=40.0, rain_wind_deg=190))
+check("a severe need still opens despite forecast rain", r["verdict"] == "OPEN", str(r))
+r = advise_w(dict(co2=450), W(rain_min=40.0, rain_wind_deg=190))
+check("forecast rain with nothing to ventilate: advisory CLOSE, never shown", r["verdict"] == "CLOSE" and r["cls"] == "advisory", str(r))
+check("window_facing_deg defaults to none (a fresh install never gets a rain close)", va.DEFAULTS["window_facing_deg"] is None and va.wind_on_windows(180) is None)
+check("angle difference wraps around north", va.angle_diff(350, 10) == 20 and va.angle_diff(0, 180) == 180 and va.angle_diff(90, 270) == 180)
+# an advisory CLOSE turning into a hazard under the same verdict, and one hazard replacing another, start a new alert
+a = va.Advisor({"window_facing_deg": 180.0})
+t = 1_792_000_000
+for i in range(5):
+    a.step(t + 60 * i, dict(co2=450, pm25=2, voc=50, temp_f=75, rh=50), clean(temp_f=92.0))
+check("hot outside, nothing to do: advisory CLOSE, no alert", a.verdict == "CLOSE" and a.cls == "advisory" and not a.alert(t + 300)["visible"])
+ev = a.step(t + 360, dict(co2=450, pm25=2, voc=50, temp_f=75, rh=50), clean(temp_f=92.0, ts_min=0.0))
+check("thunderstorm arrives under the same verdict: the step fires an alert, visible with the storm text",
+      ev == "escalate" and a.alert(t + 360)["visible"] and a.alert(t + 360)["text"] == "CLOSE WIN // STORM", str((ev, a.alert(t + 360))))
+ev = a.step(t + 420, dict(co2=450, pm25=2, voc=50, temp_f=75, rh=50), clean(temp_f=92.0, ts_min=0.0))
+check("the same hazard on the next minute does not re-fire", ev is None)
+
 print()
 if FAILURES:
     print(f"{len(FAILURES)} FAILED: " + "; ".join(FAILURES))

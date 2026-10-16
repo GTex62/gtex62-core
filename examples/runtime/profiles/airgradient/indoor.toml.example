@@ -32,6 +32,14 @@ log_keep_days = 365
 # "offline" (the machine was off or the suite closed) or "unreachable" (the device could not be read).
 # gap_log_sec = 300
 
+# Weather. Thunder (now, or in the TAF within storm_lookahead_min minutes) always means CLOSE. Rain now means CLOSE
+# only when the wind comes from the side the windows face: set the compass direction they face (180 = south,
+# 0 = north, 90 = east, 270 = west) to switch that on; without it rain is only a note. wind_side_deg is the
+# half-angle counted as toward the windows (default 90: the whole half-circle).
+# window_facing_deg = 180
+# wind_side_deg = 90
+# storm_lookahead_min = 180
+
 # Every advisor threshold can be overridden here; names and defaults are the DEFAULTS
 # dictionary in providers/airgradient/ventilation_advisor.py (docs/ventilation-advisor-design.md).
 # [advisor.thresholds]
