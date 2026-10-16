@@ -59,4 +59,5 @@ wx_max_age_sec = 1800
 # prefix = "sensor.<your_device>_"                      # entity id prefix of the AirGradient sensors (required)
 # thermostat = "climate.<your_thermostat>"              # optional: setpoint and AC state
 # weather = "weather.<your_weather_entity>"             # optional: HA's outdoor weather entity
+# zone_thermostats = ["climate.<other_zone>"]          # optional: other zones' thermostats (zone_thermostats.csv), to compare rooms
 # keep_months = 12                                      # months kept live; older rows go to archive/ as monthly .csv.gz

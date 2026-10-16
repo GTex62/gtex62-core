@@ -31,6 +31,18 @@ this early in boot. A second, persistent failure still logs to `fetch.log` and r
 
 ---
 
+## Unreleased
+
+**airgradient export: other zones' thermostats (2026-10-16).** A house heats and cools by zone, and the room with the
+sensor is rarely the room with the thermostat (the stairwell hallway can read 4 F cooler than the office above the garage).
+New optional `[ha_export] zone_thermostats = ["climate.<zone>", ...]` (or repeatable `--zone-thermostat`) writes every
+state change of those climate entities (mode, action, setpoint, current temperature, fan mode and state) to
+`zone_thermostats.csv`, one row per change with an `entity` column, merged on re-runs, aged into the monthly archive like
+the other files. A named entity missing from the recorder is reported on stderr and skipped. Nothing else changes: the
+main `thermostat` still drives the per-minute `ac_*` columns. Tests: `test_ha_export.py`.
+
+---
+
 ## 0.14.0 — 2026-10-09
 
 Rounds out the AirGradient provider after 0.13.x: a Home Assistant history export that runs itself, gap markers in

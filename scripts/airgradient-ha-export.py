@@ -26,11 +26,13 @@ Writes, under <data_root>/airgradient/<profile>/ha_export/ (data_root from core.
                            handler's fan was running (it pulses on its own in "Circulation" mode)
     outdoor_weather.csv    HA's own outdoor weather entity (temperature, humidity, dew point, ...), as recorded
     thermostat.csv         thermostat state changes
+    zone_thermostats.csv   optional: state changes of other zones' thermostats (one row per change, an `entity`
+                           column), for comparing the rooms of a house with the AirGradient room
     statistics_hourly.csv  HA's long-term hourly statistics (kept indefinitely) for the nine sensors
     archive/               rows that have aged out of the rolling window, one gzip per file per month
     manifest.json          what was exported, from where, coverage, retention and units
 
-Rolling window: the four CSVs above hold the last `keep_months` months (default 12, so there is always a
+Rolling window: the CSVs above hold the last `keep_months` months (default 12, so there is always a
 year of data to analyze, a full seasonal cycle). Older rows are moved, not deleted, into
 archive/<name>-YYYY-MM.csv.gz and merged into an existing month file if there is one. `keep_months = 0`
 keeps everything live. The tool never deletes an archive file.
@@ -259,6 +261,8 @@ def main(argv=None):
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--prefix", default=None, help="entity id prefix of the AirGradient sensors, e.g. sensor.<device>_ (required)")
     ap.add_argument("--thermostat", default=None, help="climate entity for setpoint and AC state (optional)")
+    ap.add_argument("--zone-thermostat", action="append", default=None, dest="zone_thermostats",
+                    help="climate entity of another zone, repeatable (optional; written to zone_thermostats.csv)")
     ap.add_argument("--weather", default=None, help="outdoor weather entity (optional)")
     ap.add_argument("--keep-months", type=int, default=None, help="months kept live; older rows are archived (default 12, 0 = keep all live)")
     ap.add_argument("--max-silence-sec", type=float, default=None,
@@ -279,6 +283,8 @@ def main(argv=None):
     args.prefix = pick(args.prefix, "prefix")
     args.thermostat = pick(args.thermostat, "thermostat")
     args.weather = pick(args.weather, "weather")
+    zones = pick(args.zone_thermostats, "zone_thermostats", [])
+    args.zone_thermostats = [str(z) for z in (zones if isinstance(zones, list) else [zones]) if z]
     args.max_silence_sec = float(pick(args.max_silence_sec, "max_silence_sec", DEFAULT_MAX_SILENCE_SEC))
     keep_months = int(pick(args.keep_months, "keep_months", DEFAULT_KEEP_MONTHS))
     if not args.prefix:
@@ -383,6 +389,22 @@ def main(argv=None):
                                             trows, ["utc_time"], "utc_time", cutoff, archive_dir)
             moved.update(arch)
 
+        merged_zones = None
+        if args.zone_thermostats:
+            zrows = []
+            for zid in args.zone_thermostats:
+                zmid = metadata_id(con, zid)
+                for ts, st, a in (attr_states(con, zmid) if zmid is not None else []):
+                    zrows.append([iso(ts), datetime.fromtimestamp(ts, tz).strftime("%Y-%m-%d %H:%M:%S"), zid, st, a.get("hvac_action"),
+                                  a.get("temperature"), a.get("current_temperature"), a.get("fan_mode"), a.get("fan_state")])
+                if zmid is None:
+                    print(f"zone thermostat {zid} not found in the recorder database", file=sys.stderr)
+            zrows.sort(key=lambda r: (r[0], r[2]))
+            merged_zones, arch = merge_csv(out / "zone_thermostats.csv",
+                                           ["utc_time", "local_time", "entity", "mode", "hvac_action", "setpoint", "current_temperature", "fan_mode", "fan_state"],
+                                           zrows, ["utc_time", "entity"], "utc_time", cutoff, archive_dir)
+            moved.update(arch)
+
         srows = []
         for sid, unit, st_ts, mean, mn, mx in con.execute(
                 "select m.statistic_id, m.unit_of_measurement, s.start_ts, s.mean, s.min, s.max from statistics s "
@@ -406,6 +428,7 @@ def main(argv=None):
             "indoor_1min.csv": span(merged_indoor, 1),
             "outdoor_weather.csv": span(merged_weather, 0) if merged_weather is not None else None,
             "thermostat.csv": span(merged_thermo, 0) if merged_thermo is not None else None,
+            "zone_thermostats.csv": span(merged_zones, 0) if merged_zones is not None else None,
             "statistics_hourly.csv": span(merged_stats, 1)}.items() if v is not None},
         "retention": {"keep_months": keep_months, "cutoff": cutoff, "archive_dir": "archive",
                       "moved_this_run": moved, "archive_files": archive_listing(archive_dir)},

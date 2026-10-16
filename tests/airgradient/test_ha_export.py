@@ -49,7 +49,7 @@ def make_db(path, minutes=range(20), co2_gap=range(5, 15), temp_unit="°C", drop
     """)
     ents = {"sensor.t_carbon_dioxide": 1, "sensor.t_pm0_3": 2, "sensor.t_pm1": 3, "sensor.t_pm2_5": 4, "sensor.t_pm10": 5,
             "sensor.t_voc_index": 6, "sensor.t_temperature": 7, "sensor.t_humidity": 8, "sensor.t_nox_index": 9,
-            "climate.t": 10, "weather.t": 11}
+            "climate.t": 10, "weather.t": 11, "climate.main": 12, "climate.bed": 13}
     for e, i in ents.items():
         con.execute("insert into states_meta values (?,?)", (i, e))
     aid = [0]
@@ -76,6 +76,9 @@ def make_db(path, minutes=range(20), co2_gap=range(5, 15), temp_unit="°C", drop
     state(10, T0, "cool", {"hvac_action": "idle", "temperature": 76, "current_temperature": 75, "fan_mode": "Circulation", "fan_state": "Idle / off"})
     state(10, T0 + 2 * 60 + 5, "cool", {"hvac_action": "idle", "temperature": 76, "current_temperature": 75, "fan_mode": "Circulation", "fan_state": "Running / running low"})
     state(10, T0 + 3 * 60 + 5, "cool", {"hvac_action": "cooling", "temperature": 76, "current_temperature": 76, "fan_mode": "Circulation", "fan_state": "Running / running low"})
+    state(12, T0 + 30, "cool", {"hvac_action": "idle", "temperature": 76, "current_temperature": 75.8, "fan_mode": "Auto low", "fan_state": "Idle / off"})
+    state(12, T0 + 4 * 60, "cool", {"hvac_action": "cooling", "temperature": 76, "current_temperature": 76.2, "fan_mode": "Auto low", "fan_state": "Running / running low"})
+    state(13, T0 + 90, "off", {"hvac_action": "idle", "temperature": None, "current_temperature": 76.4, "fan_mode": "Auto low", "fan_state": "Idle / off"})
     state(11, T0 + 10, "sunny", {"temperature": 70, "humidity": 60, "dew_point": 55, "pressure": 30.0})
     state(11, T0 + 600, "cloudy", {"temperature": 69, "humidity": 62, "dew_point": 55.5, "pressure": 30.0})
     con.execute("insert into statistics_meta values (1,'sensor.t_carbon_dioxide','ppm')")
@@ -128,6 +131,18 @@ check("thermostat changes recorded, with fan mode and state", len(th) == 3 and t
       and th[0]["fan_mode"] == "Circulation" and th[0]["fan_state"] == "Idle / off" and th[1]["fan_state"] == "Running / running low", str(th))
 check("indoor rows carry whether the fan was running, as of each minute start",
       ind[0]["ac_fan_running"] == "0" and ind[2]["ac_fan_running"] == "1" and ind[3]["ac_fan_running"] == "1", f"{ind[0]['ac_fan_running']} {ind[2]['ac_fan_running']} {ind[3]['ac_fan_running']}")
+check("without --zone-thermostat no zone file is written", not (out / "zone_thermostats.csv").exists() and "zone_thermostats.csv" not in json.loads((out / "manifest.json").read_text())["files"])
+zout = d / "zones"
+rz = run(db, zout, "--zone-thermostat", "climate.main", "--zone-thermostat", "climate.bed", "--zone-thermostat", "climate.nope")
+zr = rows(zout / "zone_thermostats.csv") if (zout / "zone_thermostats.csv").exists() else []
+check("zone thermostats: one row per change, with an entity column, ordered by time",
+      rz.returncode == 0 and [(r["entity"], r["hvac_action"], r["current_temperature"]) for r in zr] ==
+      [("climate.main", "idle", "75.8"), ("climate.bed", "idle", "76.4"), ("climate.main", "cooling", "76.2")], str(zr) + rz.stderr[-200:])
+check("a zone thermostat with no recorder entity is reported, not fatal", "climate.nope" in rz.stderr and rz.returncode == 0, rz.stderr[-200:])
+check("a null setpoint (thermostat off) stays blank", zr[1]["mode"] == "off" and zr[1]["setpoint"] == "", str(zr[1]))
+rz2 = run(db, zout, "--zone-thermostat", "climate.main", "--zone-thermostat", "climate.bed")
+check("re-running merges without duplicating rows", rz2.returncode == 0 and len(rows(zout / "zone_thermostats.csv")) == 3)
+check("the manifest lists the zone file", json.loads((zout / "manifest.json").read_text())["files"]["zone_thermostats.csv"]["rows"] == 3)
 st = rows(out / "statistics_hourly.csv")
 check("hourly statistics only for the AirGradient sensors", len(st) == 1 and st[0]["statistic_id"] == "sensor.t_carbon_dioxide" and st[0]["max"] == "520.0" and st[0]["unit"] == "ppm", str(st))
 mf = json.loads((out / "manifest.json").read_text())
@@ -309,6 +324,11 @@ r = subprocess.run([sys.executable, str(SCRIPT), "--today", TODAY], env=env, cap
 check("thermostat and weather are optional: without them those files are simply not written",
       r.returncode == 0 and (d / "nothermo" / "indoor_1min.csv").exists() and not (d / "nothermo" / "thermostat.csv").exists()
       and not (d / "nothermo" / "outdoor_weather.csv").exists() and rows(d / "nothermo" / "indoor_1min.csv")[2]["thermostat_setpoint_f"] == "", r.stderr[-200:])
+
+prof.write_text(f'[ha_export]\nha_db = "{db}"\nprefix = "sensor.t_"\nzone_thermostats = ["climate.main", "climate.bed"]\nout = "{d / "zonecfg"}"\n')
+r = subprocess.run([sys.executable, str(SCRIPT), "--today", TODAY], env=env, capture_output=True, text=True, timeout=120)
+check("zone_thermostats in the profile (a list) are exported, with the main thermostat still optional",
+      r.returncode == 0 and len(rows(d / "zonecfg" / "zone_thermostats.csv")) == 3 and not (d / "zonecfg" / "thermostat.csv").exists(), r.stderr[-200:])
 
 shutil.rmtree(d, ignore_errors=True)
 print()
