@@ -714,8 +714,8 @@ an `OPEN` alert.
   597 at +8, 629 at +13, 651 at +17) and levelled at about 655 from 11:56: a time constant of about 6 minutes, so the
   closed room still exchanged air quickly with something (the rest of the house through the door and the AC return, or
   leakage). It was therefore not a sealed room, and it levelled well below the 750 to 780 of the empty overnight plateau.
-  The door state was not recorded. Whether the room trades air with the house or with outdoors, and how much the fan
-  matters, is not yet separated; a repeat with the door shut and the fan off would show it.
+  The door state was not recorded at the time; the user confirms the office door is always open and has never been shut, so this and every other observation in this section was taken with the door open to the hallway. That points to the open door (the hallway, stairwell and balcony) as the path that exchanged air with the house while the window was shut. Whether the room trades air with the house or with outdoors, and how much the fan
+  matters, is not yet separated; a repeat with the door shut (never measured) and the fan off would show it.
 - **A shower, and a second airing (same afternoon).** A 30 minute shower from about 12:35 to 13:05 raised the indoor RH
   from 56 to 66% and the dew point from 61.8 to 67.3 F while CO2 went from 726 to about 805 ppm. The advisor changed to
   `BRIEF` at 13:03 ("indoor RH 65% and drier outside"; alert text `BRIEF OPEN // DRIER OUT`, the first alert shown with
