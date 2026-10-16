@@ -753,6 +753,16 @@ an `OPEN` alert.
   its direction relative to them as well as its speed, and the log has no window orientation, so this stays an annotation
   for the review, not an input.
 
+- **The sensor recalibrates itself (2026-10-16).** The AirGradient's CO2 sensor has automatic baseline correction (ABC) set to 8 days
+  (`select.cave_airgradient_cave_co2_automatic_baseline_duration`): it treats the lowest reading of each period as fresh air
+  (about 400 ppm) and shifts its baseline to match. The hourly statistics show the daily minimum at 400 to 440 through
+  September, then 350 to 385 on 09-23 to 09-25 and 369 on 09-28 (below any real outdoor level, so the sensor was reading low by
+  several tens of ppm), then 481 to 525 from 09-29 to 10-03. The step up of about 100 ppm that this document attributes to the AC
+  and closed windows on 09-28 may therefore include an ABC correction; the two are not separated. Since then the open-window
+  floors (380 to 405 ppm, 2026-10-16) agree with outdoor air. A long run of closed-window AC days (no reading near 400 in the
+  period) makes ABC pull the baseline down, so CO2 would read low; to be considered in the review (a longer period, or a
+  manual calibration after a long airing). The setting was left alone while the data set is being collected.
+
 ---
 
 ## Open Items
