@@ -763,6 +763,15 @@ an `OPEN` alert.
   period) makes ABC pull the baseline down, so CO2 would read low; to be considered in the review (a longer period, or a
   manual calibration after a long airing). The setting was left alone while the data set is being collected.
 
+- **The room holds its heat (2026-10-16).** After more than six hours of open windows with a CO2 time constant of a few minutes
+  (the air is replaced every 6 to 8 minutes), the room fell only from 75.2 to 71.9 F, about 0.5 F per hour, while the outdoor air
+  fell from 68 to 61 F: the gap widened from 7 to 11 F. The air carries almost no heat; the structure, the furnishings, the open
+  hallway to the warm first floor and, the user believes, heat stored in the garage below (the office is over the garage, and the
+  user reports it gets very cold in winter, which would be the same coupling in reverse) supply it. No garage temperature is
+  recorded anywhere (Home Assistant has none), so the garage effect is a hypothesis. Consequence for the rules: the free-cooling
+  need (`cool_indoor` 78 F, `cool_delta` 5 F) describes air that is cooler, not a room that will follow it; expect a night of open
+  windows to lower this room by only a few degrees.
+
 ---
 
 ## Open Items
