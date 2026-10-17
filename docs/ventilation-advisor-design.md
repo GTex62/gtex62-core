@@ -772,6 +772,17 @@ an `OPEN` alert.
   need (`cool_indoor` 78 F, `cool_delta` 5 F) describes air that is cooler, not a room that will follow it; expect a night of open
   windows to lower this room by only a few degrees.
 
+- **A full night of open windows in cool weather (2026-10-16 to 17, user reports; door open, ceiling fan low, windows open since
+  06:25 on the 16th, room empty overnight).** Room temperature 71.9 F at 18:00, 68.6 at 00:00, 66.9 at 04:00, 65.7 at 06:00 and
+  64.4 at 10:00, while the outdoor air fell from 61 F to 54 F at midnight and a low of 51 F at 06:00 to 08:00 (Home Assistant's
+  weather entity). That is 7.5 F in 16 hours, about 0.45 F per hour, and the 13 to 15 F gap to the outdoor air never closed. A rate
+  of 0.45 F per hour against a gap of about 15 F is a thermal time constant of roughly 30 to 35 hours (rough: the open hallway and
+  the warm first floor keep supplying heat). CO2 stayed at 413 to 439 ppm all night, the outdoor level, so with the room empty
+  nothing accumulates and the open windows hold it at the floor. The indoor dew point stayed at 46 to 50 F (RH 44 to 54%, rising only
+  because the room cooled). The advisor changed to an advisory `CLOSE` at 01:27 when the outdoor temperature fell below 55 F (never
+  shown) and stayed quiet, which suits a comfort question the occupant decides. The provider was not running from 01:43 to 11:45
+  local (machine off); the indoor record for that stretch comes from the Home Assistant export.
+
 ---
 
 ## Open Items
