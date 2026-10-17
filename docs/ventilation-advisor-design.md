@@ -783,6 +783,17 @@ an `OPEN` alert.
   shown) and stayed quiet, which suits a comfort question the occupant decides. The provider was not running from 01:43 to 11:45
   local (machine off); the indoor record for that stretch comes from the Home Assistant export.
 
+- **The office against the rest of the house (same night, from the zone thermostats exported 2026-10-16).** Downstairs windows
+  closed, only the office windows open. Temperature in F at 18:00, 00:00, 06:00 and 10:00: Main zone 74.4, 72.4, 70.4, 70.4;
+  Bedroom zone 74.4, 73.4, 71.4, 70.4; hallway (the Cave thermostat, mode off) 71.4, 70.4, 68.4, 67.4; office sensor 71.9,
+  68.6, 65.7, 64.4, while the outdoor air fell from 61 to 51 F. Main and Bedroom lost about 4 F in 16 hours (about 0.25 F per
+  hour against a 20 F gap, a time constant near 80 hours: a well insulated house with a lot of mass), the hallway also about
+  4 F, the office 7.5 F, ending 6 F below Main and Bedroom. The office is the weak spot, as the user suspects (least insulated
+  room, over the unconditioned garage, cold through the floor in winter), but this night cannot separate the floor from the open
+  windows, which only the office had. A winter comparison with the windows shut (office against hallway and Main), or a garage
+  temperature sensor, would. The garage door openers (myQ) once reported the garage temperature but dropped off the network
+  and Home Assistant's myQ support ended in 2023, so they are not a data source today.
+
 ---
 
 ## Open Items
