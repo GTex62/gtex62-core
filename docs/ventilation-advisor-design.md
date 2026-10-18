@@ -805,8 +805,20 @@ an `OPEN` alert.
   windows (clear sky), the occupant and a steady 340 W on the "Computers" plug (not confirmed to be in the office) can also
   explain. The user could feel the heat at the balcony within about 20 minutes. A second AirGradient downstairs (planned for the Great Room)
   would show whether the house air is at the office's level (flow through the house) or not; a tissue or smoke test at the
-  window would show the direction of the air. At 10:54 local the METAR wind shifted from the north to 130 degrees at 3 knots (the
+  window would show the direction of the air. By the 09:54 local METAR (14:54Z) the wind had shifted from the north to 130 degrees at 3 knots, with a clear TAF (the
   windward side of south-facing windows, but light).
+
+- **Where things are in the office, and what the first hour of downstairs heat showed (2026-10-18, from the user's photos).** The
+  AirGradient stands on a wire shelf against a side wall, about 4 to 5 feet from the desk and some 15 feet from the south windows,
+  out of direct sun; a ceiling supply register (the office is ducted to the Cave unit, whose fan still pulses in Circulation mode
+  with the unit off) is about 8 to 10 feet away on the same side; the PC tower stands right at the windows in the sun, drawing
+  about 340 W; the room has sheer curtains and a cat tree at the windows; the Cave thermostat is on the hallway wall at the head of
+  the stairs, opposite the open balcony. After the Main and Bedroom thermostats were switched to heat at about 10:14, the hallway
+  (Cave unit off) read 63.4 F until about 10:29, then 64.5 at 10:39 and 65.5 at 10:51: heat from downstairs reached the
+  hallway in about 25 minutes and then added about 1 F per 12 minutes. The office sensor rose faster (59.5 F at 10:10 to 64.9 at 10:57,
+  then back to 63.7 at 11:13), so the sun and the computer, not only the hallway, drive it. The Cave fan's pulses leave a
+  small signature in the office sensor (over the last day: CO2 falls about 0.3 ppm per minute with the fan on and rises about 0.2
+  ppm per minute with it off; temperature and humidity show nothing), so the register does not dominate what the sensor reads.
 
 ---
 
