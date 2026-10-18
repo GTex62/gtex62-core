@@ -728,7 +728,7 @@ an `OPEN` alert.
   side (stairwell and a balcony), so warm, CO2-laden house air rises up the stairs and, with the right air flow, fills
   the office area. That is consistent with a closed-window office that still trades air quickly with the house, with the
   room sensor reading about 4 F warmer than the Cave thermostat (which sits in the second-floor hallway between the stairs and the balcony, across from the stairs, where air from the first floor reaches it first, so the Cave zone is controlled by hallway air rather than office air; the house also has Main and Bed thermostats in Home Assistant, not yet exported), and with an empty-room overnight plateau near 750 (the
-  household asleep downstairs); it is not yet separated from fan and door effects. No garage-exhaust signature shows in the
+  the other adult in the house, who with a cat is the only other CO2 source, asleep downstairs; a guess, not measured); it is not yet separated from fan and door effects. No garage-exhaust signature shows in the
   data (the NOx index never exceeded 6 in 17 days). Note on the outdoor figures: temperature and RH come from OpenWeather's current conditions for the
   site coordinates (the weather provider), and the wind from the KMEM METAR (an airport about 13 miles away, flat and
   open). The site is a heavily wooded lot with tall trees, so the wind at the windows is certainly lower than the METAR
@@ -793,6 +793,20 @@ an `OPEN` alert.
   windows, which only the office had. A winter comparison with the windows shut (office against hallway and Main), or a garage
   temperature sensor, would. The garage door openers (myQ) once reported the garage temperature but dropped off the network
   and Home Assistant's myQ support ended in 2023, so they are not a data source today.
+
+- **Heat rising from downstairs, with the office windows as an outflow (2026-10-18, the user's reading).** The Cave (upstairs) unit is
+  normally left off in winter: the heat that rises from the first floor, up the stairs and across the open balcony hallway usually
+  warms the upstairs enough. With the office windows open there is an exit at the top, so more warm air should flow through the
+  office on its way out, and with the wind from the north the south-facing windows are on the leeward side, where the wind pulls
+  air out. If so, the replacement air for the office enters low in the house (leaks, doors) rather than through the office
+  windows, so the office CO2 reflects the house air: it sat at the outdoor level (about 430 ppm) in a north wind. On 10-18 at about
+  10:14 the Main and Bedroom thermostats were switched from cool to heat (setpoints 68 and 70); by 10:30 Bedroom had risen 1.1 F,
+  Main 0.1 F and the hallway (Cave thermostat) 0.1 F, while the office sensor rose 1.8 F in 18 minutes, which sun through the open south
+  windows (clear sky), the occupant and a steady 340 W on the "Computers" plug (not confirmed to be in the office) can also
+  explain. The user could feel the heat at the balcony within about 20 minutes. A second AirGradient downstairs (planned for the Great Room)
+  would show whether the house air is at the office's level (flow through the house) or not; a tissue or smoke test at the
+  window would show the direction of the air. At 10:54 local the METAR wind shifted from the north to 130 degrees at 3 knots (the
+  windward side of south-facing windows, but light).
 
 ---
 
