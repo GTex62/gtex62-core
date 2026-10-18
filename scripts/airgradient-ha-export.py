@@ -23,7 +23,8 @@ Writes, under <data_root>/airgradient/<profile>/ha_export/ (data_root from core.
 
     indoor_1min.csv        the nine AirGradient sensors resampled to one row per minute, plus dew point,
                            and the thermostat's setpoint, whether the AC was cooling and whether the air
-                           handler's fan was running (it pulses on its own in "Circulation" mode)
+                           handler's fan was running (it pulses on its own in "Circulation" mode), and whether it
+                           was heating (`ac_heating`, from the same thermostat as `ac_cooling`)
     outdoor_weather.csv    HA's own outdoor weather entity (temperature, humidity, dew point, ...), as recorded
     thermostat.csv         thermostat state changes
     zone_thermostats.csv   optional: state changes of other zones' thermostats (one row per change, an `entity`
@@ -344,7 +345,7 @@ def main(argv=None):
         last = max(s[0][-1] for s in series.values() if s[0])
         start_min, end_min = (int(first // 60) + 1) * 60, int(last // 60) * 60 + 60   # first minute that has a prior reading, last whole minute
         alive_ts = sorted(ts for col in FAST_SENSORS for ts in series.get(col, ([], []))[0])
-        header = ["local_time", "utc_time"] + [c for c, _ in SENSORS] + ["dew_point_f", "thermostat_setpoint_f", "ac_cooling", "ac_fan_running"]
+        header = ["local_time", "utc_time"] + [c for c, _ in SENSORS] + ["dew_point_f", "thermostat_setpoint_f", "ac_cooling", "ac_fan_running", "ac_heating"]
         rows = []
         for m in range(start_min, end_min, 60):
             vals = []
@@ -357,16 +358,17 @@ def main(argv=None):
             temp, rh = vals[SENSORS.index(("temp_f", "temperature"))], vals[SENSORS.index(("humidity_pct", "humidity"))]
             dp = va.dewpoint_f(temp, rh)
             j = bisect.bisect_left(t_ts, m) - 1
-            sp = cool = fan = None
+            sp = cool = fan = heat = None
             if j >= 0:
                 a = thermo[j][2]
                 sp = a.get("temperature")
                 cool = 1 if a.get("hvac_action") == "cooling" else (0 if a.get("hvac_action") else None)
+                heat = 1 if a.get("hvac_action") == "heating" else (0 if a.get("hvac_action") else None)
                 fs = a.get("fan_state")
                 fan = None if not fs else (1 if str(fs).lower().startswith("running") else 0)
             rows.append([datetime.fromtimestamp(m, tz).strftime("%Y-%m-%d %H:%M"),
                          datetime.fromtimestamp(m, timezone.utc).strftime("%Y-%m-%d %H:%M")] + vals +
-                        [None if dp is None else round(dp, 2), sp, cool, fan])
+                        [None if dp is None else round(dp, 2), sp, cool, fan, heat])
         merged_indoor, arch = merge_csv(out / "indoor_1min.csv", header, rows, ["utc_time"], "utc_time", cutoff, archive_dir)
         moved = dict(arch)
 

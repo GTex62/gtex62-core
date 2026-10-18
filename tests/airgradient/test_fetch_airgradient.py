@@ -600,8 +600,9 @@ def aviation_cache(sc_, metar=None, taf=None, age=0):
 
 
 def taf_with(sc_, wx_group, start_min, wind="18010KT", base_wind="18010KT"):
-    """A TAF issued an hour ago, valid 24 h, with one TEMPO group starting `start_min` minutes from now."""
-    t0 = sc_.t + 60 * start_min
+    """A TAF issued an hour ago, valid 24 h, with one TEMPO group starting at the first hour boundary at least `start_min`
+    minutes from now (TAF times are whole hours; this keeps the test independent of the time of day)."""
+    t0 = -(-(sc_.t + 60 * start_min) // 3600) * 3600
     iss = time.gmtime(sc_.t - 3600)
     return ("TAF KMEM %02d%02d%02dZ %s/%s %s P6SM SCT040\n TEMPO %s/%s %s %s" %
             (iss.tm_mday, iss.tm_hour, iss.tm_min, ddhh(sc_.t - 3600), ddhh(sc_.t + 23 * 3600), base_wind,

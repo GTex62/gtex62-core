@@ -79,6 +79,7 @@ def make_db(path, minutes=range(20), co2_gap=range(5, 15), temp_unit="°C", drop
     state(12, T0 + 30, "cool", {"hvac_action": "idle", "temperature": 76, "current_temperature": 75.8, "fan_mode": "Auto low", "fan_state": "Idle / off"})
     state(12, T0 + 4 * 60, "cool", {"hvac_action": "cooling", "temperature": 76, "current_temperature": 76.2, "fan_mode": "Auto low", "fan_state": "Running / running low"})
     state(13, T0 + 90, "off", {"hvac_action": "idle", "temperature": None, "current_temperature": 76.4, "fan_mode": "Auto low", "fan_state": "Idle / off"})
+    state(10, T0 + 6 * 60 + 5, "heat", {"hvac_action": "heating", "temperature": 70, "current_temperature": 68, "fan_mode": "Auto low", "fan_state": "Running / running low"})
     state(11, T0 + 10, "sunny", {"temperature": 70, "humidity": 60, "dew_point": 55, "pressure": 30.0})
     state(11, T0 + 600, "cloudy", {"temperature": 69, "humidity": 62, "dew_point": 55.5, "pressure": 30.0})
     con.execute("insert into statistics_meta values (1,'sensor.t_carbon_dioxide','ppm')")
@@ -131,7 +132,7 @@ check("PM, VOC, NOx, humidity columns present", ind[1]["pm25_ugm3"] == "3.0" and
 wx = rows(out / "outdoor_weather.csv")
 check("outdoor weather rows with their attributes", len(wx) == 2 and wx[0]["condition"] == "sunny" and wx[1]["temperature"] == "69" and wx[1]["dew_point"] == "55.5", str(wx))
 th = rows(out / "thermostat.csv")
-check("thermostat changes recorded, with fan mode and state", len(th) == 3 and th[2]["hvac_action"] == "cooling"
+check("thermostat changes recorded, with fan mode and state", len(th) == 4 and th[2]["hvac_action"] == "cooling" and th[3]["hvac_action"] == "heating"
       and th[0]["fan_mode"] == "Circulation" and th[0]["fan_state"] == "Idle / off" and th[1]["fan_state"] == "Running / running low", str(th))
 check("indoor rows carry whether the fan was running, as of each minute start",
       ind[0]["ac_fan_running"] == "0" and ind[2]["ac_fan_running"] == "1" and ind[3]["ac_fan_running"] == "1", f"{ind[0]['ac_fan_running']} {ind[2]['ac_fan_running']} {ind[3]['ac_fan_running']}")
@@ -147,6 +148,8 @@ check("a null setpoint (thermostat off) stays blank", zr[1]["mode"] == "off" and
 rz2 = run(db, zout, "--zone-thermostat", "climate.main", "--zone-thermostat", "climate.bed")
 check("re-running merges without duplicating rows", rz2.returncode == 0 and len(rows(zout / "zone_thermostats.csv")) == 3)
 check("the manifest lists the zone file", json.loads((zout / "manifest.json").read_text())["files"]["zone_thermostats.csv"]["rows"] == 3)
+check("indoor rows carry whether the system was heating, as of each minute start (blank when there is no thermostat state)",
+      ind[4]["ac_heating"] == "0" and ind[4]["ac_cooling"] == "1" and ind[6]["ac_heating"] == "1" and ind[6]["ac_cooling"] == "0" and ind[6]["thermostat_setpoint_f"] == "70", str([ind[6][k] for k in ("ac_heating", "ac_cooling", "thermostat_setpoint_f")]))
 st = rows(out / "statistics_hourly.csv")
 check("hourly statistics only for the AirGradient sensors", len(st) == 1 and st[0]["statistic_id"] == "sensor.t_carbon_dioxide" and st[0]["max"] == "520.0" and st[0]["unit"] == "ppm", str(st))
 mf = json.loads((out / "manifest.json").read_text())

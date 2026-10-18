@@ -33,6 +33,11 @@ this early in boot. A second, persistent failure still logs to `fetch.log` and r
 
 ## Unreleased
 
+**airgradient export: a heating flag (2026-10-18).** `indoor_1min.csv` gains `ac_heating` (1 while the main thermostat's
+`hvac_action` is `heating`, 0 otherwise, blank without a thermostat state), beside `ac_cooling`, so winter analyses can line
+heating up with the sensor minute by minute. Files written without the column are upgraded in place. Other zones' heating
+stays in `zone_thermostats.csv` (`hvac_action`). Test: `test_ha_export.py`.
+
 **airgradient advisor: thunder and rain close the windows (2026-10-16).** The advisor knew nothing about the weather overhead, so
 it could say to open the windows in a thunderstorm. New rule 1b (after the poor-air hard close): thunder now (METAR present
 weather, OpenWeather condition code) or in the TAF within `[advisor] storm_lookahead_min` (default 180) is a hard `CLOSE`
