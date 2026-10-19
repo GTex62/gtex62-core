@@ -820,6 +820,19 @@ an `OPEN` alert.
   small signature in the office sensor (over the last day: CO2 falls about 0.3 ppm per minute with the fan on and rises about 0.2
   ppm per minute with it off; temperature and humidity show nothing), so the register does not dominate what the sensor reads.
 
+- **Closed windows after three open days, and an opening in dry southeast air (2026-10-19, times from the user).** The office windows were
+  closed at about 01:38 on 10-19 (Main and Bedroom heating to 68 and 70 F, Cave unit off, door open). Over the next 8.5 hours the CO2
+  stayed at 467 to 485 ppm, creeping up about 2 ppm per hour (the previous closed-window AC nights sat at 750): the house air was
+  low in CO2, probably flushed through the stairwell by three days of open windows. At 16:30 the windows were opened again with
+  the fan low, outdoor 72.8 F, RH 32% (dew point near 46 F), wind from 130 degrees at 6 knots (the window side, but light), clear TAF.
+  CO2 fell from 589 to 492 in 18 minutes and flattened near 495 with the occupant at the desk; RH went from 49 to 42% and the dew
+  point from 50.6 to 46.6 F; the room temperature did not change (70.8 to 71.0 F, outdoor air slightly warmer). Occupied CO2 floors
+  so far: about 430 at 17 knots gusting 26 from the north (leeward), 470 to 520 at 14 to 16 knots from the north, about 495 at 6
+  knots from the southeast (windward). The windward 6 knots matches the leeward 14 to 16, and the stronger leeward wind is lower, so
+  speed seems to matter at least as much as direction, with the stack effect from the downstairs heat possibly adding at light wind;
+  three runs, not a measurement of either. The Main and Bedroom thermostats now run heat through the cooler night hours and hold
+  the downstairs near 70 F.
+
 ---
 
 ## Open Items
