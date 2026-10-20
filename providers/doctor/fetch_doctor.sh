@@ -26,7 +26,7 @@
 #   "summary": { "entry_count": N, "header": "NO HEALTH ALERTS" |
 #                                            "CHECK ACTIONS (N)" },
 #   "domain_order": [ ...alphabetical domain keys... ],
-#   "domains": { "<key>": ROW, ... },     # 21 domains
+#   "domains": { "<key>": ROW, ... },     # 22 domains
 #   "entries": [ ENTRY, ... ],            # actionable conditions only
 #   "info":    [ ENTRY, ... ],            # informational, not actionable
 #   "runtime": [ {"label","path","exists"} ... ],   # RUNTIME panel

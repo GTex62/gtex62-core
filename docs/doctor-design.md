@@ -7,14 +7,15 @@ replacing it. Split out as its own repo rather than a shared "suite doctor" patt
 because suites are pure display — they have nothing of their own to diagnose that isn't
 already core state.
 
-**Status (2026-09-23): provider built, suite content in progress.** The core-side
-provider exists: `providers/doctor/fetch_doctor.sh` writes the `status.json` this doc
-specifies (schema in that script's header comment), and its launcher wiring,
-`[doctor]` toggle and `suites/doctor.toml.example` are in place. The `gtex62-doctor` suite
-has its chassis and launcher; box content (RUNTIME, CONFIG, PROVIDERS, DCM) is being
-built against that schema. DCM and the config-completeness alerts below still specify
-what the suite will render, not behavior that exists today. See Resolved Decisions for
-what the provider pass settled, and Open Questions for what remains.
+**Status (2026-10-19): provider and suite built.** The core-side provider exists:
+`providers/doctor/fetch_doctor.sh` writes the `status.json` this doc specifies (schema in
+that script's header comment), and its launcher wiring, `[doctor]` toggle and
+`suites/doctor.toml.example` are in place. The `gtex62-doctor` suite (v0.2.0) renders every
+panel this doc describes: the header line, DCM (idle gauges, active takeover with scrolling,
+the STARTING state), RUNTIME, CONFIG and the 22-row PROVIDERS table. The one piece still
+specified rather than rendered is the config-completeness alerts below: `fetch_doctor.sh`
+emits them in `config_alerts`, but the suite does not read that field yet. See Resolved
+Decisions for what the provider pass settled, and Open Questions for what remains.
 
 Reference implementations: `gtex62-tech-hud`'s Doctor script (`TECH HUD DOCTOR`),
 `gtex62-tri-hud`'s Doctor script (`TRI HUD DOCTOR`, built after tech-hud's and closer to
@@ -273,8 +274,9 @@ on fallback"; see `doctor-missing-conditions.md` for the full verification.
 **The flag is general, not NET/ORB/ASTRO only.** `fetch_doctor.sh` evaluates `ttl_fallback`
 for every launcher-loop domain whose profile TOML carries a TTL key: `true` when that key is
 absent from a present file — the shape where the launcher's awk parse returns empty and its
-bash default takes over. Verified against the shipped examples and the live profiles: on this
-host ASTRO, NETWORK and SOLAR are flagged; SYSTEM and TIME are not (their `[cache]
+bash default takes over. Verified against the shipped examples and the live profiles at the time of that pass
+(2026-09-23), when ASTRO, NETWORK and SOLAR were flagged on this host (the live profiles were
+given their keys the next day, clearing all three: see Resolved Decisions); SYSTEM and TIME are not (their `[cache]
 refresh_sec` is present), and CALENDAR is not (the key it is evaluated on, `[events]
 cache_ttl_sec`, is present). A domain whose fetch script explicitly checks for its profile
 reports a missing *file* as its own `state:"error"`, `note:"missing profile toml"` (PROC:
@@ -617,9 +619,9 @@ a gauge only if **both** hold:
 2. **Its TTL meaningfully exceeds Conky's own refresh cadence**, so the marker has a real
    range to visibly traverse over time.
 
-Condition 1 yields exactly fifteen candidates — net, time, system, vpn, orb, alerts, astro,
-ap, pihole, weather, solar, modem, aviation, air, network, the duration group — and
-condition 2 removes four:
+Condition 1 yields exactly sixteen candidates — net, time, system, vpn, orb, alerts, astro,
+ap, pihole, weather, solar, modem, aviation, air, airgradient, network, the duration group —
+and condition 2 removes four:
 
 | Excluded | TTL | Why |
 | --- | --- | --- |
@@ -673,9 +675,8 @@ middle with dead margin on both sides rather than genuinely filling the panel.
 Codes are three letters, using a standard abbreviation where one already exists (AVN for
 AVIATION) rather than an arbitrary truncation. **Two codes are deliberately shorter than
 three letters: AP and WX.** Both are already unambiguous on their own — they are not
-truncations. The design assumes they will also read cleanly alongside the three-letter
-codes without looking like an inconsistency; that is unconfirmed (see Open Questions) until
-the actual DCM panel is built. No on-panel legend explains the exception — settled: none is
+truncations. They read cleanly alongside the three-letter codes without looking like an
+inconsistency, confirmed on the built panel (2026-10-19). No on-panel legend explains the exception — settled: none is
 needed.
 
 | Code | Domain | Note |
@@ -714,12 +715,10 @@ flagged here as a known future possibility only.
 
 ### Gauge-row capacity
 
-**Unconfirmed design assumption — see Open Questions.** The design assumes the gauge row
-fits comfortably beyond the twelve eligible domains, legibly with two-letter codes, up to the
-fifteen candidates that existed before the eligibility exclusions were finalized. That was
-never verified in text; check it once the actual DCM panel is built. No overflow or widening
-logic is designed in the meantime. If a future addition ever pushes the eligible, enabled
-count meaningfully past fifteen, that is a threshold to revisit then, not something to design
+**Confirmed on the built panel (2026-10-19).** With every eligible domain enabled, the gauge
+row shows all twelve and fits cleanly, so no overflow or widening logic is needed. The capacity
+limit beyond twelve is still unknown. If a future addition ever pushes the eligible, enabled
+count meaningfully higher, that is a threshold to revisit then, not something to design
 against speculatively today.
 
 ### Color
@@ -969,14 +968,6 @@ trustworthy on its own — zero exceptions, zero domain-specific reads needed.
   an entry, since the takeover trigger is "an actionable NOTE present" (`status.json` carries
   these separately in `config_alerts`). The PROC-line question is resolved — see Resolved
   Decisions.
-- **DCM gauge-row capacity — unconfirmed.** Whether the gauge row fits fifteen domains
-  legibly with two-letter codes (and so whether any overflow or widening logic is ever
-  needed) has no source in text: it was an assumption, never independently checked. Verify it
-  against the real panel once it exists; until then, do not treat fifteen as an established
-  limit.
-- **AP / WX two-letter codes — unconfirmed.** The design assumes AP and WX read cleanly beside
-  the three-letter codes and do not look like an inconsistency. That was never verified in
-  text; confirm it against the real panel once it is built.
 - **Panels beyond the PROVIDERS table** — the provider table's layout is settled (alphabetical,
   flat, DCM in the left column — see DCM). Still to sketch: config-completeness detail,
   media detail, and whatever else groups outside the provider table itself.
@@ -1065,6 +1056,11 @@ the bottom).
 - **DCM overflow scrolls** (see Active-state overflow) instead of showing a "+N MORE" count,
   advancing one whole entry block at a time.
 - **No gauge legend.** The AP/WX two-letter exception is not stated on the panel.
+- **AP / WX two-letter codes confirmed (2026-10-19).** On the built panel the two- and
+  three-letter codes read well side by side, so the exception needs no legend and no change.
+- **Gauge-row capacity confirmed (2026-10-19).** The built panel shows all twelve eligible
+  gauges and fits cleanly (see Gauge-row capacity). This closes the Open Question that had
+  carried it as an unverified assumption.
 - **Doctor's own liveness:** the suite compares `status.json`'s own write time
   (`generated_epoch`) with the clock; older than 30s (6x the provider's 5s loop) the DOC header
   line reads `DOCTOR STALE - <N>S` instead of the alert summary, so a dead doctor loop is not

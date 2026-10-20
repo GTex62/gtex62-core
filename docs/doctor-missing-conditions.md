@@ -1,16 +1,22 @@
 # Doctor — Per-Provider "Missing" Conditions
 
 Working doc for filling in what `MISSING` (and any other non-OK NOTE tag) actually means
-per domain, so the Doctor alert banner can show a specific, correct remediation line
+per domain, so DCM can show a specific, correct remediation line
 instead of a generic one. Companion to `doctor-design.md`'s Actions/Remediation table —
 that table has the *shape* of the categories; this doc nails down which category applies
-to which domain, and the exact banner text, checked against real provider behavior.
+to which domain, and the exact DCM text, checked against real provider behavior.
+(This doc was written when DCM was still called the alert banner. Where it says "DCM text"
+below, the early drafts said "banner text": the fixed action line a DCM entry shows. The
+`banner.json` file named under ALERTS is a different thing and keeps its name.)
 
 **Status: verified against every domain's real `providers/<domain>/fetch_<domain>.sh`
 (and `.py`/other scripts where they exist), plus the real installed profile TOMLs under
 `~/.config/gtex62-core/profiles/`, 2026-09-16.** Every row below reflects what the script
 actually does, not a guess from `architecture.md`. Corrections to the original guesses are
 called out explicitly where the real behavior differs.
+
+Updated 2026-10-19: AIRGRADIENT (added 2026-10-08) and PIHOLE sections added, so every domain
+has an entry; MEDIA's is still not independently verified against its own script.
 
 Missing-condition categories, as confirmed by this pass:
 
@@ -46,7 +52,7 @@ Missing-condition categories, as confirmed by this pass:
      (`fetch_openweather.sh`), `fetch_air.sh`, `fetch_solar.sh`, `fetch_system.sh` (via its
      own check), `fetch_time.sh`, `fetch_vpn.sh`, `fetch_pfsense.sh`, `fetch_mtr.sh`
      (folds this into its `disabled` check), and `fetch_modem.py`. For these, "missing
-     profile TOML" already produces a correct, specific `status.json` a Doctor banner can
+     profile TOML" already produces a correct, specific `status.json` DCM can
      read directly — no new plumbing needed, just point at `note`.
    - **GITHUB does not use this mechanism at all** — see its own entry; a missing
      `profiles/github/<profile>.toml` is harmless by design (falls through to in-script
@@ -105,9 +111,9 @@ Missing-condition categories, as confirmed by this pass:
   timestamp. Beneath that, AIR already carries **two independent per-source validity
   flags** in `current.json` itself — `openweather.valid` and `airnow.valid` (both
   boolean) — which is finer-grained than aviation/weather's metar/taf split and worth its
-  own Doctor sub-row rather than collapsing into one banner line: a person needs to know
+  own Doctor sub-row rather than collapsing into one DCM line: a person needs to know
   *which* of the two AQI sources is the one that's down.
-  - Banner text: `state:"error"` → same generic "check API key / network reachability"
+  - DCM text: `state:"error"` → same generic "check API key / network reachability"
     line, but name the specific missing piece from `note` (coordinates vs. API key vs.
     fetch failure) since AIR's `note` already says exactly which). `state:"partial"` →
     "AIR cache has data but no reliable timestamp — check AirNow/OpenWeather API status."
@@ -186,7 +192,7 @@ flag is DISABLED, which is the shipped default.
   explicitly too: `ALERTS_TTL` always resolves to its bash default (60) today since no
   `profiles/alerts/*.toml` ships, kept as a real (if currently inert) lookup for future
   use.
-  - Banner text: missing/stale `banner.json` → "Alerts provider isn't running — check
+  - DCM text: missing/stale `banner.json` → "Alerts provider isn't running — check
     `fetch_alerts.sh` is wired into the refresh loop," not a data-staleness message.
 
 ### AP
@@ -210,7 +216,7 @@ flag is DISABLED, which is the shipped default.
     `state:"error"`, `note:"password file not found: <path>"` (config-completeness, the
     Zyxel sshpass credential file); `state:"degraded"`, `note:"ssh gate tripped"` (own
     gate, independent of pfSense's).
-  - Banner text: "no ap ips configured" → "Set `[ap] ips`/`labels` in site.toml."
+  - DCM text: "no ap ips configured" → "Set `[ap] ips`/`labels` in site.toml."
     "password file not found" → "Create `~/.config/zyxel_ap/.pass`." Neither should ever
     say "check PFSENSE row" — that would send someone hunting for a cause that isn't
     there.
@@ -227,7 +233,7 @@ flag is DISABLED, which is the shipped default.
   missing-location both produce explicit `state:"error"` (`"missing profile toml"` /
   `"missing location"`) — category 1's silent sub-case only applies to the TTL/cadence
   number, not to astro's actual data collection, which fails loudly and correctly.
-  - Banner text: `state:"error"`, `note:"missing location"` → "Set `[location]
+  - DCM text: `state:"error"`, `note:"missing location"` → "Set `[location]
     lat`/`lon` in the astro profile or `site.toml`."
 
 ### AVIATION
@@ -241,7 +247,7 @@ flag is DISABLED, which is the shipped default.
   errors) as long as *some* cached data exists to keep serving. This is genuinely the
   cleanest per-field staleness model in the codebase and both WEATHER and AIR's later
   patterns were built the same session to match it.
-  - Banner text (already well-covered by the original doc): surface `metar`/`taf` as two
+  - DCM text (already well-covered by the original doc): surface `metar`/`taf` as two
     sub-rows given they can diverge; `degraded` → name the specific field and its
     `last_ok` straight from `note`, no need to re-derive it.
 
@@ -256,7 +262,7 @@ flag is DISABLED, which is the shipped default.
   staleness check alone would ever catch, since nothing here distinguishes "zero events
   because nothing's on the calendar" from "zero events because the source file was never
   read."
-  - Banner text: missing cache entirely → "Calendar has never run — check
+  - DCM text: missing cache entirely → "Calendar has never run — check
     `refresh_loop`/`initial_refresh` wiring," not "check credentials" (there are none to
     check; this provider reads local text files only).
 
@@ -293,7 +299,7 @@ flag is DISABLED, which is the shipped default.
     `jq` lookups with no `.state` check anywhere. Structurally unaffected: they don't
     read the file this fix changes, and the fix doesn't change `current.json`'s shape.
     Neither `gtex62-core`'s other scripts nor `gtex62-osa` were modified.
-  - Banner text, now live: `state:"degraded"`, note starts "speedtest failing" →
+  - DCM text, now live: `state:"degraded"`, note starts "speedtest failing" →
     "Speedtest failing — check `speedtest` CLI is installed/licensed (`--accept-license
     --accept-gdpr`)." Stale beyond `max_age_days` with `state:"ok"` (speedtest disabled,
     not failing) → "No speedtest has run in N days (on-demand only, no automatic
@@ -326,7 +332,7 @@ flag is DISABLED, which is the shipped default.
      `note:"fetch failed for: <repos>"` (partial-failure-as-error, not degraded — a
      genuine mismatch with aviation/weather's convention worth flagging as an
      inconsistency, though out of scope to fix here).
-  - Banner text: missing/stale cache → check `systemctl --user status
+  - DCM text: missing/stale cache → check `systemctl --user status
     gtex62-github-traffic.timer` first (is the timer itself running), not a profile-TOML
     remediation — that's the wrong layer for this domain.
 
@@ -335,7 +341,7 @@ flag is DISABLED, which is the shipped default.
   entry already cites `lyrics-library-design.md` directly and its category 4 framing —
   distinct from "no lyrics exist" — matches that doc's own stated failure-handling
   design). Left as originally written; worth a dedicated verification pass against
-  `fetch_lyrics.py` itself before this ships as literal banner text, since everything
+  `fetch_lyrics.py` itself before this ships as literal DCM text, since everything
   else in this doc was confirmed against the real script and this domain wasn't.
 
 ### MODEM
@@ -347,7 +353,7 @@ flag is DISABLED, which is the shipped default.
   `fetch_modem.py` never reads any pfSense cache file. A pfSense outage could make the
   modem unreachable, but Doctor would see that correctly as MODEM's own
   `state:"degraded"`, `note:"modem unreachable: <exc>"` — there's no missing-dependency
-  banner needed beyond MODEM's own state.
+  DCM entry needed beyond MODEM's own state.
   - MODEM already implements the **aviation-style explicit-state pattern** independently
     (confirmed in `fetch_modem.py`'s `write_status()`/exception handling): `state:"error"`
     for missing profile TOML, missing/placeholder password (`note` names the exact TOML
@@ -383,7 +389,7 @@ flag is DISABLED, which is the shipped default.
     separate case; an all-unlocked (non-empty) upstream array → still fires
     independently, confirming the two array-based checks don't interfere with each
     other.
-  - Banner text: `state:"degraded"`, note starts with "modem unreachable" → "Check
+  - DCM text: `state:"degraded"`, note starts with "modem unreachable" → "Check
     pfSense NAT path to 192.168.100.1 (modem admin UI)." Note starts with "modem auth
     failed" → "Check modem credentials in `[credentials].password`." `state:"error"`,
     note mentions password → "Set `[credentials].password` in the modem profile TOML
@@ -434,7 +440,7 @@ flag is DISABLED, which is the shipped default.
       known-good/known-bad boundary defined for this yet, unlike the fields above). Both
       remain plausible future Doctor signals, not fixed this pass — neither is a simple
       presence/absence check the way the two fields above were.
-  - **Banner text, now live**: `state:"degraded"`, note starts "modem not registered with
+  - **DCM text, now live**: `state:"degraded"`, note starts "modem not registered with
     Comcast" → "Modem not registered with Comcast (`<connectivity_state.status>`) — check
     DOCSIS sync, not the scraper" (distinct from every other MODEM remediation line above,
     which all assume the scrape itself is the problem — the value comes straight from
@@ -488,7 +494,7 @@ flag is DISABLED, which is the shipped default.
     `ssh_gate.tripped:true`. Idle is `state:"ok"`, `running:false`,
     `trigger.active:false` — never confusable with broken once Doctor reads
     `state`/`ssh_gate.tripped` rather than just `running`.
-  - Banner text: `degraded` + gate tripped → "SSH gate tripped for MTR (Pi5) — check SSH
+  - DCM text: `degraded` + gate tripped → "SSH gate tripped for MTR (Pi5) — check SSH
     alias / sshpass credentials," matching the existing pfSense/AP SSH-gate remediation
     line verbatim (same underlying condition class).
 
@@ -511,7 +517,7 @@ flag is DISABLED, which is the shipped default.
     field-level degraded state if e.g. `public_ip()`'s external call fails (silently
     yields an empty `wan_ip`, same shape as NETWORK's category-3-style gap below, just
     lower-stakes here since WAN IP isn't fast-track-critical the way ping/VLAN are).
-  - Banner text: this is where the "explicit flag in `doctor.json`, not inferred from the
+  - DCM text: this is where the "explicit `ttl_fallback` flag in Doctor's `status.json`, not inferred from the
     TTL number" idea from the category 1 definition matters most — Doctor needs
     `fetch_doctor.sh` to independently check `profiles/net/<profile>.toml`'s existence
     and `[cache] ttl_sec` presence, not just read NET's own `state`/age. Remediation:
@@ -554,7 +560,7 @@ flag is DISABLED, which is the shipped default.
     "-"`-style leaf-field lookups with no `.state` check anywhere — confirmed by reading
     each consumer's exact filter, not just the file list. Structurally unaffected.
     `gtex62-clean-suite-e` was not modified.
-  - Banner text, now live: `state:"error"`, `note:"missing profile toml"` → standard
+  - DCM text, now live: `state:"error"`, `note:"missing profile toml"` → standard
     remediation. `state:"degraded"`, note starts "null field(s):" → "NIC detection or
     public-IP lookup failing — check `primary_interface` config and outbound
     connectivity," naming the specific field(s) straight from `note`.
@@ -578,13 +584,13 @@ flag is DISABLED, which is the shipped default.
 - **Resolved — "varies" is accurate, but concretely enumerable, not unknown.** PFSENSE is
   genuinely a family of independently-TTL'd sub-caches, not one domain with one TTL —
   confirmed against both the launcher's parsed defaults and the live installed profile
-  (`~/.config/gtex62-core/profiles/pfsense/main_router.toml`, root `cache_ttl_sec = 30`,
-  `[pihole] cache_ttl_sec = 60`):
+  (`~/.config/gtex62-core/profiles/pfsense/main_router.toml`, root `cache_ttl_sec = 30`).
+  Pi-hole shares that profile and cache directory but is not one of PFSENSE's sub-caches:
+  it has its own row and its own section below.
 
   | Sub-cache | Script | Launcher default | Live configured value |
   | --- | --- | --- | --- |
   | `status.json` (gateway/interfaces) | `fetch_pfsense.sh` | 5s | 30s |
-  | `pihole.json` | `fetch_pihole.sh` | 300s | 60s |
   | `router.json` | `fetch_router.sh` | 60s | (default) |
   | pfBlockerNG | `fetch_pfblockerng.sh` | 300s | (default) |
   | `ifaces.json` (interface byte counters) | `fetch_pfsense_ifaces.sh` | 1s | (default) |
@@ -602,10 +608,38 @@ flag is DISABLED, which is the shipped default.
     per the AP correction above, **not** for cache content (AP is self-contained despite
     sharing PFSENSE's directory). The only genuine cache-content dependency confirmed
     this pass is SOLAR→WEATHER, not anything→PFSENSE.
-  - Banner text: since this is a multi-sub-cache domain, Doctor's PFSENSE row likely
+  - DCM text: since this is a multi-sub-cache domain, Doctor's PFSENSE row likely
     needs to be itself a small table (matching the shape above) rather than one line —
-    a single `degraded`/`error` state could originate from any one of the seven
-    independently-gated fetches.
+    a single `degraded`/`error` state could originate from any one of the six
+    independently-gated fetches (status, router, pfblockerng, ifaces, and arp and leases
+    riding on status).
+
+### PIHOLE
+Added 2026-10-19. Verified against `providers/pfsense/fetch_pihole.sh` and the live
+`profiles/pfsense/main_router.toml`. PIHOLE was promoted out of PFSENSE's row into its own: it
+runs on Pi5 with its own script, its own SSH gate (`runtime/pihole`) and its own TTL, and shares
+only PFSENSE's cache directory (`shared/pfsense/{profile}/pihole.json`) and the `[pihole]`
+section of the pfsense profile TOML. Dual-gated (the top-level `core.toml [providers] pihole`
+flag **and** the launching suite's `[domains]`), and also honors `[pihole] enabled` in the
+profile, which writes `state:"disabled"`.
+- **No missing-profile path.** Unlike most domains, `fetch_pihole.sh` never checks that the
+  profile file exists: `enabled` defaults to true and `ssh_target` falls through to
+  `site.toml [pihole] ssh_target`. A present profile with no `[pihole] cache_ttl_sec` makes the
+  launcher fall to its bash default of 300s while the shipped value is 60s, so the generic
+  `FALLBACK TTL` flag covers it.
+- **Real conditions, all confirmed in the script:** `state:"error"`,
+  `note:"no ssh_target configured"` (config-completeness); `state:"degraded"`,
+  `note:"ssh gate tripped"` (its own gate holding) or `note:"ssh failed"` (the SSH call failed,
+  which also trips the gate); `state:"ok"` otherwise.
+- **A stopped Pi-hole is not a Doctor condition.** FTL being inactive is reported as
+  `active:false` inside an `ok` envelope, and the ALERTS provider's Pi-hole-inactive alert owns
+  it. The `ok` state means the SSH poll worked, not that the service is up.
+- DCM text: "no ssh_target configured" → "Set `ssh_target` in the `[pihole]` section of the
+  pfsense profile TOML, or `[pihole] ssh_target` in `site.toml`." Gate tripped or SSH failed →
+  "Check SSH alias / sshpass credentials for PIHOLE (Pi5)." Never "check the PFSENSE row": PIHOLE's
+  gate and cache are independent of pfSense's, the same self-containment as AP and MTR. The
+  fixed wording says "sshpass credentials", but PIHOLE logs in with a key (`BatchMode=yes`);
+  only AP uses sshpass.
 
 ### SOLAR
 - **Category 4 — the cleanest, fully explicit example in the codebase.** Confirmed
@@ -618,7 +652,7 @@ flag is DISABLED, which is the shipped default.
   instead. `WEATHER_PROFILE` is resolved from the solar profile's own
   `weather_profile` key (default `"home"`), confirmed to fall back correctly to that
   default.
-  - Banner text: `state:"waiting"` → "SOLAR is waiting on the WEATHER cache — check the
+  - DCM text: `state:"waiting"` → "SOLAR is waiting on the WEATHER cache — check the
     WEATHER row, not SOLAR's own config." Should literally defer to WEATHER's row rather
     than rendering its own generic remediation text, per the original doc's stated
     cascade-explicitly recommendation for PFSENSE→AP (which, per the AP correction,
@@ -635,7 +669,7 @@ flag is DISABLED, which is the shipped default.
   does. Field-level parse failures (CPU/RAM/GPU/storage reads) were not traced
   individually this pass — see `system-provider-status.md` for the existing field
   reference if a deeper per-field pass is needed.
-  - Banner text: missing cache entirely, 1s-TTL domain → "SYSTEM provider isn't
+  - DCM text: missing cache entirely, 1s-TTL domain → "SYSTEM provider isn't
     running — check `refresh_loop` is alive," same framing as NET/TIME (a fast-track
     domain missing for more than a couple of poll cycles signals the loop itself is
     dead, not a transient miss, exactly as the original TODO guessed).
@@ -647,7 +681,7 @@ flag is DISABLED, which is the shipped default.
   call that can fail — always `state:"ok"` past preflight. No category-3 field-level
   failure mode exists (no optional sub-fetch to silently degrade). Same 1s fast-track
   reasoning as SYSTEM applies to what "missing" signals.
-  - Banner text: same as SYSTEM — a missing/stale cache at this TTL means the refresh
+  - DCM text: same as SYSTEM — a missing/stale cache at this TTL means the refresh
     loop died, not a data problem.
 
 ### VPN
@@ -671,7 +705,7 @@ flag is DISABLED, which is the shipped default.
     (config); `state:"error"`, `note:"piactl not found"` (PIA client not installed/not on
     PATH — genuinely distinct from "cache not written," as the original TODO guessed);
     cache simply absent (category 2, first run or PIA never started).
-  - Banner text: `state:"error"`, "piactl not found" → "PIA client not installed or not
+  - DCM text: `state:"error"`, "piactl not found" → "PIA client not installed or not
     on PATH."
   - **Cross-checked against `gtex62-sitrep/lua/suite/vpn.lua` (2026-09-16)** — SitRep is
     the one suite with panel logic thorough enough to be a useful reference for field
@@ -786,36 +820,26 @@ flag is DISABLED, which is the shipped default.
   - AIR (see its entry) also derives from a similar OpenWeather-family fetch pattern but
     has its own third `"partial"` state on top — WEATHER doesn't have that extra state,
     only `error`/`disabled`/`degraded`/`ok`.
-  - Banner text: same as AVIATION's already-covered guidance — surface `current`/
+  - DCM text: same as AVIATION's already-covered guidance — surface `current`/
     `forecast` as two sub-rows, `degraded` → name the field and `last_ok` straight from
     `note`.
 
 ---
 
-## Once filled in
+## Where this went
 
-Feed the confirmed category + banner text per domain back into `doctor-design.md`'s
-Actions/Remediation table. Recommended concrete additions based on what this pass found:
+This pass fed `doctor-design.md`'s Actions / Remediation table, and the work it called for is
+done:
 
-- **Closed, not just planned, as of 2026-09-17**: the fifth "silent gap" category
-  originally called for a per-domain nested-field lookup table (CONNECT's
-  `speedtest.state`, MODEM's channel-table note, NETWORK's null fields, AIR's per-source
-  `valid` flags, VPN's `health`/`wg dump` case) — instead, all ten confirmed instances
-  across six domains were fixed at the source over three passes. `state` alone is
-  trustworthy for every domain now, with zero remaining exceptions — no nested-field
-  lookup table, and no domain-specific "check a different field" special case, needed
-  anywhere in Doctor's design.
-- **NET, not ORB, as the primary category-1 worked example** when this ships — it's the
-  domain `CLAUDE.md` already calls out by name, and the consequence (1s→60s) is far more
-  visible than ORB's (60s→60s, invisible).
-- **Drop AP from category 4** and correct the "rides on pfSense's cache" language
-  wherever it appears in Doctor's own docs going forward — it describes a storage
-  location, not a health dependency. SOLAR→WEATHER is the real, fully-implemented
-  category-4 example to reference instead.
-- **GITHUB is out-of-band from the launcher entirely** (systemd timer, not
-  `refresh_loop`) — Doctor's provider-table loop (which reads `core.toml [providers]` +
-  the launcher's TTL variables per `doctor-design.md`'s own plan) will need a special
-  case for this domain, or it will silently never appear in the live table the way every
-  `refresh_loop`-driven domain does.
-- MEDIA remains the one domain in this doc not independently re-verified against its own
-  script this pass — do that before treating its entry as equally solid to the rest.
+- The silent-gap category was closed at the source (2026-09-17), not handled with a per-domain
+  nested-field lookup table. `state` alone is trustworthy for every domain.
+- NET is the primary category-1 worked example, as recommended.
+- AP is out of category 4, and the "rides on pfSense's cache" language is corrected: it
+  describes a storage location, not a health dependency. SOLAR to WEATHER is the real
+  category-4 example.
+- GITHUB is special-cased in `fetch_doctor.sh` (read directly from its own cache, STATE
+  hardcoded PRIVATE), since it runs on a systemd timer outside the launcher.
+- Each condition has a QRH procedure in `gtex62-doctor/docs/doctor-qrh.md`.
+
+Still open: MEDIA has not been re-verified against its own script, so treat its entry as
+less solid than the rest.
