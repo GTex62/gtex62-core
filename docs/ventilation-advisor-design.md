@@ -833,6 +833,17 @@ an `OPEN` alert.
   three runs, not a measurement of either. The Main and Bedroom thermostats now run heat through the cooler night hours and hold
   the downstairs near 70 F.
 
+- **A calm night with the windows open, and a short closed spell (2026-10-19 to 20, times from the user).** Windows open all night,
+  ceiling fan low, room empty, downstairs heating to about 70 F, METAR wind 3 to 6 knots (east, then north). The CO2 sat at 426 at
+  19:00, then 465 to 515 from 22:00 to 08:30 (469 to 474 after 02:30), against 413 to 439 on the windy north night of 10-16 to 17
+  (10 to 13 knots): with the room empty the open-window floor followed the wind speed, about 420 ppm when windy and about 470 to 500 when
+  calm. The room cooled from 71.2 F to 62 F by 08:30 and the dew point stayed at 46 to 48 F. The windows were closed from 09:00 to 09:50
+  with the occupant at the desk: CO2 rose from 479 to 520 ppm, about 0.8 ppm per minute, against about 12 ppm per minute in a sealed room
+  (10-16, 11:37), so the open door and the heated house remove most of the occupant's CO2 even with the windows shut; after the
+  reopening at 09:50 (wind 4 knots from the east-northeast) it stayed near 515. Sampling note: the per-minute file's fan flag read 1 at
+  every :00 and :30 sample because the Cave fan pulses (on at about :08, :18, :28 for three minutes) line up with those minutes; use all
+  minutes, not samples at fixed minutes, when reading it.
+
 ---
 
 ## Open Items
