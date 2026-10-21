@@ -844,6 +844,18 @@ an `OPEN` alert.
   every :00 and :30 sample because the Cave fan pulses (on at about :08, :18, :28 for three minutes) line up with those minutes; use all
   minutes, not samples at fixed minutes, when reading it.
 
+- **A second calm night, and an unexplained VOC event (2026-10-20 to 21, times from the user and the logs).** Windows open all night, fan
+  low, room empty: CO2 451 to 499 ppm (median 471) from 22:00 to 08:00 with 4 to 7 mph of wind (Home Assistant's weather entity),
+  again above the windy-night floor of about 420; at 11:42 on the 21st the METAR was calm (00000KT) and the occupied reading 554.
+  At 17:36 on the 20th the VOC index went from 34 to 229 and to 485 by 17:40, with CO2, PM and NOx flat, then fell slowly
+  (376 at 18:00, 251 at 18:20, 98 at 19:00). Windows were open, wind from the east-northeast at 6 to 7 knots, the heat idle
+  (fans only); the occupant did nothing indoors that would explain it, smelled nothing, and there is no industry nearby. A fall with a time
+  constant of about 25 minutes is much slower than the room's air exchange (CO2 settles in 6 to 8 minutes), which favors a source that kept
+  releasing or vapor coming back off surfaces over a single passing plume from far away, but the cause is unknown (the other adult
+  in the house may have used cleaning spray, an aerosol, a candle or cooking oil; not asked). The advisor treated it as a severe need and
+  showed `OPEN WIN // VOC 387` from 17:38 to 18:19 local, the first alert shown from a real event. The VOC line (250 for `OPEN`) therefore
+  does fire on real spikes here, not only on the sensor's own scaling.
+
 ---
 
 ## Open Items
