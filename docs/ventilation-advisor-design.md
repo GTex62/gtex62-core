@@ -728,8 +728,8 @@ an `OPEN` alert.
   side (stairwell and a balcony), so warm, CO2-laden house air rises up the stairs and, with the right air flow, fills
   the office area. That is consistent with a closed-window office that still trades air quickly with the house, with the
   room sensor reading about 4 F warmer than the Cave thermostat (which sits in the second-floor hallway between the stairs and the balcony, across from the stairs, where air from the first floor reaches it first, so the Cave zone is controlled by hallway air rather than office air; the house also has Main and Bed thermostats in Home Assistant, not yet exported), and with an empty-room overnight plateau near 750 (the
-  the other adult in the house, who with a cat is the only other CO2 source, asleep downstairs; a guess, not measured); it is not yet separated from fan and door effects. No garage-exhaust signature shows in the
-  data (the NOx index never exceeded 6 in 17 days). Note on the outdoor figures: temperature and RH come from OpenWeather's current conditions for the
+  the other adult in the house, who with a cat is the only other CO2 source, asleep downstairs; a guess, not measured); it is not yet separated from fan and door effects. The NOx index never exceeded 6 in 17 days, but that
+  does not rule the garage out as a VOC source (see the VOC sources entry below). Note on the outdoor figures: temperature and RH come from OpenWeather's current conditions for the
   site coordinates (the weather provider), and the wind from the KMEM METAR (an airport about 13 miles away, flat and
   open). The site is a heavily wooded lot with tall trees, so the wind at the windows is certainly lower than the METAR
   and the shaded air is probably cooler than reported (the room did not warm at all with a reported 90 F outside). Trees
@@ -873,6 +873,19 @@ an `OPEN` alert.
   last place the infiltrating air passes. A sensor downstairs (the planned Great Room unit) would show whether the vapor arrives there first,
   and by how long. Options for the advisor, none built: a manual "outdoor chemical work" hold that suppresses a VOC-driven `OPEN` for a set time;
   comparing the office VOC with a second sensor; or leaving it to the occupant, who knows when the house is being washed.
+
+- **Possible VOC sources: the garage and cooking (open question, 2026-10-23, from the user).** The garage is directly under the office. When
+  the truck starts, its exhaust enters the garage before the user drives out and closes the door; on 10-20 the user came home about
+  17:37, when the VOC went from 34 to 485 in eight minutes, with the engine running only 10 to 20 seconds in the garage. A cold-start puff is rich
+  in unburned fuel vapor and the sensor is very sensitive to hydrocarbons; the slow fall (a time constant near 25 minutes) fits closed
+  garage air seeping up through the floor and the gaps around ducts, and the stack effect pulls air in at the low points of the house, the garage
+  included. On 10-23 there was also water with cleaning agent inside the garage doors, which smelled of it, under the office. Against this:
+  the NOx index did not move (it is relative and the amount reaching the office may be tiny) and CO2 and PM stayed flat on 10-20; Home
+  Assistant records no garage entry (the garage lights run on a schedule; the only manual presses are on 10-17 and 10-21). Cooking is the
+  other candidate: the user cooks in the early evening, some days about 17:00 and some about 21:00, on an induction stove top (no combustion
+  products, but heated oil and food give off VOCs); of the 11 episodes of VOC at 250 or more since 10-01, eight began between 19:05 and 22:40,
+  two in the afternoon (10-06 14:03, 10-12 15:39) and one at 17:37 on 10-20. Not enough to separate them: the user will note arrivals,
+  departures in the truck, and cooking and cleaning times for a while, to line up with the VOC.
 
 ---
 
