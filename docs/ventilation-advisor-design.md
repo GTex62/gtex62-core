@@ -856,6 +856,24 @@ an `OPEN` alert.
   showed `OPEN WIN // VOC 387` from 17:38 to 18:19 local, the first alert shown from a real event. The VOC line (250 for `OPEN`) therefore
   does fire on real spikes here, not only on the sensor's own scaling.
 
+- **Outdoor chemical cleaning, and a VOC alert that pointed the wrong way (2026-10-23, times and sequence from the user).** The user
+  power washed the outside of the house with a soap and chemical mix (described by the user as non-toxic and harmless to foliage and
+  animals; not verified): the mix is applied and soaks on the house and windows, then a rinse with water plus more chemicals (a little after 12:00),
+  then a final water rinse (finished 14:00 to 14:30). The office windows were closed at 11:45 and reopened at 15:53. The VOC index rose
+  from 53 (11:30) to 101 (11:45), 122 (12:00), 203 (12:30), 242 (13:30) and a peak of 268 near 14:25, then eased to 261 by 15:30, while CO2
+  stayed at 467 to 570 ppm and PM, NOx and temperature showed nothing: it began with the soaking on and around the windows, rose while
+  the rinsing went on, and stabilized when the final rinse ended. The user smelled the cleaning agent inside the house; spray around the
+  soffits, windows and doors gets in. The advisor changed to `OPEN` (VOC 250, severe) at 13:42 and the alert would have shown for its
+  60 minutes, telling the occupant to open the windows while the source was just outside them: the advisor reads only indoor VOC and cannot tell
+  an indoor from an outdoor source (there is no outdoor VOC input). After the reopening the index fell from 260 to 188 (15:56), 140
+  (15:58), 115 (16:00) and 87 (16:02), a time constant of about 6 to 7 minutes, the room's own air-exchange speed (the same as CO2): the
+  vapor was in the air, not stuck on the surfaces, and the verdict returned to `NEUTRAL` at 15:54. It then held at 85 to 96, above the 34 to 53
+  seen before, while the window air still smelled of the agent from the wet and drying soffits and frames. The user suspects the vapor moves up
+  through the house like heat and gathers in the office, the highest point; that fits the stack flow described above and would make the office the
+  last place the infiltrating air passes. A sensor downstairs (the planned Great Room unit) would show whether the vapor arrives there first,
+  and by how long. Options for the advisor, none built: a manual "outdoor chemical work" hold that suppresses a VOC-driven `OPEN` for a set time;
+  comparing the office VOC with a second sensor; or leaving it to the occupant, who knows when the house is being washed.
+
 ---
 
 ## Open Items
