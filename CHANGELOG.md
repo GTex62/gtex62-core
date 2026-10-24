@@ -18,6 +18,28 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
+## Unreleased — 2026-10-24
+
+### Alerts / modem: new `modem-resync` CAUTION alert for T2/T4/SYNC events
+
+`fetch_modem.py` now reports which of **T2 / T4 / SYNC** DOCSIS events landed inside its
+trailing window (`recent_resync_types`, a list in `T2`, `T4`, `SYNC` order; `[]` when quiet,
+`null` on a failed poll) plus the newest one's offset-corrected epoch
+(`recent_resync_last_epoch`). `fetch_alerts.sh` raises `modem-resync` (CAUTION,
+`T2/T4/SYNC EVENT DETECTED`, INFO children `SEEN: T4+SYNC` / `LAST EVENT <n>MIN AGO`) while
+any such row is inside that window, and clears on its own once the log has been quiet that
+long. `alert_log.txt` BREACH lines carry the kinds as a trailing `(T4+SYNC)`.
+
+Why now: the pattern recurred — 2026-09-12 (T2+T4+SYNC), 2026-10-12 (T4+SYNC) and
+2026-10-19 (T4), each a real re-registration that tripped the SEVERE kill-switch alert.
+The kill switch says nothing works; this says the modem lost sync with the CMTS. T4 appeared
+in all three. Deliberately blunt: no rate/baseline tracking (that machinery is for the chronic
+T3 trickle); a poll with no fresh modem evidence ages out against the window rather than
+latching or clearing early. No new config keys. Five new regression cases in
+`providers/modem/test_fetch_modem_regressions.py` built from the real 10/12 and 10/19 rows.
+
+---
+
 ## Unreleased — 2026-10-12
 
 ### GitHub: retry a transient traffic-API failure once

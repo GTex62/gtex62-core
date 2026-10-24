@@ -91,6 +91,8 @@ def write_status(state: str, note: str, modem_ip=None, window_minutes=None):
         "connectivity_state": None,
         "boot_state": None,
         "recent_t3_timeouts": None,
+        "recent_resync_types": None,
+        "recent_resync_last_epoch": None,
         "event_log_window_minutes": window_minutes,
     }, separators=(",", ":")) + "\n")
 
@@ -453,6 +455,36 @@ def matches_t3(event) -> bool:
     return any(p in text for p in T3_TEXT_PATTERNS)
 
 
+# T2 / T4 / SYNC: the modem-side signature of a re-registration with the
+# CMTS (the 2026-09-12, 2026-10-12 and 2026-10-19 outages -- see
+# test_fetch_modem_regressions.py for the live row texts). Deliberately
+# kept apart from matches_t3(): those T3 rows are a chronic trickle with
+# their own burst/total machinery in fetch_alerts.sh, while these are rare
+# one-shot episodes that only need "did one land in the window."
+# 82000400 (T4) and 84000100 (SYNC) are confirmed live ids; T2's id has
+# never been seen in this log, so it is matched on text alone. Order is
+# the order they're reported in (fetch_alerts.sh prints it as-is).
+RESYNC_EVENT_IDS = {"82000400": "T4", "84000100": "SYNC"}
+RESYNC_TEXT_PATTERNS = (
+    ("T2", re.compile(r"\bT2 time[- ]?out", re.IGNORECASE)),
+    ("T4", re.compile(r"\bT4 time[- ]?out", re.IGNORECASE)),
+    ("SYNC", re.compile(r"\bSYNC Timing Synchronization failure", re.IGNORECASE)),
+)
+RESYNC_ORDER = ("T2", "T4", "SYNC")
+
+
+def resync_kind(event):
+    """Returns "T2", "T4" or "SYNC" for a matching event row, else None."""
+    kind = RESYNC_EVENT_IDS.get((event.get("docsDevEvId") or "").strip())
+    if kind:
+        return kind
+    text = event.get("docsDevEvText") or ""
+    for name, pattern in RESYNC_TEXT_PATTERNS:
+        if pattern.search(text):
+            return name
+    return None
+
+
 # Candidate formats for docsDevEvFirstTime/docsDevEvLastTime. Confirmed
 # live (this session, real authenticated EventLog.asp) that the actual
 # format is "YYYY-MM-DD, HH:MM:SS" — a comma-space between date and time,
@@ -684,6 +716,41 @@ def compute_recent_t3(events, window_minutes, now_dt, clock_offset_sec=0):
     return total, note, elapsed_label, since_epoch
 
 
+def compute_recent_resync(events, window_minutes, now_dt, clock_offset_sec=0):
+    """Which of T2/T4/SYNC landed inside the trailing window, and when the
+    latest one did. Returns (kinds, last_epoch): `kinds` is a list in
+    RESYNC_ORDER (empty when nothing matched -- a real "all quiet"
+    reading, as opposed to the None the failure envelope writes), and
+    `last_epoch` is the newest (clock_offset_sec-corrected) LastTime among
+    matching in-window rows, None when `kinds` is empty.
+
+    Same window rules as compute_recent_t3() -- LastTime with a FirstTime
+    fallback, `clock_offset_sec` applied, a 300s tolerance for the future
+    edge -- but no repeat-count arithmetic: a SYNC row can collapse
+    hundreds of repeats, and this only asks whether one landed at all."""
+    found = set()
+    last_dt_max = None
+    for ev in events:
+        kind = resync_kind(ev)
+        if kind is None:
+            continue
+        last_dt = parse_event_time(ev.get("docsDevEvLastTime"), now_dt.date())
+        if last_dt is None:
+            last_dt = parse_event_time(ev.get("docsDevEvFirstTime"), now_dt.date())
+        if last_dt is None:
+            continue
+        if clock_offset_sec:
+            last_dt += timedelta(seconds=clock_offset_sec)
+        age_sec = (now_dt - last_dt).total_seconds()
+        if -300 <= age_sec <= window_minutes * 60:
+            found.add(kind)
+            if last_dt_max is None or last_dt > last_dt_max:
+                last_dt_max = last_dt
+    kinds = [k for k in RESYNC_ORDER if k in found]
+    last_epoch = int(last_dt_max.timestamp()) if last_dt_max is not None else None
+    return kinds, last_epoch
+
+
 # -----------------------------------------------------------------------
 # Main
 # -----------------------------------------------------------------------
@@ -774,6 +841,10 @@ def main():
         events, window_minutes, now_dt, clock_offset_sec
     )
 
+    recent_resync_types, recent_resync_last_epoch = compute_recent_resync(
+        events, window_minutes, now_dt, clock_offset_sec
+    )
+
     notes = list(docsis.get("notes") or [])
     if evlog_note:
         notes.append(evlog_note)
@@ -842,6 +913,8 @@ def main():
         "recent_t3_timeouts": recent_t3,
         "recent_t3_elapsed": recent_t3_elapsed,
         "recent_t3_since_epoch": recent_t3_since_epoch,
+        "recent_resync_types": recent_resync_types,
+        "recent_resync_last_epoch": recent_resync_last_epoch,
         "event_log_window_minutes": window_minutes,
     }
     atomic_write(STATUS_JSON, json.dumps(payload, separators=(",", ":")) + "\n")

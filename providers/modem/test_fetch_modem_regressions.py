@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Regression cases for providers/modem/fetch_modem.py's T3-timeout counting
-(matches_t3() / compute_recent_t3()).
+(matches_t3() / compute_recent_t3()) and its T2/T4/SYNC re-registration
+detection (resync_kind() / compute_recent_resync()).
 
 Not wired into any CI — this repo has no test runner today. Run directly:
 
@@ -485,6 +486,94 @@ def test_since_epoch_differs_for_a_genuinely_different_row():
     )
 
 
+# ---------------------------------------------------------------------
+# Oct 12 / Oct 19, 2026 — T4 + SYNC re-registration episodes (and the
+# 2026-09-12 one before them). Row texts below are the real live ones,
+# trimmed before ";CM-MAC=..." so no device addresses land in the repo.
+# Modem clock runs ~60min behind host (clock_offset_sec=3600).
+# ---------------------------------------------------------------------
+T4_ROW = {
+    "docsDevEvId": "82000400",
+    "docsDevEvText": "Received Response to Broadcast Maintenance Request, But no Unicast "
+                     "Maintenance opportunities received - T4 time out;",
+    "docsDevEvFirstTime": "2026-10-19, 18:50:43",
+    "docsDevEvLastTime": "2026-10-19, 18:50:44",
+    "docsDevEvCounts": "4",
+}
+SYNC_ROW = {
+    "docsDevEvId": "84000100",
+    "docsDevEvText": "SYNC Timing Synchronization failure - Failed to acquire QAM/QPSK symbol timing;",
+    "docsDevEvFirstTime": "2026-10-12, 10:06:24",
+    "docsDevEvLastTime": "2026-10-12, 10:07:14",
+    "docsDevEvCounts": "69",
+}
+
+
+def test_resync_kind_matches_confirmed_rows_and_ignores_the_rest():
+    t3_row = {"docsDevEvId": "82000500", "docsDevEvText": "Started Unicast Maintenance Ranging - "
+                                                       "No Response received - T3 time-out;"}
+    ucd_row = {"docsDevEvId": "85000200", "docsDevEvText": "UCD invalid or channel unusable;"}
+    t2_row = {"docsDevEvId": "", "docsDevEvText": "No Maintenance Broadcasts for Ranging "
+                                                 "opportunities received - T2 time-out;"}
+    check(
+        "Oct 12/19: T4 row, SYNC row and a text-only T2 row are recognized",
+        fm.resync_kind(T4_ROW) == "T4" and fm.resync_kind(SYNC_ROW) == "SYNC"
+        and fm.resync_kind(t2_row) == "T2",
+        f"T4={fm.resync_kind(T4_ROW)!r} SYNC={fm.resync_kind(SYNC_ROW)!r} T2={fm.resync_kind(t2_row)!r}",
+    )
+    check(
+        "Oct 12/19: T3 and UCD rows (the chronic trickle) are not resync events",
+        fm.resync_kind(t3_row) is None and fm.resync_kind(ucd_row) is None,
+    )
+
+
+def test_oct19_episode_reported_while_in_window_with_offset():
+    # 19:55 host = 18:55 modem-time, ~4min after the T4 rows; offset-corrected.
+    now_dt = datetime(2026, 10, 19, 19, 55, 0)
+    kinds, last_epoch = fm.compute_recent_resync([T4_ROW], 60, now_dt, clock_offset_sec=3600)
+    expected = int(datetime(2026, 10, 19, 19, 50, 44).timestamp())
+    check(
+        "Oct 19: T4 episode reported with the offset-corrected last-event epoch",
+        kinds == ["T4"] and last_epoch == expected,
+        f"kinds={kinds!r} last_epoch={last_epoch!r} expected={expected!r}",
+    )
+
+
+def test_oct12_episode_reports_both_kinds_in_fixed_order():
+    now_dt = datetime(2026, 10, 12, 11, 20, 0)
+    kinds, _ = fm.compute_recent_resync([SYNC_ROW, T4_ROW | {
+        "docsDevEvFirstTime": "2026-10-12, 10:07:14", "docsDevEvLastTime": "2026-10-12, 10:07:16",
+    }], 60, now_dt, clock_offset_sec=3600)
+    check(
+        "Oct 12: SYNC + T4 in the same window report as [T4, SYNC]",
+        kinds == ["T4", "SYNC"],
+        f"kinds={kinds!r}",
+    )
+
+
+def test_resync_clears_once_the_window_has_passed():
+    # Same Oct 19 row, 75min after it landed: outside the 60min window.
+    now_dt = datetime(2026, 10, 19, 21, 6, 0)
+    kinds, last_epoch = fm.compute_recent_resync([T4_ROW], 60, now_dt, clock_offset_sec=3600)
+    check(
+        "Oct 19: T4 row 75min old -> empty kinds, no last_epoch",
+        kinds == [] and last_epoch is None,
+        f"kinds={kinds!r} last_epoch={last_epoch!r}",
+    )
+
+
+def test_resync_uncorrected_skew_would_hide_a_fresh_episode():
+    # Without the offset the modem-time row reads 65min old and drops out --
+    # same failure mode as the Sept 7 T3 bug, and why the offset is passed.
+    now_dt = datetime(2026, 10, 19, 19, 55, 0)
+    kinds, _ = fm.compute_recent_resync([T4_ROW], 60, now_dt, clock_offset_sec=0)
+    check(
+        "Oct 19: uncorrected skew pushes a fresh T4 out of the window (why the offset matters)",
+        kinds == [],
+        f"kinds={kinds!r}",
+    )
+
+
 if __name__ == "__main__":
     test_unparseable_lasttime_falls_back_to_firsttime()
     test_both_timestamps_unparseable_excluded_with_note()
@@ -505,6 +594,11 @@ if __name__ == "__main__":
     test_elapsed_label_none_when_total_is_zero()
     test_since_epoch_stable_across_polls_for_the_same_row()
     test_since_epoch_differs_for_a_genuinely_different_row()
+    test_resync_kind_matches_confirmed_rows_and_ignores_the_rest()
+    test_oct19_episode_reported_while_in_window_with_offset()
+    test_oct12_episode_reports_both_kinds_in_fixed_order()
+    test_resync_clears_once_the_window_has_passed()
+    test_resync_uncorrected_skew_would_hide_a_fresh_episode()
 
     if FAILURES:
         print(f"\n{len(FAILURES)} failure(s): {FAILURES}")

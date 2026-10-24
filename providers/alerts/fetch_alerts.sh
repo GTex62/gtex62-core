@@ -245,6 +245,14 @@ state.setdefault("t3_last_seen_at", None)
 state.setdefault("t3_last_seen_since_epoch", None)
 state.setdefault("comcast_degraded_since", None)
 state.setdefault("comcast_degraded_alerted", False)
+# Last fresh T2/T4/SYNC reading from modem/status.json (see the
+# modem-resync block below). Kept in state so a poll with no fresh modem
+# evidence ages out against the window instead of dropping or latching.
+state.setdefault("modem_resync_types", [])
+state.setdefault("modem_resync_last_epoch", None)
+state.setdefault("modem_resync_window_min", None)
+state.setdefault("modem_resync_since", None)
+state.setdefault("modem_resync_alerted", False)
 
 log_lines = []
 
@@ -618,6 +626,89 @@ if state["comcast_degraded_since"] is not None:
         "duration_seconds": now_epoch - state["comcast_degraded_since"],
         "children": comcast_children,
     })
+
+# -------------------------------------------------------------------------
+# T2/T4/SYNC event (CAUTION) — the modem logged a re-registration-class
+# DOCSIS failure inside fetch_modem.py's trailing window. Added 2026-10-24
+# after the pattern recurred: 2026-09-12 (T2+T4+SYNC), 2026-10-12 (T4+SYNC)
+# and 2026-10-19 (T4), each coinciding with a SEVERE advanced-killswitch
+# trip (see docs/network-providers-roadmap.md's Oct 24 session log). The
+# kill switch already says "nothing works"; this says why — the modem
+# lost sync with the CMTS, not pfSense or the VPN.
+#
+# Deliberately blunt, unlike comcast-degraded's T3 side: these are rare
+# one-shot episodes, so there is no burst/trickle rate tracking, no
+# baseline in state.json, and no "stuck breached for days" failure mode
+# to design around. Active exactly while a matching row's LastTime is
+# inside the window (modem/status.json's event_log_window_minutes, 60 by
+# default); the banner clears on its own once the log has been quiet that
+# long. T2/T4/SYNC are bundled into one alert because they arrive together
+# as one episode; the children say which ones actually fired.
+#
+# Evidence handling: a poll with fresh recent_resync_types (a list, empty
+# meaning "checked, all quiet") replaces what state.json remembers. A poll
+# with no fresh evidence (modem unreachable -- recent_resync_types null --
+# or a stale status.json) leaves it alone, and the age check below ages it
+# out against the window regardless, so a dead provider cannot pin this
+# banner. That also keeps a modem that's offline *during* the outage from
+# clearing the alert and re-raising it on recovery.
+# -------------------------------------------------------------------------
+
+if ok_modem and not modem_stale:
+    resync_types = modem.get("recent_resync_types")
+    if isinstance(resync_types, list):
+        window_min = modem.get("event_log_window_minutes")
+        state["modem_resync_window_min"] = window_min if isinstance(window_min, (int, float)) else None
+        resync_last = modem.get("recent_resync_last_epoch")
+        if resync_types and isinstance(resync_last, (int, float)):
+            state["modem_resync_types"] = resync_types
+            state["modem_resync_last_epoch"] = int(resync_last)
+        else:
+            state["modem_resync_types"] = []
+            state["modem_resync_last_epoch"] = None
+
+resync_window_min = state["modem_resync_window_min"] or 60
+resync_last_epoch = state["modem_resync_last_epoch"]
+resync_active = (
+    bool(state["modem_resync_types"])
+    and isinstance(resync_last_epoch, (int, float))
+    and (now_epoch - resync_last_epoch) <= resync_window_min * 60
+)
+
+if resync_active:
+    if state["modem_resync_since"] is None:
+        state["modem_resync_since"] = now_epoch
+    if not state["modem_resync_alerted"]:
+        log("BREACH", "CAUTION", "modem-resync", "T2/T4/SYNC EVENT DETECTED",
+            detail="+".join(state["modem_resync_types"]))
+        state["modem_resync_alerted"] = True
+    resync_age_min = max(0, (now_epoch - resync_last_epoch) // 60)
+    queue.append({
+        "id": "modem-resync",
+        "severity": "CAUTION",
+        "message": "T2/T4/SYNC EVENT DETECTED",
+        "since": iso(state["modem_resync_since"]),
+        "duration_seconds": now_epoch - state["modem_resync_since"],
+        "children": [
+            {
+                "id": "modem-resync-types",
+                "severity": "INFORMATIONAL",
+                "message": "SEEN: " + "+".join(state["modem_resync_types"]),
+                "since": iso(state["modem_resync_since"]),
+            },
+            {
+                "id": "modem-resync-last",
+                "severity": "INFORMATIONAL",
+                "message": f"LAST EVENT {resync_age_min}MIN AGO",
+                "since": iso(resync_last_epoch),
+            },
+        ],
+    })
+else:
+    if state["modem_resync_alerted"]:
+        log("CLEAR", "CAUTION", "modem-resync", "T2/T4/SYNC EVENT DETECTED")
+    state["modem_resync_since"] = None
+    state["modem_resync_alerted"] = False
 
 # -------------------------------------------------------------------------
 # Advanced Kill Switch blocking all traffic. Same symptom as gateway-offline

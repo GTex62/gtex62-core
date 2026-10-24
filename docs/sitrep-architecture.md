@@ -256,19 +256,20 @@ A breached condition is a queue entry:
 `children` is always present (empty array when there are none) so a consumer never has to
 check for key existence. Array order in `queue` **is** display order — severity-sorted
 (SEVERE before CAUTION; top-level entries are never INFORMATIONAL, only children are),
-stable within a tier in the watcher's fixed evaluation order (gateway, comcast-degraded,
+stable within a tier in the watcher's fixed evaluation order (gateway, comcast-degraded, modem-resync,
 advanced-killswitch-blocking, pihole, msmtch, unidentified-IP, ap-offline(s)). Parent/child
 grouping is inherent to the structure — children never get flattened into the top-level sort.
 
 ### Condition Table
 
 Full, current set of conditions the watcher evaluates, folded in from SitRep Design Notes'
-original design record now that all seven are core-side implemented and verified:
+original design record now that all eight are core-side implemented and verified:
 
 | Condition | Threshold | Duration | Severity | Message |
 | --- | --- | --- | --- | --- |
 | Gateway offline | n/a — `status.json`'s boolean `gateway.online` | >=15min default (`gateway_offline_duration_sec`) | SEVERE (root) + INFO (detail, + MTR-began child once `fetch_mtr.sh` confirms Pi5's overnight log started) | COMCAST OUTAGE DETECTED / GATEWAY OFFLINE >=15MIN |
 | Comcast degraded | `status.json`'s `gateway.loss_pct` >= 25% (`comcast_degraded_loss_pct_threshold`) OR a T3 burst — `modem/status.json`'s `recent_t3_timeouts` delta since the last poll, normalized to a rate, >= `comcast_degraded_t3_burst_count`/`..._window_min`'s equivalent rate (default 5 within 5min = 60/hr) | loss_pct sustained >=5min default (`comcast_degraded_loss_duration_sec`); T3 burst is itself instantaneous (a rate crossing, not a sustained condition) | CAUTION (root) + INFO child(ren) per sub-condition that actually fired — T3 side gives 2 (burst + running total) | COMCAST DEGRADED / T3: +\<n\> IN \<M\>MIN, T3: \<n\> TOTAL FOR \<H:MM\>, and/or GATEWAY: \<pct\>% FOR \<duration\> |
+| Modem T2/T4/SYNC event | n/a — `modem/status.json`'s `recent_resync_types` non-empty AND `recent_resync_last_epoch` inside the window (`event_log_window_minutes`, 60 default); no config keys | instant on, clears when the log has been quiet for the window | CAUTION (root) + 2 INFO children | T2/T4/SYNC EVENT DETECTED / SEEN: \<kinds\>, LAST EVENT \<n\>MIN AGO |
 | Advanced Kill Switch blocking | n/a — `vpn.json`'s `killswitch_mode == "on"` AND `connectionstate != "Connected"` | >=10s default (`advanced_killswitch_duration_sec`) | SEVERE | KS BLOCKING TRAFFIC |
 | Pi-hole inactive | n/a | >=10min default (`pihole_inactive_duration_sec`) | CAUTION | PI-HOLE INACTIVE |
 | AP client MAC/IP mismatch | n/a (count > 0) — core-computed, `ap_clients.json`'s `mismatch_total` | instant | CAUTION (root) + INFO child(ren) — 2 per mismatch (location + IP), each `.upper()`'d for the render font | MAC/IP MISMATCH (n) / \<NAME\> AT \<LABEL\>, \<IP\> <- \<DOCUMENTED IP\> |
@@ -299,13 +300,15 @@ convention is shared.
 ```
 
 A `BREACH` line for a condition with more than one possible cause carries a trailing
-`(DETAIL)` naming which sub-condition(s) actually fired — added 2026-09-13, only for
-`comcast-degraded` (the one condition where this is ambiguous; every other alert has exactly
-one possible cause, already named by its own message):
+`(DETAIL)` naming which sub-condition(s) actually fired — added 2026-09-13 for
+`comcast-degraded` (the condition where this is ambiguous), and 2026-10-24 for `modem-resync`
+(which of T2/T4/SYNC); every other alert has exactly one possible cause, already named by its
+own message:
 
 ```text
 2026-09-13T04:07:58Z BREACH CAUTION comcast-degraded COMCAST DEGRADED (LOSS)
 2026-09-13T23:12:58Z BREACH CAUTION comcast-degraded COMCAST DEGRADED (T3+LOSS)
+2026-10-24T16:49:19Z BREACH CAUTION modem-resync T2/T4/SYNC EVENT DETECTED (T4+SYNC)
 ```
 
 `CLEAR` lines never carry this — by the time something clears, nothing is currently breached

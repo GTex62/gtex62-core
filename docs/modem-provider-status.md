@@ -113,6 +113,8 @@ order of magnitude.
   "recent_t3_timeouts": 93,
   "recent_t3_elapsed": "14:05",
   "recent_t3_since_epoch": 1759198760,
+  "recent_resync_types": ["T4", "SYNC"],
+  "recent_resync_last_epoch": 1759198500,
   "event_log_window_minutes": 60
 }
 ```
@@ -120,6 +122,23 @@ order of magnitude.
 A fully-unlocked upstream channel reports `id: 0, freq_hz: 0, power_dbmv: 0.0` — this is
 genuinely what the modem reports for an unused channel slot, not a parsing bug; exclude
 `locked == false` rows from any averaging.
+
+#### `recent_resync_*` Fields
+
+Added 2026-10-24. The modem-side signature of a re-registration with the CMTS, kept
+separate from `recent_t3_*` on purpose: these are rare one-shot episodes, not a chronic
+trickle.
+
+- **`recent_resync_types`** — which of `"T2"`, `"T4"`, `"SYNC"` have a matching row whose
+  `LastTime` (offset-corrected, `FirstTime` fallback) is inside `event_log_window_minutes`,
+  always in `T2`, `T4`, `SYNC` order. `[]` is a real "checked, all quiet" reading; `null` means
+  the poll failed and there is no evidence either way. Matching is by event id
+  (`82000400` = T4, `84000100` = SYNC) with a text fallback; T2's id has never been seen live,
+  so it is matched on `"T2 time-out"` text only.
+- **`recent_resync_last_epoch`** — the newest matching row's corrected `LastTime` as an epoch;
+  `null` when `recent_resync_types` is empty or null.
+- No repeat-count arithmetic: a SYNC row can collapse hundreds of repeats and only "did one
+  land" matters. Consumed by `fetch_alerts.sh`'s `modem-resync` condition.
 
 #### `recent_t3_*` Fields
 

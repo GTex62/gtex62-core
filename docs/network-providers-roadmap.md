@@ -1505,6 +1505,36 @@ both) actually caused it. User: "sounds like an easy thing to add... proceed."
 - `sitrep-architecture.md`'s `alert_log.txt` format reference updated with the new detail
   syntax and why `CLEAR` lines don't carry it.
 
+### Session Log — Oct 24, 2026 (T2/T4/SYNC Recurs Twice; `modem-resync` Alert Built)
+
+Prompted by the CM1000 table's T3 count stacking up (432 over 111h, ~3.9/hr — a chronic
+trickle, no burst, nothing to fix). The user's read of the modem Event Log named problems on
+10/12, 10/14-10/16 and 10/19 and a T4 with no T2. The provider doesn't persist raw rows, so
+the full log (40 rows) was pulled once through `fetch_modem.py`'s own `login()` /
+`parse_event_log()` from the user's terminal (the Claude sandbox has no route to the modem).
+
+- **10/12 (host 11:06-11:09) and 10/19 (host 19:50-19:51)** were both re-registration
+  episodes like Sept 12: T4 (`82000400`) in each, SYNC (`84000100`) on 10/12 only, T2 on
+  neither, ending in `Honoring MDD` + `DS profile assignment change`; both coincide with a
+  SEVERE `advanced-killswitch-blocking` BREACH 1-2 minutes long. The current chronic T3 row
+  (first seen modem 18:56:07 on 10/19) started five minutes after the 10/19 re-registration.
+- **10/14-10/16 was a different shape:** no outage, a ×512 T3 row ending in a
+  `Dynamic Range Window violation` (10/15 02:26) and paired CM-STATUS messages on OFDM channel
+  194 (type codes 16 then 24, ~4-5 min apart) on 10/14 and 10/16. Not covered by this work.
+- **Decision:** the Sept 12 hold-off ("wait for a second occurrence") is over — two more in
+  six weeks. Built `recent_resync_types` / `recent_resync_last_epoch` in `fetch_modem.py` and
+  a `modem-resync` CAUTION condition in `fetch_alerts.sh`, T2/T4/SYNC bundled into one
+  alert. The kill switch already catches these; the new alert only labels the cause. See
+  CHANGELOG and `modem-provider-status.md` for the fields.
+- **Verified:** replayed the real 40-row log with `clock_offset_sec=3600` — 10/12 → `[T4,
+  SYNC]` during and `[]` 65min after; 10/19 → `[T4]` during and `[]` after; 10/14 and
+  "now" → `[]`. Alert lifecycle exercised against a scratch cache: breach, idempotent rerun,
+  modem-unreachable poll keeps it (no spurious CLEAR/re-BREACH), fresh quiet clears, an
+  already-old episode never raises, stale `status.json` ages out against the window.
+- **Not tuned:** the banner stays up for the full 60min window after the last event. If that
+  proves too long it wants its own `[alerts]` key rather than shrinking `window_minutes`
+  (which also governs `recent_t3_timeouts`).
+
 ### Open Items
 
 **The first five bullets below are superseded, not open (2026-09-07)** — they're all
