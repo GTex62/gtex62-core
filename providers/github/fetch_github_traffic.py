@@ -70,10 +70,11 @@ def fetch_json(cmd: list) -> dict:
 
 # One retry after a short backoff. Added 2026-10-12: the OnBootSec=10m-triggered run hit
 # a transient `gh api` failure on 2026-10-10 (all repos) and again on 2026-10-12 (one
-# repo) — gh auth/rate-limit were both clean each time, consistent with the network/DNS
-# not being fully up yet this early in boot. A single retry absorbs that without masking
-# a real, persistent failure (still only two attempts, still logged and reported as ERROR
-# if both fail).
+# repo) — gh auth/rate-limit were both clean each time. A single retry absorbs a one-off
+# failure without masking a real, persistent one (still only two attempts, still logged
+# and reported as ERROR if both fail). It does NOT help the boot-time failures: those are
+# gh's token sitting in gnome-keyring, still locked when the OnBootSec=10m timer fires, so
+# gh fails at once (journal: SystemPrompter / gkr-pam), diagnosed 2026-10-17.
 def fetch_json_retried(cmd: list, retries: int = 1, backoff_sec: float = 3.0) -> dict:
     last_exc = None
     for attempt in range(retries + 1):

@@ -48,9 +48,17 @@ latching or clearing early. No new config keys. Five new regression cases in
 `fetch_github_traffic.py` retries a failed `gh api .../traffic/clones` call once, after a
 3s backoff, before counting it as a real failure. The `OnBootSec=10m`-triggered run hit a
 transient failure twice in three days (2026-10-10: all 11 repos; 2026-10-12: one repo),
-each time with `gh auth`/rate-limit clean — consistent with the network not being fully up
-this early in boot. A second, persistent failure still logs to `fetch.log` and reports
-`state:"error"` exactly as before; see `docs/doctor-missing-conditions.md`'s GITHUB entry.
+each time with `gh auth`/rate-limit clean. A second, persistent failure still logs to
+`fetch.log` and reports `state:"error"` exactly as before; see
+`docs/doctor-missing-conditions.md`'s GITHUB entry.
+
+**Correction (2026-10-24):** this entry first blamed the network not being fully up this
+early in boot. That was wrong for the boot-time failures. `gh`'s token lives in
+gnome-keyring, which is still locked when the `OnBootSec=10m` timer fires, so `gh` fails
+at once (journal: `SystemPrompter exited status 1`, `gkr-pam` could not unlock; diagnosed on
+2026-10-17). A retry 3s later cannot help with that, and it did not on the third occurrence.
+The retry stays, since it is harmless and covers a real one-off failure, but it does not fix
+the boot failures. The keyring fix is still open.
 
 
 **airgradient export: a heating flag (2026-10-18).** `indoor_1min.csv` gains `ac_heating` (1 while the main thermostat's
