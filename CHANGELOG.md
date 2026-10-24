@@ -18,7 +18,11 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
-## Unreleased — 2026-10-24
+## 0.15.0 — 2026-10-24
+
+A modem T2/T4/SYNC banner alert, plus the AirGradient advisor and export follow-ups and a GitHub traffic
+retry since 0.14.0. Minor bump: new user-visible behavior (a new alert condition and new modem status fields,
+two advisor `CLOSE` rules, new optional export files and columns).
 
 ### Alerts / modem: new `modem-resync` CAUTION alert for T2/T4/SYNC events
 
@@ -38,9 +42,6 @@ T3 trickle); a poll with no fresh modem evidence ages out against the window rat
 latching or clearing early. No new config keys. Five new regression cases in
 `providers/modem/test_fetch_modem_regressions.py` built from the real 10/12 and 10/19 rows.
 
----
-
-## Unreleased — 2026-10-12
 
 ### GitHub: retry a transient traffic-API failure once
 
@@ -51,9 +52,6 @@ each time with `gh auth`/rate-limit clean — consistent with the network not be
 this early in boot. A second, persistent failure still logs to `fetch.log` and reports
 `state:"error"` exactly as before; see `docs/doctor-missing-conditions.md`'s GITHUB entry.
 
----
-
-## Unreleased
 
 **airgradient export: a heating flag (2026-10-18).** `indoor_1min.csv` gains `ac_heating` (1 while the main thermostat's
 `hvac_action` is `heating`, 0 otherwise, blank without a thermostat state), beside `ac_cooling`, so winter analyses can line
@@ -80,6 +78,12 @@ the other files. A named entity missing from the recorder is reported on stderr 
 main `thermostat` still drives the per-minute `ac_*` columns. Tests: `test_ha_export.py`.
 
 ---
+
+### Upgrading
+
+Pull the latest and restart your suite; nothing is required. The `modem-resync` alert needs no config. Optional new keys:
+`[advisor] storm_lookahead_min` / `wind_side_deg` / `window_facing_deg` and `[ha_export] zone_thermostats` (see their
+entries above).
 
 ## 0.14.0 — 2026-10-09
 
