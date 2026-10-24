@@ -15,7 +15,7 @@ Provider commands by domain:
 | net     | `bash ~/.config/conky/gtex62-core/providers/net/fetch_net.sh local` |
 | time    | `bash ~/.config/conky/gtex62-core/providers/time/fetch_time.sh local` |
 | orb     | `bash ~/.config/conky/gtex62-core/providers/orb/fetch_orb.sh home` |
-| weather | `bash ~/.config/conky/gtex62-core/providers/weather/fetch_weather.sh home` |
+| weather | `bash ~/.config/conky/gtex62-core/providers/weather/fetch_openweather.sh home` |
 | air     | `bash ~/.config/conky/gtex62-core/providers/air/fetch_air.sh home` |
 | solar   | `bash ~/.config/conky/gtex62-core/providers/solar/fetch_solar.sh home` |
 | env     | run both `air` and `solar` commands above |
