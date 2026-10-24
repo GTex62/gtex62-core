@@ -20,7 +20,7 @@ from pathlib import Path
 
 CORE = Path(__file__).resolve().parent.parent.parent
 SCRIPT = CORE / "providers" / "air" / "fetch_air.sh"
-LAT, LON = 35.111649, -89.755973
+LAT, LON = 40.0, -90.0                 # an arbitrary test site, not a real location
 FAILURES = []
 
 
@@ -75,8 +75,8 @@ def run(obs=(), data=(), max_age=None, owm_pm25=13.2):
 
 
 H = hour_floor(int(time.time()))
-NEAR = (35.151588, -89.85022)      # about 6 miles from the site
-FAR = (34.820633, -89.987782)      # about 24 miles
+NEAR = (LAT + 0.0399, LON + 0.1058)      # about 6 miles from the site
+FAR = (LAT - 0.2910, LON - 0.2318)        # about 24 miles
 
 # ---------------------------------------------------------------------------
 # Overall AQI: the highest pollutant sub-index among the newest rows

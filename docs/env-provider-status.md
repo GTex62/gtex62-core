@@ -145,7 +145,7 @@ air = "home"
   "profile": "home",
   "generated_at": "2026-09-09T15:26:39Z",
   "provider_updated_at": "2026-09-09T14:00:00Z",
-  "location": { "lat": 35.111649, "lon": -89.755973, "timezone": "America/Chicago" },
+  "location": { "lat": 40.0, "lon": -90.0, "timezone": "America/Chicago" },
   "openweather": {
     "enabled": true,
     "valid": true,
@@ -306,7 +306,7 @@ solar = "home"
   "generated_at": "2026-09-09T15:31:40Z",
   "provider_updated_at": "2026-09-09T15:26:39Z",
   "weather_profile": "home",
-  "location": { "lat": 35.111649, "lon": -89.755973, "timezone": "America/Chicago" },
+  "location": { "lat": 40.0, "lon": -90.0, "timezone": "America/Chicago" },
   "labels": ["UV", "VI", "IR", "CL", "RAD"],
   "values": { "UV": 4.75, "VI": 30.09, "IR": 43.1, "CL": 63, "RAD": 646 },
   "norm": { "UV": 0.43, "VI": 0.3, "IR": 0.43, "CL": 0.63, "RAD": 0.65 },

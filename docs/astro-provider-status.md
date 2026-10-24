@@ -123,7 +123,7 @@ astro = "home"
 {
   "generated_at": "2026-09-09T16:18:40Z",
   "profile": "home",
-  "observer": { "lat": 35.111649, "lon": -89.755973, "timezone": "America/Chicago" },
+  "observer": { "lat": 40.0, "lon": -90.0, "timezone": "America/Chicago" },
   "sun": {
     "id": "sun",
     "name": "Sun",
