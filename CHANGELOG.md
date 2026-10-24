@@ -53,12 +53,14 @@ each time with `gh auth`/rate-limit clean. A second, persistent failure still lo
 `docs/doctor-missing-conditions.md`'s GITHUB entry.
 
 **Correction (2026-10-24):** this entry first blamed the network not being fully up this
-early in boot. That was wrong for the boot-time failures. `gh`'s token lives in
-gnome-keyring, which is still locked when the `OnBootSec=10m` timer fires, so `gh` fails
-at once (journal: `SystemPrompter exited status 1`, `gkr-pam` could not unlock; diagnosed on
-2026-10-17). A retry 3s later cannot help with that, and it did not on the third occurrence.
-The retry stays, since it is harmless and covers a real one-off failure, but it does not fix
-the boot failures. The keyring fix is still open.
+early in boot. The failures were two different things. 2026-10-10 and 2026-10-17 (all repos)
+were boots with no login yet: `gh`'s token lives in gnome-keyring, which unlocks at login, so
+when the `OnBootSec=10m` timer fired `gh` failed at once (journal: `SystemPrompter exited
+status 1`, `gkr-pam` could not unlock; on 10-17 the login came 67 minutes after the fetch).
+A retry 3s later cannot help with that. 2026-10-12 (one repo, login one minute after boot)
+was an ordinary transient, which the retry does cover. Booting and logging in as usual is
+not affected, so there is nothing further to fix; only an unattended boot sees a failing
+GITHUB entry until the next daily run after login.
 
 
 **airgradient export: a heating flag (2026-10-18).** `indoor_1min.csv` gains `ac_heating` (1 while the main thermostat's

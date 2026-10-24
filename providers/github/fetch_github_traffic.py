@@ -72,9 +72,10 @@ def fetch_json(cmd: list) -> dict:
 # a transient `gh api` failure on 2026-10-10 (all repos) and again on 2026-10-12 (one
 # repo) — gh auth/rate-limit were both clean each time. A single retry absorbs a one-off
 # failure without masking a real, persistent one (still only two attempts, still logged
-# and reported as ERROR if both fail). It does NOT help the boot-time failures: those are
-# gh's token sitting in gnome-keyring, still locked when the OnBootSec=10m timer fires, so
-# gh fails at once (journal: SystemPrompter / gkr-pam), diagnosed 2026-10-17.
+# and reported as ERROR if both fail). It does NOT help a boot with no login yet: gh's token
+# sits in gnome-keyring, which unlocks at login, so when the OnBootSec=10m timer fires first
+# gh fails at once (journal: SystemPrompter / gkr-pam; 2026-10-10 and 2026-10-17). The
+# one-repo failure on 2026-10-12 was a normal boot and a true transient.
 def fetch_json_retried(cmd: list, retries: int = 1, backoff_sec: float = 3.0) -> dict:
     last_exc = None
     for attempt in range(retries + 1):
