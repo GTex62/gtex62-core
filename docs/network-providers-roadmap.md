@@ -1531,6 +1531,16 @@ the full log (40 rows) was pulled once through `fetch_modem.py`'s own `login()` 
   "now" → `[]`. Alert lifecycle exercised against a scratch cache: breach, idempotent rerun,
   modem-unreachable poll keeps it (no spurious CLEAR/re-BREACH), fresh quiet clears, an
   already-old episode never raises, stale `status.json` ages out against the window.
+- **Live checks (same day, sandbox off):** the running loop had already picked up the new
+  fields (`recent_resync_types: []`, alert state keys idle). A scratch-cache run of
+  `fetch_modem.py` against the real modem agreed with it, and a fresh pull of the real log
+  returned the same T4/SYNC rows as the first and replayed identically. Then a deliberate
+  live fire test: backed up the live cache files, wrote one fake `["T4"]` reading into the
+  live `modem/status.json`, and watched the real pipeline raise `modem-resync` on the
+  user's banner (`SEEN: T4`, `LAST EVENT 1MIN AGO`, then `2MIN AGO` after a 90s hold), clear
+  on restore, and log a BREACH/CLEAR pair. The test's two `alert_log.txt` lines were removed
+  afterward so the real history carries no fake entry. The matcher itself on a live T4 is
+  covered by the replay of the 10/12 and 10/19 rows.
 - **Not tuned:** the banner stays up for the full 60min window after the last event. If that
   proves too long it wants its own `[alerts]` key rather than shrinking `window_minutes`
   (which also governs `recent_t3_timeouts`).

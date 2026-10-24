@@ -335,6 +335,14 @@ flag is DISABLED, which is the shipped default.
   - DCM text: missing/stale cache → check `systemctl --user status
     gtex62-github-traffic.timer` first (is the timer itself running), not a profile-TOML
     remediation — that's the wrong layer for this domain.
+  - **A failing GITHUB after an unattended boot is expected, not a fault** (diagnosed
+    2026-10-17, narrowed 2026-10-24). `gh`'s token lives in gnome-keyring, which only
+    unlocks at login; if the timer's `OnBootSec=10m` run fires before anyone has logged in,
+    every `gh api` call fails at once (journal: `SystemPrompter exited status 1`, `gkr-pam`).
+    A boot followed by a normal login does not hit this (2026-10-12's one-repo failure was an
+    ordinary transient, which the 3s retry covers). DCM text for this case: log in, then
+    wait for the next timer run or run `fetch_github_traffic.py` by hand — check `journalctl
+    | grep -E "SystemPrompter|gkr-pam"` before suspecting the network or `gh` auth.
 
 ### MEDIA
 - Not independently re-verified against `fetch_lyrics.py`/`.sh` this pass (the original
