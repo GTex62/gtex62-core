@@ -887,6 +887,21 @@ an `OPEN` alert.
   two in the afternoon (10-06 14:03, 10-12 15:39) and one at 17:37 on 10-20. Not enough to separate them: the user will note arrivals,
   departures in the truck, and cooking and cleaning times for a while, to line up with the VOC.
 
+- **Smoke in the room, and a cooking test (2026-10-24, times and setup from the user).** At about 18:49 local, brief smoke in the room (before
+  the cooking): PM0.3 went from about 1,090 to 15,802 per dL, PM2.5 from 4.9 to 98.9 and PM10 to 130.6 in about two minutes (18:51), while VOC
+  moved only from 107 to 118; the counts fell back with a time constant near 7 minutes and were at the 1,200 baseline by 19:30. The advisor
+  said `OPEN` (`indoor PM2.5 66.9`) at 18:52 and `NEUTRAL` at 19:08. Cooking skirt steaks and chicken in a grill pan on the induction stove
+  top, about 19:45 to 20:30, with the kitchen window open and the downdraft exhaust fan (ducted outside, under the kitchen window) on auto,
+  running while the unit was on: PM0.3 rose from about 1,130 to 1,900 (peak 1,976 at 20:27, about 70%), PM2.5 from 5.4 to 8.7, PM10 from
+  6.5 to 13.5, CO2 stayed at 438 to 447, and VOC stayed at the 112 baseline for about 20 minutes, then climbed from 20:03 (152 at 20:06, 264 at
+  20:18, 305 at 20:30, probably as the pan and oil heated) and fell to 142 by 21:00. The advisor said `OPEN` (`VOC index 251`, severe) from
+  20:19 to 20:45. The office is two floors above the kitchen, so cooking reaches it through the stairwell even with a window and a ducted
+  fan; the fan also depressurizes the house a little, and with the window shut the make-up air would come from other leaks, possibly the garage
+  below the office (not tested). The exhaust outlet sits below the open kitchen window, so some of the exhausted air may come back in
+  (not tested). Compared with the 10-20 VOC event (34 to 485 in about eight minutes with no particle change), cooking gives a slow VOC rise
+  (about 25 minutes) together with a particle rise, so the 10-20 event does not look like cooking; the garage, a cleaning product or an aerosol
+  remain the candidates. A kitchen-fan-on or cooking time next to a VOC spike with no particles would be worth a closer look.
+
 ---
 
 ## Open Items
