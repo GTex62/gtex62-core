@@ -121,6 +121,8 @@ check("an NWS product becomes 'NWS <EVENT>' with its own times; one without time
       and f[0]["expires_at"] == "2026-10-27T06:00:00-05:00" and f[1]["since"] == "2026-10-26T15:00:00Z" and f[1]["expires_at"] is None, str(f))
 check("an action day becomes 'AQI ACTION DAY: PM2.5 112'; every text fits 29 characters",
       f[2]["text"] == "AQI ACTION DAY: PM2.5 112" and all(len(x["text"]) <= 29 for x in f))
+f2 = nt.outdoor_facts({"aq_forecast": {"aqi": 130, "pollutant": "OZONE", "action_day": True, "day": "tomorrow"}}, "t")
+check("an action day tomorrow says so, within 29 characters", f2[0]["text"] == "ACTION DAY TMRW: OZONE 130" and len(f2[0]["text"]) <= 29, str(f2))
 check("no action day and no alerts: no facts, and junk input never raises",
       nt.outdoor_facts({"aq_forecast": {"aqi": 64, "action_day": False}}, "t") == [] and nt.outdoor_facts(None, "t") == [] and nt.outdoor_facts({"nws_alerts": [None, 5, {"event": 3}]}, "t") == [])
 

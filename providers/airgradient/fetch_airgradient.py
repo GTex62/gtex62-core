@@ -265,10 +265,14 @@ def air_extras(now: float) -> dict:
     fc = ex.get("forecast") if isinstance(ex.get("forecast"), dict) else {}
     t = parse_iso(fc.get("fetched_at"))
     if t is not None and 0 <= now - t <= EXTRAS_MAX_AGE_SEC["forecast"] and fc.get("rows"):
-        top = max((r for r in fc["rows"] if isinstance(r, dict) and va.num(r.get("aqi")) is not None), key=lambda r: r["aqi"], default=None)
+        days = {datetime.fromtimestamp(now).strftime("%Y-%m-%d"): "today",
+                datetime.fromtimestamp(now + 86400).strftime("%Y-%m-%d"): "tomorrow"}
+        rows = [r for r in fc["rows"] if isinstance(r, dict) and va.num(r.get("aqi")) is not None and r.get("date_valid") in days]
+        # an action day outranks a higher AQI; then the higher AQI; then the nearer day
+        top = max(rows, key=lambda r: (bool(r.get("action_day")), r["aqi"], r["date_valid"] == min(days)), default=None)
         if top:
             out["aq_forecast"] = {"aqi": top["aqi"], "pollutant": top.get("pollutant"), "category": top.get("category"),
-                                  "action_day": bool(fc.get("action_day"))}
+                                  "action_day": bool(top.get("action_day")), "day": days[top["date_valid"]]}
     return out
 
 

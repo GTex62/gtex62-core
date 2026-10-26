@@ -257,6 +257,8 @@ r = va.advise({**BASE, **dict(co2=1200)}, clean(nws_events=["Heat Advisory", Non
 check("other products and junk in nws_events are ignored", r["verdict"] == "OPEN" and "NWS" not in r["reason"], str(r["reason"]))
 r = va.advise({**BASE, **dict(co2=1200)}, clean(aq_forecast=dict(aqi=112, pollutant="PM2.5", action_day=True)))
 check("an AirNow action day forecast is a note with the pollutant and AQI", "AirNow forecast: PM2.5 112 (action day)" in r["reason"] and r["verdict"] == "OPEN", str(r["reason"]))
+r = va.advise({**BASE, **dict(co2=1200)}, clean(aq_forecast=dict(aqi=112, pollutant="PM2.5", action_day=True, day="tomorrow")))
+check("...and says which day when the provider does", "AirNow forecast tomorrow: PM2.5 112 (action day)" in r["reason"], str(r["reason"]))
 r = va.advise({**BASE, **dict(co2=1200)}, clean(aq_forecast=dict(aqi=64, pollutant="PM2.5", action_day=False)))
 check("a moderate forecast (64, no action day) adds nothing", "AirNow" not in r["reason"])
 r = va.advise({**BASE, **dict(co2=1200)}, clean(aq_forecast=dict(aqi=101, pollutant="OZONE", action_day=False)))

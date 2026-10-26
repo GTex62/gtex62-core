@@ -866,8 +866,14 @@ def write_extras(sc_, nws=None, forecast=None, age=0):
     if nws is not None:
         doc["nws"] = {"ok": True, "fetched_at": stamp, "alerts": [{"event": e, "effective": "2026-10-26T09:00:00-05:00", "expires": "2026-10-27T06:00:00-05:00"} for e in nws]}
     if forecast is not None:
-        doc["forecast"] = {"ok": True, "fetched_at": stamp, "action_day": bool(forecast.get("action_day")),
-                           "rows": [{"pollutant": forecast.get("pollutant", "PM2.5"), "aqi": forecast["aqi"], "action_day": bool(forecast.get("action_day"))}]}
+        today_ = time.strftime("%Y-%m-%d", time.localtime(sc_.t))
+        tomorrow_ = time.strftime("%Y-%m-%d", time.localtime(sc_.t + 86400))
+        later_ = time.strftime("%Y-%m-%d", time.localtime(sc_.t + 3 * 86400))
+        rows_ = [{"pollutant": forecast.get("pollutant", "PM2.5"), "aqi": forecast["aqi"], "action_day": bool(forecast.get("action_day")),
+                  "date_valid": forecast.get("date", today_)}]
+        if forecast.get("extra_rows"):
+            rows_ += [{"pollutant": "OZONE", "aqi": 160, "action_day": True, "date_valid": later_}]
+        doc["forecast"] = {"ok": True, "fetched_at": stamp, "action_day": any(r["action_day"] for r in rows_), "rows": rows_}
     (d / "extras.json").write_text(json.dumps(doc))
 
 
@@ -895,6 +901,16 @@ for _ in range(3):
 st_ = sc.status()
 check("an NWS fetch more than 90 minutes old is not trusted (no hard close, no notice); the forecast, under 12 hours old, still is",
       st_["ventilation"]["verdict"] == "OPEN" and [n["text"] for n in st_["notices"]] == ["AQI ACTION DAY: PM2.5 112"], str((st_["ventilation"]["verdict"], st_["notices"])))
+sc.done()
+
+sc = Scenario(advisor_extra="shadow = false", air=clean_air, wx=clean_wx, toml_extra="[notices]\nenabled = true\n")
+write_extras(sc, forecast=dict(aqi=120, action_day=True, date=time.strftime("%Y-%m-%d", time.localtime(BASE_T + 86400)), extra_rows=True))
+for _ in range(3):
+    sc.run(advance=60)
+st_ = sc.status()
+check("a forecast for tomorrow is labelled so; a forecast three days out (an action day too) is ignored",
+      "AirNow forecast tomorrow: PM2.5 120 (action day)" in st_["ventilation"]["reason"] and "OZONE" not in st_["ventilation"]["reason"]
+      and [n["text"] for n in st_["notices"]] == ["ACTION DAY TMRW: PM2.5 120"], str((st_["ventilation"]["reason"], st_["notices"])))
 sc.done()
 
 sc = Scenario(advisor_extra="shadow = false", air=clean_air, wx=clean_wx)

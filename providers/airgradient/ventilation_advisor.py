@@ -182,7 +182,8 @@ def advise(ind, out=None, latched=frozenset(), pollen=None, cfg=None):
     fc_aqi = num(fc.get('aqi'))
     if fc.get('action_day') or (fc_aqi is not None and fc_aqi >= 101):
         label = (fc.get('pollutant') or 'AQI') + ('' if fc_aqi is None else f" {fc_aqi:.0f}")
-        notes.append(f"AirNow forecast: {label}" + (' (action day)' if fc.get('action_day') else ''))
+        day = f" {fc['day']}" if fc.get('day') in ('today', 'tomorrow') else ''
+        notes.append(f"AirNow forecast{day}: {label}" + (' (action day)' if fc.get('action_day') else ''))
     high = {k: num(pol.get(k)) for k in ('tree', 'grass', 'weed', 'mold')}
     shown = sorted(((k, v) for k, v in high.items() if v is not None and v >= c['pollen_note']),
                    key=lambda kv: -kv[1])

@@ -102,5 +102,6 @@ def outdoor_facts(out, now_iso):
     if fc.get("action_day"):
         aqi = _num(fc.get("aqi"))
         label = (fc.get("pollutant") or "AQI") + ("" if aqi is None else f" {aqi:.0f}")
-        facts.append({"type": "action_day", "text": f"AQI ACTION DAY: {label}"[:29], "since": now_iso, "expires_at": None})
+        text = f"ACTION DAY TMRW: {label}" if fc.get("day") == "tomorrow" else f"AQI ACTION DAY: {label}"
+        facts.append({"type": "action_day", "text": text[:29], "since": now_iso, "expires_at": None})
     return facts

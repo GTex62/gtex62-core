@@ -246,8 +246,8 @@ AirGradient provider trusts the alerts for 90 minutes and the forecast for 12 ho
 
 **AirNow web-service retirement (2026-09-30).** AirNow retired six services: forecast by ZIP and by latitude/longitude, current observations by
 reporting area by ZIP and by latitude/longitude, and the two historical observation services. This provider uses `aq/observation/current/ziplatlong`
-and `aq/data`, which remain; the forecast replacement is `/aq/forecast/current/`, which returns the forecast valid today (it ignores a `date`
-parameter). The forecast reply has no alert as such, only the `actionDay` flag and the discussion text.
+and `aq/data`, which remain; the forecast replacement is `/aq/forecast/current/`, which returns the forecast days the agency has issued (today and the next
+two on the author's check; it ignores a `date` parameter). The AirGradient advisor uses only today and tomorrow. The forecast reply has no alert as such, only the `actionDay` flag and the discussion text.
 
 ---
 
