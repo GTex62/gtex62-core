@@ -75,3 +75,12 @@ wx_max_age_sec = 1800
 # Assistant's history (which keeps recording while this machine is off). Off by default; needs [ha_export] working.
 # [trend]
 # use_ha_export = true
+
+# Event notices for the display's DATA line ("PM SPIKE // 2.5: 99", "VOC SPIKE // 485"): facts about a sudden change, not advice.
+# Off by default. Thresholds shown are the defaults.
+# [notices]
+# enabled = true
+# pm_ratio = 3          # PM2.5 at least this many times its baseline ...
+# pm_min_rise = 10      # ... and up at least this many ug/m3
+# voc_rise = 150        # VOC index up at least this much over its baseline
+# cap_min = 60          # a notice shows for at most this many minutes

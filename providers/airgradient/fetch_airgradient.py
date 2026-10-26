@@ -27,6 +27,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ventilation_advisor as va  # noqa: E402
 import trend as trendlib  # noqa: E402
+import notices as noticelib  # noqa: E402
 
 HOME = Path(os.path.expanduser("~"))
 XDG_CACHE_HOME = Path(os.getenv("XDG_CACHE_HOME") or (HOME / ".cache"))
@@ -562,7 +563,7 @@ def envelope(state: str, label: str, note: str, now: float, **kw) -> dict:
         "co2_ppm": None, "voc_index": None, "nox_index": None,
         "pm": {"pm03_per_dl": None, "pm1_ugm3": None, "pm25_ugm3": None, "pm10_ugm3": None},
         "temp_f": None, "humidity_pct": None, "dew_point_f": None, "wifi_rssi": None,
-        "ventilation": None, "trend": None, "trend_from_ha": False,
+        "ventilation": None, "trend": None, "trend_from_ha": False, "notices": [],
     }
     doc.update(kw)
     return doc
@@ -868,6 +869,15 @@ def main():
         "co2_ppm": reading["co2_ppm"], "voc_index": reading["voc_index"], "nox_index": reading["nox_index"],
         "pm1_ugm3": reading["pm"]["pm1_ugm3"], "pm25_ugm3": reading["pm"]["pm25_ugm3"],
         "pm10_ugm3": reading["pm"]["pm10_ugm3"], "pm03_per_dl": reading["pm"]["pm03_per_dl"]})
+    notice_cfg = profile.get("notices") or {}
+    notices = []
+    if notice_cfg.get("enabled") is True:
+        cfg_n = {k: v for k, v in notice_cfg.items() if k in noticelib.DEFAULTS and k != "enabled"
+                 and isinstance(v, (int, float)) and not isinstance(v, bool)}
+        found, state["notices"] = noticelib.evaluate(state["trend"], state.get("notices"), now, cfg_n)
+        notices = [{"type": n["type"], "text": n["text"], "since": iso(n["since"]), "expires_at": iso(n["expires_at"])} for n in found]
+    elif state.get("notices"):
+        state["notices"] = {}
     atomic_write(STATE_JSON, json.dumps(state, separators=(",", ":")) + "\n")
 
     trend_now, trend_from_ha = trendlib.compute_with_sources(state["trend"], now)
@@ -876,7 +886,7 @@ def main():
                    generated_at=iso(now), carried_fields=carried,
                    device={"host": host, "serialno": payload.get("serialno"), "model": payload.get("model"),
                            "firmware": payload.get("firmware")},
-                   ventilation=vent, trend=trend_now, trend_from_ha=trend_from_ha, **reading)
+                   ventilation=vent, trend=trend_now, trend_from_ha=trend_from_ha, notices=notices, **reading)
     write_status(doc)
     return 0
 

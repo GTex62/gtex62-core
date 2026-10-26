@@ -18,6 +18,17 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
+## Unreleased
+
+**airgradient: event notices for the DATA line (opt-in, 2026-10-26).** New optional `[notices] enabled = true` in the profile. The provider
+(new module `providers/airgradient/notices.py`, built on the trend history) writes `notices` to `status.json`: `PM SPIKE // 2.5: 99` when PM2.5 is
+at least 3 times its baseline and up at least 10 ug/m3, and `VOC SPIKE // 485` when the VOC index is up at least 150 over its baseline
+(baseline: the median of the 10-minute bins from 40 to 10 minutes ago, so slow climbs never count and nothing fires on a fresh start). A notice holds
+until the reading is back to normal against the baseline it started with, and for at most 60 minutes. Facts only: the text never guesses a cause.
+Independent of the advisor, whose own alert text takes the DATA line when it has one. Tests: `tests/airgradient/test_notices.py` and new provider cases.
+
+---
+
 ## 0.16.0 — 2026-10-26
 
 The AirGradient provider now reports how each indoor reading has changed over the last hour and the last 24 hours, for the

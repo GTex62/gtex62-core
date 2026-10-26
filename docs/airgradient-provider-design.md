@@ -184,6 +184,7 @@ copy is `~/.config/gtex62-core/profiles/airgradient/indoor.toml`. Keys:
 | `[advisor] log_inputs`, `log_keep_days` | `true`, 365 | Per-minute input log (`inputs-YYYYMMDD.csv`) in `log_dir`; a year, to match the Home Assistant archive window. Pruning touches only `inputs-*.csv`, so other files in that folder are safe |
 | `[advisor] log_dir` | `<data_root>/airgradient/<profile>/logs` | Where `verdict_log.txt` and the input logs go (`~` allowed). The data root is `$GTEX62_DATA_DIR`, else `core.toml` `[paths] data_root`, else `~/.local/share/gtex62-core` |
 | `[ha_export]` | absent (off) | Optional Home Assistant archive: `ha_db`, `prefix` (required), `thermostat`, `zone_thermostats` (a list of other zones' climate entities), `weather`, `keep_months` (12); see *History outside the engine* |
+| `[notices] enabled` | `false` | Event notices for the display's DATA line (`notices` in `status.json`); see the notices paragraph under the status.json schema. Also `pm_ratio` (3), `pm_min_rise` (10 ug/m3), `voc_rise` (150), `voc_clear` (75), `hold_ratio` (1.5), `cap_min` (60) |
 | `[trend] use_ha_export` | `false` | Fill the trend history from the export's `indoor_1min.csv` (needs `[ha_export]` working); see the `trend` paragraph under the status.json schema |
 | `[advisor.thresholds]` | the advisor's `DEFAULTS` | Any threshold name from `ventilation_advisor.py`, numbers only |
 | `[advisor.pollen]` | on, 80, tree + grass | Optional `csv` path; defaults to the shared-assets pollen file |
@@ -247,7 +248,10 @@ refers here.
     "pm25_ugm3": { "h1_pct": -12, "h24_pct": 85 },
     "voc_index": { "h1_pct": 0, "h24_pct": null }
   },
-  "trend_from_ha": false
+  "trend_from_ha": false,
+  "notices": [
+    { "type": "pm_spike", "text": "PM SPIKE // 2.5: 99", "since": "2026-10-24T23:51:00Z", "expires_at": "2026-10-25T00:51:00Z" }
+  ]
 }
 ```
 
@@ -268,6 +272,15 @@ machine is off. Its own readings always win over Home Assistant's for a bin they
 `true` while at least one number on the display was compared against a bin that came from Home Assistant, and OSA then adds
 `| HA` to the SRC line. The export runs at boot plus 5 minutes (the systemd timer), so the one-hour column fills in about
 6 minutes after a boot instead of an hour. Without the option, or when the file is missing, nothing changes.
+
+**Event notices (opt-in).** With `[notices] enabled = true` the provider (`providers/airgradient/notices.py`) writes facts about a sudden change
+in the indoor air to `notices`, for the display's DATA line: `PM SPIKE // 2.5: 99` when PM2.5 is at least 3 times its baseline and up at
+least 10 ug/m3, and `VOC SPIKE // 485` when the VOC index is up at least 150 over its baseline. "Now" is the median of the last 3
+minutes; the baseline is the median of the finished 10-minute bins from 40 to 10 minutes ago (the trend history), so a slow climb never counts
+and nothing fires without a baseline (a fresh start). A notice holds until the reading is back under 1.5 times the baseline it was measured against
+(PM) or within 75 of it (VOC), frozen when the notice starts so a long event cannot raise its own bar, and for at most 60 minutes. The text
+states what was measured and never guesses a cause. Notices are independent of the advisor: the advisor's own alert text takes the DATA line when
+there is one, and a remaining notice shows when it ends. Each entry has `type`, `text` (at most 29 characters), `since` and `expires_at`.
 
 `carried_fields` has entries such as `{"field": "temp_f", "age_sec": 31}` when the device omitted a
 field and the previous value was reused.

@@ -4,7 +4,7 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 rc=0
-for t in test_advisor.py test_trend.py test_fetch_airgradient.py test_doctor_row.py test_ha_export.py; do
+for t in test_advisor.py test_trend.py test_notices.py test_fetch_airgradient.py test_doctor_row.py test_ha_export.py; do
   echo "== $t"
   python3 "$HERE/$t" || rc=1
 done

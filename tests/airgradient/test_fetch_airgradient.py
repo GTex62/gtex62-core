@@ -823,6 +823,39 @@ check("the HA export reader: valid rows only, blank cells are None, a missing fi
       and mod.ha_history_rows(sc.dir / "nope.csv", 0) == [], str(rows_))
 sc.done()
 
+# ---------------------------------------------------------------------------
+# 13. Event notices (opt-in: [notices] enabled)
+# ---------------------------------------------------------------------------
+set_payload()
+sc = Scenario(air=clean_air, wx=clean_wx, toml_extra="[notices]\nenabled = true\n")
+for _ in range(75):
+    sc.run(advance=60)
+st_ = sc.status()
+check("calm for an hour with notices on: an empty notices list", st_["notices"] == [], str(st_["notices"]))
+set_payload(pm02Compensated=95.0, tvocIndex=400)
+for _ in range(4):
+    sc.run(advance=60)
+st_ = sc.status()
+types_ = {n["type"]: n for n in st_["notices"]}
+check("PM2.5 jumps to 95 and VOC to 400: a PM SPIKE and a VOC SPIKE notice, each with its text, start and expiry",
+      set(types_) == {"pm_spike", "voc_spike"} and types_["pm_spike"]["text"] == "PM SPIKE // 2.5: 95" and types_["voc_spike"]["text"] == "VOC SPIKE // 400"
+      and types_["pm_spike"]["since"].endswith("Z") and types_["pm_spike"]["expires_at"].endswith("Z"), str(st_["notices"]))
+set_payload()
+for _ in range(12):
+    sc.run(advance=60)
+check("back to normal: the notices clear", sc.status()["notices"] == [], str(sc.status()["notices"]))
+sc.done()
+
+set_payload()
+sc = Scenario(air=clean_air, wx=clean_wx)
+for _ in range(75):
+    sc.run(advance=60)
+set_payload(pm02Compensated=95.0, tvocIndex=400)
+for _ in range(4):
+    sc.run(advance=60)
+check("without [notices] the list is always empty, spike or not", sc.status()["notices"] == [])
+sc.done()
+
 server.shutdown()
 print()
 if FAILURES:
