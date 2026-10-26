@@ -86,3 +86,21 @@ def evaluate(trend_state, state, now, cfg=None):
             out.append({"type": kind + "_spike", "text": fmt.format(v=v)[:29], "since": held["since"],
                         "expires_at": held["since"] + c["cap_min"] * 60})
     return out, st
+
+
+def outdoor_facts(out, now_iso):
+    """Notices that are plain facts about the world, not detections: an NWS air-quality, smoke or dust product in effect at the
+    site ("NWS AIR QUALITY ALERT") and an AirNow action day ("AQI ACTION DAY: PM2.5 112"). `out` is the provider's outdoor
+    input dict. They last as long as the condition: each carries the product's own expiry when it has one."""
+    facts = []
+    for a in (out or {}).get("nws_alerts") or []:
+        ev = a.get("event") if isinstance(a, dict) else None
+        if isinstance(ev, str) and ev:
+            facts.append({"type": "nws", "text": ("NWS " + ev.upper())[:29], "since": a.get("effective") or now_iso,
+                          "expires_at": a.get("expires") or None})
+    fc = (out or {}).get("aq_forecast") or {}
+    if fc.get("action_day"):
+        aqi = _num(fc.get("aqi"))
+        label = (fc.get("pollutant") or "AQI") + ("" if aqi is None else f" {aqi:.0f}")
+        facts.append({"type": "action_day", "text": f"AQI ACTION DAY: {label}"[:29], "since": now_iso, "expires_at": None})
+    return facts

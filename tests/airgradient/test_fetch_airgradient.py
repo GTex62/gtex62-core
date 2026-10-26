@@ -525,7 +525,7 @@ with open(sc.log_dir / f"inputs-{day}.csv", "w", newline="") as fh:
 sc.run(advance=60)
 rows_m = list(csv.DictReader(open(sc.log_dir / f"inputs-{day}.csv")))
 check("a file started under an older header is rewritten once under the current one: old row kept and padded, new row aligned",
-      len(rows_m) == 2 and rows_m[0]["co2_ppm"] == "500" and rows_m[0]["out_wind_kt"] == "" and rows_m[1]["co2_ppm"] != "" and list(rows_m[0])[-1] == "out_wind_deg", str(list(rows_m[0])[-3:]))
+      len(rows_m) == 2 and rows_m[0]["co2_ppm"] == "500" and rows_m[0]["out_wind_kt"] == "" and rows_m[1]["co2_ppm"] != "" and list(rows_m[0])[-1] == "out_aq_forecast_aqi", str(list(rows_m[0])[-3:]))
 sc.run(advance=60)
 check("later rows keep appending under the migrated header", len(list(csv.DictReader(open(sc.log_dir / f"inputs-{day}.csv")))) in (2, 3))
 sc.done()
@@ -854,6 +854,54 @@ set_payload(pm02Compensated=95.0, tvocIndex=400)
 for _ in range(4):
     sc.run(advance=60)
 check("without [notices] the list is always empty, spike or not", sc.status()["notices"] == [])
+sc.done()
+
+# ---------------------------------------------------------------------------
+# 14. The air provider's extras: NWS air-quality products and AirNow's forecast
+# ---------------------------------------------------------------------------
+def write_extras(sc_, nws=None, forecast=None, age=0):
+    d = sc_.cache / "shared" / "air" / "home"; d.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(sc_.t - age))
+    doc = {"profile": "home"}
+    if nws is not None:
+        doc["nws"] = {"ok": True, "fetched_at": stamp, "alerts": [{"event": e, "effective": "2026-10-26T09:00:00-05:00", "expires": "2026-10-27T06:00:00-05:00"} for e in nws]}
+    if forecast is not None:
+        doc["forecast"] = {"ok": True, "fetched_at": stamp, "action_day": bool(forecast.get("action_day")),
+                           "rows": [{"pollutant": forecast.get("pollutant", "PM2.5"), "aqi": forecast["aqi"], "action_day": bool(forecast.get("action_day"))}]}
+    (d / "extras.json").write_text(json.dumps(doc))
+
+
+set_payload(rco2=1200)
+sc = Scenario(advisor_extra="shadow = false", air=clean_air, wx=clean_wx, toml_extra="[notices]\nenabled = true\n")
+write_extras(sc, nws=["Air Quality Alert", "Air Stagnation Advisory"], forecast=dict(aqi=112, action_day=True))
+for _ in range(3):
+    sc.run(advance=60)
+st_ = sc.status()
+v_ = st_["ventilation"]
+check("an NWS Air Quality Alert in the air extras: hard CLOSE with its alert text, shown (shadow off)",
+      v_["verdict"] == "CLOSE" and v_["class"] == "hazard" and v_["alert_text"] == "CLOSE WIN // NWS AIR QUALITY" and v_["alert_visible"], str(v_))
+texts_ = [n["text"] for n in st_["notices"]]
+check("the products and the action day also become notices (facts that outlast the 60 minute alert cap)",
+      "NWS AIR QUALITY ALERT" in texts_ and "NWS AIR STAGNATION ADVISORY" in texts_ and "AQI ACTION DAY: PM2.5 112" in texts_, str(texts_))
+check("each NWS notice carries the product's own effective and expiry times", [n for n in st_["notices"] if n["type"] == "nws"][0]["expires_at"] == "2026-10-27T06:00:00-05:00")
+row_ = list(csv.DictReader(open(next(sc.log_dir.glob("inputs-*.csv")))))[-1]
+check("the input log records the NWS events and the forecast AQI", row_["out_nws_events"] == "Air Quality Alert;Air Stagnation Advisory" and row_["out_aq_forecast_aqi"] == "112", str({k: row_[k] for k in ("out_nws_events", "out_aq_forecast_aqi")}))
+sc.done()
+
+sc = Scenario(advisor_extra="shadow = false", air=clean_air, wx=clean_wx, toml_extra="[notices]\nenabled = true\n")
+write_extras(sc, nws=["Air Quality Alert"], forecast=dict(aqi=112, action_day=True), age=7200)
+for _ in range(3):
+    sc.run(advance=60)
+st_ = sc.status()
+check("an NWS fetch more than 90 minutes old is not trusted (no hard close, no notice); the forecast, under 12 hours old, still is",
+      st_["ventilation"]["verdict"] == "OPEN" and [n["text"] for n in st_["notices"]] == ["AQI ACTION DAY: PM2.5 112"], str((st_["ventilation"]["verdict"], st_["notices"])))
+sc.done()
+
+sc = Scenario(advisor_extra="shadow = false", air=clean_air, wx=clean_wx)
+write_extras(sc, nws=[], forecast=dict(aqi=64))
+for _ in range(3):
+    sc.run(advance=60)
+check("an empty alert list and a moderate forecast change nothing", sc.status()["ventilation"]["verdict"] == "OPEN" and "AirNow" not in sc.status()["ventilation"]["reason"])
 sc.done()
 
 server.shutdown()

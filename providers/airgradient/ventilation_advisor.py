@@ -23,6 +23,16 @@ DEFAULTS = dict(
     window_facing_deg=None, wind_side_deg=90,
 )
 
+# National Weather Service products that close the windows (event name, the words on the alert line), most urgent first.
+NWS_HARD = (
+    ('Air Quality Alert', 'NWS AIR QUALITY'),
+    ('Dense Smoke Advisory', 'NWS DENSE SMOKE'),
+    ('Dust Storm Warning', 'NWS DUST STORM'),
+    ('Blowing Dust Warning', 'NWS BLOWING DUST'),
+    ('Blowing Dust Advisory', 'NWS BLOWING DUST'),
+    ('Dust Advisory', 'NWS DUST'),
+)
+
 def num(x):
     """JSON null, strings, bools and NaN all become None."""
     ok = isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
@@ -61,7 +71,8 @@ def humid_trip(rh, rise, latched, c=DEFAULTS):
 def advise(ind, out=None, latched=frozenset(), pollen=None, cfg=None):
     """Pure rule evaluation. `ind` holds sustained co2/pm25/voc (None while the
     sustain window is not yet warm), instantaneous temp_f/rh, and dp_rise_30.
-    `out` (all keys optional): ts_min and rain_min (minutes until thunder / rain at the site, 0 = now,
+    `out` (all keys optional): nws_events (the National Weather Service air-quality, smoke and dust products active at the site),
+    aq_forecast (AirNow's forecast: aqi, pollutant, action_day), ts_min and rain_min (minutes until thunder / rain at the site, 0 = now,
     absent = none expected), wind_deg and rain_wind_deg (wind now / in the forecast rain period), aqi, pm25, pm10 (the air cache's `selected` values), pm_source
     ('airnow'|'owm'), owm_pm25, owm_pm10 (OpenWeather's own components), air_fresh, temp_f, rh,
     wx_fresh. Returns a structured dict."""
@@ -103,6 +114,12 @@ def advise(ind, out=None, latched=frozenset(), pollen=None, cfg=None):
         if hi(co2, c['co2_enter']):
             why += ' (CO2 is high; use an air purifier or a very short airing)'
         return res('CLOSE', why, 'hazard', alert='CLOSE WIN // OUTDOOR AIR')
+
+    # 1a. hard close: an NWS air-quality, smoke or dust product is in effect at the site
+    nws = [e for e in (o.get('nws_events') or []) if isinstance(e, str)]
+    for event, words in NWS_HARD:
+        if event in nws:
+            return res('CLOSE', f'Close windows: NWS {event} in effect', 'hazard', alert='CLOSE WIN // ' + words)
 
     # 1b. hard close: thunder now or expected (the wind can shift violently), or rain now with the wind
     # blowing onto the windows. Rain with the wind away from them is only a note (see 5).
@@ -159,6 +176,13 @@ def advise(ind, out=None, latched=frozenset(), pollen=None, cfg=None):
         notes.append('raining: a wind shift could blow rain in' if rain <= 0 else f"rain expected within {rain:.0f} min")
     if hi(voc, c['voc_note']) and voc < c['voc_need']:
         notes.append(f"VOC index {voc:.0f} (relative, informational)")
+    if 'Air Stagnation Advisory' in nws:
+        notes.append('NWS air stagnation advisory')
+    fc = o.get('aq_forecast') or {}
+    fc_aqi = num(fc.get('aqi'))
+    if fc.get('action_day') or (fc_aqi is not None and fc_aqi >= 101):
+        label = (fc.get('pollutant') or 'AQI') + ('' if fc_aqi is None else f" {fc_aqi:.0f}")
+        notes.append(f"AirNow forecast: {label}" + (' (action day)' if fc.get('action_day') else ''))
     high = {k: num(pol.get(k)) for k in ('tree', 'grass', 'weed', 'mold')}
     shown = sorted(((k, v) for k, v in high.items() if v is not None and v >= c['pollen_note']),
                    key=lambda kv: -kv[1])

@@ -390,3 +390,7 @@ if [[ -n "$PROVIDER_TS" ]]; then
 else
   write_status "partial" "" "air cache has no provider timestamp"
 fi
+
+# Optional extras (AirNow forecast, NWS air-quality alerts) land in extras.json beside current.json. They can never
+# change the air provider's own result: the exit status is ignored.
+python3 "$(dirname "${BASH_SOURCE[0]}")/fetch_air_extras.py" "$PROFILE_ID" 2>>"$LOG_FILE" || true

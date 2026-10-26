@@ -243,7 +243,33 @@ def gather_outdoor(now: float, air_max_age: float, wx_max_age: float):
         flags["wx_fresh"] = upd is not None and -60 <= now - upd <= wx_max_age
         out.update(temp_f=wx.get("temp_f"), rh=wx.get("humidity_pct"))
     out.update(air_fresh=flags["air_fresh"], wx_fresh=flags["wx_fresh"], pm_source=flags["pm_source"])
+    out.update(air_extras(now))
     return out, flags
+
+
+EXTRAS_MAX_AGE_SEC = {"nws": 5400, "forecast": 43200}
+
+
+def air_extras(now: float) -> dict:
+    """The air provider's optional extras (extras.json beside its current.json): the NWS air-quality products active at
+    the site (only from a fetch under 90 minutes old) and AirNow's forecast (under 12 hours old). Absent keys mean none."""
+    ex = read_json(CACHE_ROOT / "shared" / "air" / AIR_PROFILE / "extras.json")
+    out = {}
+    if not isinstance(ex, dict):
+        return out
+    nws = ex.get("nws") if isinstance(ex.get("nws"), dict) else {}
+    t = parse_iso(nws.get("fetched_at"))
+    if t is not None and 0 <= now - t <= EXTRAS_MAX_AGE_SEC["nws"]:
+        out["nws_events"] = [a.get("event") for a in (nws.get("alerts") or []) if isinstance(a, dict) and a.get("event")]
+        out["nws_alerts"] = [a for a in (nws.get("alerts") or []) if isinstance(a, dict) and a.get("event")]
+    fc = ex.get("forecast") if isinstance(ex.get("forecast"), dict) else {}
+    t = parse_iso(fc.get("fetched_at"))
+    if t is not None and 0 <= now - t <= EXTRAS_MAX_AGE_SEC["forecast"] and fc.get("rows"):
+        top = max((r for r in fc["rows"] if isinstance(r, dict) and va.num(r.get("aqi")) is not None), key=lambda r: r["aqi"], default=None)
+        if top:
+            out["aq_forecast"] = {"aqi": top["aqi"], "pollutant": top.get("pollutant"), "category": top.get("category"),
+                                  "action_day": bool(fc.get("action_day"))}
+    return out
 
 
 _METAR_WIND = re.compile(r"^(VRB|\d{3})(\d{2,3})(?:G(\d{2,3}))?(KT|MPS)$")
@@ -614,7 +640,7 @@ INPUT_COLUMNS = ["epoch", "utc", "co2_ppm", "pm25_ugm3", "pm10_ugm3", "pm1_ugm3"
                  "out_temp_f", "out_rh", "wx_fresh", "pollen_tree", "pollen_grass", "pollen_weed", "pollen_mold",
                  "verdict", "class", "severity",
                  "out_wind_kt", "out_wind_gust_kt", "out_wind_dir", "out_wind_variable", "metar_obs", "out_wind_mph_owm",
-                 "out_rain_min", "out_ts_min", "out_wind_deg"]
+                 "out_rain_min", "out_ts_min", "out_wind_deg", "out_nws_events", "out_aq_forecast_aqi"]
 
 
 def ensure_header(path: Path):
@@ -709,7 +735,8 @@ def log_inputs(now: float, reading: dict, carried: list, out: dict, flags: dict,
            adv.verdict, adv.cls, adv.severity]
     wd = wind or {}
     row += [wd.get("wind_kt"), wd.get("wind_gust_kt"), wd.get("wind_dir"), wd.get("wind_variable"), wd.get("metar_obs"),
-            wd.get("wind_mph_owm"), out.get("rain_min"), out.get("ts_min"), out.get("wind_deg")]
+            wd.get("wind_mph_owm"), out.get("rain_min"), out.get("ts_min"), out.get("wind_deg"),
+             ";".join(out.get("nws_events") or []) or None, (out.get("aq_forecast") or {}).get("aqi")]
     path = LOG_DIR / f"inputs-{datetime.fromtimestamp(now).strftime('%Y%m%d')}.csv"
     try:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -876,6 +903,7 @@ def main():
                  and isinstance(v, (int, float)) and not isinstance(v, bool)}
         found, state["notices"] = noticelib.evaluate(state["trend"], state.get("notices"), now, cfg_n)
         notices = [{"type": n["type"], "text": n["text"], "since": iso(n["since"]), "expires_at": iso(n["expires_at"])} for n in found]
+        notices += noticelib.outdoor_facts(out, iso(now))
     elif state.get("notices"):
         state["notices"] = {}
     atomic_write(STATE_JSON, json.dumps(state, separators=(",", ":")) + "\n")

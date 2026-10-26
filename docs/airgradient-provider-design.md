@@ -280,7 +280,7 @@ minutes; the baseline is the median of the finished 10-minute bins from 40 to 10
 and nothing fires without a baseline (a fresh start). A notice holds until the reading is back under 1.5 times the baseline it was measured against
 (PM) or within 75 of it (VOC), frozen when the notice starts so a long event cannot raise its own bar, and for at most 60 minutes. The text
 states what was measured and never guesses a cause. Notices are independent of the advisor: the advisor's own alert text takes the DATA line when
-there is one, and a remaining notice shows when it ends. Each entry has `type`, `text` (at most 29 characters), `since` and `expires_at`.
+there is one, and a remaining notice shows when it ends. Each entry has `type`, `text` (at most 29 characters), `since` and `expires_at`. The list also carries outdoor facts, no detection involved: an NWS air-quality, smoke or dust product in effect (`NWS AIR QUALITY ALERT`, `NWS AIR STAGNATION ADVISORY`, with the product's own times, so they outlast the 60-minute alert cap) and an AirNow action day (`AQI ACTION DAY: PM2.5 112`).
 
 `carried_fields` has entries such as `{"field": "temp_f", "age_sec": 31}` when the device omitted a
 field and the previous value was reused.

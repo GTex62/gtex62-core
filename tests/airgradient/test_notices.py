@@ -112,6 +112,18 @@ check("a higher pm_ratio keeps the same puff quiet", all(not x for _, x in log))
 # ---- junk never raises
 check("junk trend state and notice state never raise", nt.evaluate(None, "x", T0) == ([], {}) or nt.evaluate(None, "x", T0)[0] == [])
 
+# ---- outdoor facts: NWS products and the AirNow action day
+f = nt.outdoor_facts({"nws_alerts": [{"event": "Air Quality Alert", "effective": "2026-10-26T09:00:00-05:00", "expires": "2026-10-27T06:00:00-05:00"},
+                                     {"event": "Blowing Dust Advisory"}],
+                      "aq_forecast": {"aqi": 112, "pollutant": "PM2.5", "action_day": True}}, "2026-10-26T15:00:00Z")
+check("an NWS product becomes 'NWS <EVENT>' with its own times; one without times gets now and no expiry",
+      [x["text"] for x in f][:2] == ["NWS AIR QUALITY ALERT", "NWS BLOWING DUST ADVISORY"] and f[0]["since"] == "2026-10-26T09:00:00-05:00"
+      and f[0]["expires_at"] == "2026-10-27T06:00:00-05:00" and f[1]["since"] == "2026-10-26T15:00:00Z" and f[1]["expires_at"] is None, str(f))
+check("an action day becomes 'AQI ACTION DAY: PM2.5 112'; every text fits 29 characters",
+      f[2]["text"] == "AQI ACTION DAY: PM2.5 112" and all(len(x["text"]) <= 29 for x in f))
+check("no action day and no alerts: no facts, and junk input never raises",
+      nt.outdoor_facts({"aq_forecast": {"aqi": 64, "action_day": False}}, "t") == [] and nt.outdoor_facts(None, "t") == [] and nt.outdoor_facts({"nws_alerts": [None, 5, {"event": 3}]}, "t") == [])
+
 print()
 if FAILURES:
     print(f"{len(FAILURES)} FAILED: " + "; ".join(FAILURES))

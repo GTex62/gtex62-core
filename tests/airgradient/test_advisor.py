@@ -242,6 +242,30 @@ check("thunderstorm arrives under the same verdict: the step fires an alert, vis
 ev = a.step(t + 420, dict(co2=450, pm25=2, voc=50, temp_f=75, rh=50), clean(temp_f=92.0, ts_min=0.0))
 check("the same hazard on the next minute does not re-fire", ev is None)
 
+# NWS air-quality products and AirNow's forecast
+r = va.advise({**BASE, **dict(co2=1700)}, clean(nws_events=["Air Quality Alert"]))
+check("an NWS Air Quality Alert is a hard CLOSE even with a severe need", r["verdict"] == "CLOSE" and r["cls"] == "hazard" and r["alert_text"] == "CLOSE WIN // NWS AIR QUALITY", str(r))
+for ev, txt in (("Dense Smoke Advisory", "CLOSE WIN // NWS DENSE SMOKE"), ("Dust Storm Warning", "CLOSE WIN // NWS DUST STORM"),
+                ("Blowing Dust Warning", "CLOSE WIN // NWS BLOWING DUST"), ("Blowing Dust Advisory", "CLOSE WIN // NWS BLOWING DUST"), ("Dust Advisory", "CLOSE WIN // NWS DUST")):
+    r = va.advise({**BASE, **dict(co2=1200)}, clean(nws_events=[ev]))
+    check(f"{ev}: hard CLOSE, '{txt}'", r["alert_text"] == txt and r["cls"] == "hazard" and len(r["alert_text"]) <= 29, str(r["alert_text"]))
+r = va.advise({**BASE, **dict(co2=450)}, clean(nws_events=["Dust Advisory", "Air Quality Alert"]))
+check("with several products the most urgent names the alert", r["alert_text"] == "CLOSE WIN // NWS AIR QUALITY")
+r = va.advise({**BASE, **dict(co2=1200)}, clean(nws_events=["Air Stagnation Advisory"]))
+check("an Air Stagnation Advisory is a note, not a close: OPEN with 'NWS air stagnation advisory' in the reason", r["verdict"] == "OPEN" and "NWS air stagnation advisory" in r["reason"], str(r["reason"]))
+r = va.advise({**BASE, **dict(co2=1200)}, clean(nws_events=["Heat Advisory", None, 5]))
+check("other products and junk in nws_events are ignored", r["verdict"] == "OPEN" and "NWS" not in r["reason"], str(r["reason"]))
+r = va.advise({**BASE, **dict(co2=1200)}, clean(aq_forecast=dict(aqi=112, pollutant="PM2.5", action_day=True)))
+check("an AirNow action day forecast is a note with the pollutant and AQI", "AirNow forecast: PM2.5 112 (action day)" in r["reason"] and r["verdict"] == "OPEN", str(r["reason"]))
+r = va.advise({**BASE, **dict(co2=1200)}, clean(aq_forecast=dict(aqi=64, pollutant="PM2.5", action_day=False)))
+check("a moderate forecast (64, no action day) adds nothing", "AirNow" not in r["reason"])
+r = va.advise({**BASE, **dict(co2=1200)}, clean(aq_forecast=dict(aqi=101, pollutant="OZONE", action_day=False)))
+check("a forecast AQI of 101 or more is noted even without the action day flag", "AirNow forecast: OZONE 101" in r["reason"] and "action day" not in r["reason"])
+r = va.advise({**BASE, **dict(co2=1200)}, clean(aq_forecast=dict(action_day=True)))
+check("an action day with no AQI or pollutant still reads sensibly and never raises", "AirNow forecast: AQI (action day)" in r["reason"], str(r["reason"]))
+r = va.advise({**BASE, **dict(co2=450)}, clean(aqi=150, nws_events=["Air Quality Alert"]))
+check("poor outdoor air (rule 1) still comes first with its own text", r["alert_text"] == "CLOSE WIN // OUTDOOR AIR")
+
 print()
 if FAILURES:
     print(f"{len(FAILURES)} FAILED: " + "; ".join(FAILURES))

@@ -28,6 +28,7 @@ one-minute samples); thresholds are still defaults to be tuned (see Open Items).
 | Outdoor air | `airnow.aqi` (the overall AQI: the highest pollutant sub-index, as the air provider has computed it since 2026-10-08); `selected.pm2_5` and `.pm10` (AirNow where present, else OpenWeather); `openweather.components.pm2_5` and `.pm10` | `shared/air/<air_profile>/current.json` |
 | Outdoor weather | `temp_f`, `humidity_pct` | `shared/weather/<weather_profile>/current.json` |
 | Outdoor weather hazards | thunder and rain now: OpenWeather `wx_code` (200s thunder; 300s and 500s drizzle and rain) while `wx_fresh`, or present weather in the METAR (TS, RA, DZ, SH, VCTS; a report under 90 minutes old); expected: present weather in the TAF groups (FM, BECMG, TEMPO, PROB) that start within the look-ahead (`[advisor] storm_lookahead_min`, default 180) | `shared/weather/<weather_profile>/current.json`, `shared/aviation/<aviation_profile>/current.json` (`metar_raw`, `taf_raw`; the TAF is ignored if that cache is over 2 hours old) |
+| Outdoor air products | NWS Air Quality Alert, Dense Smoke Advisory, Air Stagnation Advisory and the dust products in effect at the site; AirNow's forecast for the reporting area (forecast AQI per pollutant, the action day flag) | `shared/air/<air_profile>/extras.json`, from the air provider's optional extras (see `env-provider-status.md`); the NWS part is trusted for 90 minutes, the forecast for 12 hours |
 | Wind direction | OpenWeather `wind_deg` while `wx_fresh`, else the METAR wind (variable or calm = unknown); for forecast rain, the wind of the TAF group that carries the rain | same files |
 
 The provider turns these into `ts_min` and `rain_min` (minutes until thunder or rain at the site: 0 means under way, absent means
@@ -114,6 +115,10 @@ worth telling anyone about.
      ("rain expected within N min with the wind toward the windows"), so a need is `BRIEF` instead of `OPEN`;
      otherwise a note ("rain expected within N min").
    - Without `window_facing_deg` rain is only ever a note; thunder still closes.
+1a. **NWS hard close**: an NWS Air Quality Alert, Dense Smoke Advisory, Dust Storm Warning, Blowing Dust Warning or Advisory, or Dust Advisory is in
+   effect at the site (most urgent first). `CLOSE` class `hazard`, `CLOSE WIN // NWS AIR QUALITY`, `NWS DENSE SMOKE`, `NWS DUST STORM`,
+   `NWS BLOWING DUST` or `NWS DUST`, whatever the indoor readings. An Air Stagnation Advisory is only a note ("NWS air stagnation advisory"), and
+   so is an AirNow forecast with the action day flag or an AQI of 101 or more ("AirNow forecast: PM2.5 112 (action day)").
 2. **Indoor humidity trip** (indoor data only):
    - Enter when indoor RH >= 70%, **or** indoor RH >= 66% with the dew point up 4 F or more in 30
      minutes.
@@ -233,6 +238,7 @@ free cooling.
 | `CLOSE`, hazard | `CLOSE WIN // OUTDOOR AIR` |
 | `CLOSE`, humidity | `CLOSE WIN // HUMID INSIDE` |
 | `CLOSE`, hazard, thunder | `CLOSE WIN // STORM` |
+| `CLOSE`, hazard, NWS product | `CLOSE WIN // NWS AIR QUALITY`, `NWS DENSE SMOKE`, `NWS DUST STORM`, `NWS BLOWING DUST`, `NWS DUST` |
 | `CLOSE`, hazard, rain toward the windows | `CLOSE WIN // RAIN` |
 | `CLOSE`, advisory, `NEUTRAL` | none |
 
@@ -274,6 +280,16 @@ DEFAULTS = dict(
     window_facing_deg=None, wind_side_deg=90,
 )
 
+# National Weather Service products that close the windows (event name, the words on the alert line), most urgent first.
+NWS_HARD = (
+    ('Air Quality Alert', 'NWS AIR QUALITY'),
+    ('Dense Smoke Advisory', 'NWS DENSE SMOKE'),
+    ('Dust Storm Warning', 'NWS DUST STORM'),
+    ('Blowing Dust Warning', 'NWS BLOWING DUST'),
+    ('Blowing Dust Advisory', 'NWS BLOWING DUST'),
+    ('Dust Advisory', 'NWS DUST'),
+)
+
 def num(x):
     """JSON null, strings, bools and NaN all become None."""
     ok = isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
@@ -312,7 +328,8 @@ def humid_trip(rh, rise, latched, c=DEFAULTS):
 def advise(ind, out=None, latched=frozenset(), pollen=None, cfg=None):
     """Pure rule evaluation. `ind` holds sustained co2/pm25/voc (None while the
     sustain window is not yet warm), instantaneous temp_f/rh, and dp_rise_30.
-    `out` (all keys optional): ts_min and rain_min (minutes until thunder / rain at the site, 0 = now,
+    `out` (all keys optional): nws_events (the National Weather Service air-quality, smoke and dust products active at the site),
+    aq_forecast (AirNow's forecast: aqi, pollutant, action_day), ts_min and rain_min (minutes until thunder / rain at the site, 0 = now,
     absent = none expected), wind_deg and rain_wind_deg (wind now / in the forecast rain period), aqi, pm25, pm10 (the air cache's `selected` values), pm_source
     ('airnow'|'owm'), owm_pm25, owm_pm10 (OpenWeather's own components), air_fresh, temp_f, rh,
     wx_fresh. Returns a structured dict."""
@@ -354,6 +371,12 @@ def advise(ind, out=None, latched=frozenset(), pollen=None, cfg=None):
         if hi(co2, c['co2_enter']):
             why += ' (CO2 is high; use an air purifier or a very short airing)'
         return res('CLOSE', why, 'hazard', alert='CLOSE WIN // OUTDOOR AIR')
+
+    # 1a. hard close: an NWS air-quality, smoke or dust product is in effect at the site
+    nws = [e for e in (o.get('nws_events') or []) if isinstance(e, str)]
+    for event, words in NWS_HARD:
+        if event in nws:
+            return res('CLOSE', f'Close windows: NWS {event} in effect', 'hazard', alert='CLOSE WIN // ' + words)
 
     # 1b. hard close: thunder now or expected (the wind can shift violently), or rain now with the wind
     # blowing onto the windows. Rain with the wind away from them is only a note (see 5).
@@ -410,6 +433,13 @@ def advise(ind, out=None, latched=frozenset(), pollen=None, cfg=None):
         notes.append('raining: a wind shift could blow rain in' if rain <= 0 else f"rain expected within {rain:.0f} min")
     if hi(voc, c['voc_note']) and voc < c['voc_need']:
         notes.append(f"VOC index {voc:.0f} (relative, informational)")
+    if 'Air Stagnation Advisory' in nws:
+        notes.append('NWS air stagnation advisory')
+    fc = o.get('aq_forecast') or {}
+    fc_aqi = num(fc.get('aqi'))
+    if fc.get('action_day') or (fc_aqi is not None and fc_aqi >= 101):
+        label = (fc.get('pollutant') or 'AQI') + ('' if fc_aqi is None else f" {fc_aqi:.0f}")
+        notes.append(f"AirNow forecast: {label}" + (' (action day)' if fc.get('action_day') else ''))
     high = {k: num(pol.get(k)) for k in ('tree', 'grass', 'weed', 'mold')}
     shown = sorted(((k, v) for k, v in high.items() if v is not None and v >= c['pollen_note']),
                    key=lambda kv: -kv[1])

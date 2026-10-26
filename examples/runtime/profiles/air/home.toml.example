@@ -27,3 +27,12 @@ owm_tolerance_sec = 3600
 # AirNow readings older than this are ignored. Hourly data stamped at the top of the hour is
 # already up to an hour old when published, so keep this at 7200 or more.
 max_age_sec = 7200
+# Optional: today's AirNow forecast (forecast AQI per pollutant, the action day flag) in extras.json. Uses the same key.
+# forecast = true
+
+# Optional: National Weather Service air-quality, smoke and dust products active at your location (Air Quality Alert, Dense
+# Smoke Advisory, Air Stagnation Advisory, the dust products), also in extras.json. Keyless. The NWS wants a User-Agent that
+# identifies the client; the default names gtex62-core's public repository.
+# [nws]
+# alerts = true
+# user_agent = "gtex62-core (https://github.com/GTex62/gtex62-core)"

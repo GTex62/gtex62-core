@@ -228,6 +228,27 @@ response (`jq -e` shape check gates the `mv`); if *all three* raw files are abse
 install, or all three failed), `status.json` is written `"error"` / `"air fetch failed;
 no cache"` and the script exits 0 without writing `current.json`.
 
+### Optional extras: AirNow forecast and NWS air-quality alerts
+
+`providers/air/fetch_air_extras.py` (new in core 0.18.0) runs at the end of every `fetch_air.sh` and writes `extras.json` beside
+`current.json`. Its exit status is ignored, so it can never change the air provider's own result. Both parts are opt-in in the air profile:
+
+| Part | Profile | Source | What lands in `extras.json` |
+| --- | --- | --- | --- |
+| AirNow forecast | `[airnow] forecast = true` (needs AirNow enabled and its key) | `/aq/forecast/current/` by latitude, longitude and `distance_miles` | `forecast`: `rows` (date valid and issued, pollutant, AQI, category, `action_day`, the forecaster's discussion, agency, reporting area), `action_day`, `max_aqi`, `ok`, `fetched_at` |
+| NWS alerts | `[nws] alerts = true`, optional `user_agent` | `api.weather.gov/alerts/active?point=lat,lon` (coordinates rounded to 4 decimals, as the NWS requires) | `nws`: `alerts` (event, severity, headline, effective, expires or ends), `ok`, `fetched_at` |
+
+Only the air-quality, smoke and dust products are kept: Air Quality Alert, Air Stagnation Advisory, Dense Smoke Advisory, Dust Advisory,
+Blowing Dust Advisory and Warning, Dust Storm Warning. Test products and cancellations are dropped. The NWS asks every client to send a
+User-Agent that identifies it; the default is `gtex62-core (https://github.com/GTex62/gtex62-core)` (keep contact details in a public URL, not
+an address). A failed fetch keeps the last good rows with `ok: false` and the old `fetched_at`, so a consumer decides how old is too old; the
+AirGradient provider trusts the alerts for 90 minutes and the forecast for 12 hours.
+
+**AirNow web-service retirement (2026-09-30).** AirNow retired six services: forecast by ZIP and by latitude/longitude, current observations by
+reporting area by ZIP and by latitude/longitude, and the two historical observation services. This provider uses `aq/observation/current/ziplatlong`
+and `aq/data`, which remain; the forecast replacement is `/aq/forecast/current/`, which returns the forecast valid today (it ignores a `date`
+parameter). The forecast reply has no alert as such, only the `actionDay` flag and the discussion text.
+
 ---
 
 ## `solar` Provider

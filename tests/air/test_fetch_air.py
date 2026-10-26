@@ -46,7 +46,7 @@ def data_row(param, value, raw, hour_ts, lat, lon, unit="UG/M3"):
             "Parameter": param, "Unit": unit, "Value": value, "RawConcentration": raw}
 
 
-def run(obs=(), data=(), max_age=None, owm_pm25=13.2):
+def run(obs=(), data=(), max_age=None, owm_pm25=13.2, profile_extra="", want_extras=False):
     d = Path(tempfile.mkdtemp(prefix="airtest_"))
     cfg, cache = d / "config", d / "cache"
     out = cache / "shared" / "air" / "home"
@@ -56,7 +56,7 @@ def run(obs=(), data=(), max_age=None, owm_pm25=13.2):
     (cfg / "profiles" / "air" / "home.toml").write_text(
         f'profile_id = "home"\nenabled = true\n[location]\nlat = {LAT}\nlon = {LON}\ntimezone = "UTC"\n'
         f'[cache]\nttl_sec = 900\n[openweather]\nenabled = true\napi_key = "x"\n'
-        f'[airnow]\nenabled = true\napi_key = "x"\ndistance_miles = 25\nwindow_hours = 6\n{extra}')
+        f'[airnow]\nenabled = true\napi_key = "x"\ndistance_miles = 25\nwindow_hours = 6\n{extra}{profile_extra}')
     now = int(time.time())
     (out / "raw_openweather.json").write_text(json.dumps({"coord": {"lat": LAT, "lon": LON}, "list": [
         {"dt": now, "main": {"aqi": 2}, "components": {"pm2_5": owm_pm25, "pm10": 14.0, "o3": 50.0, "no2": 7.0,
@@ -64,13 +64,17 @@ def run(obs=(), data=(), max_age=None, owm_pm25=13.2):
     (out / "raw_airnow_data.json").write_text(json.dumps(list(data)))
     (out / "raw_airnow_observation.json").write_text(json.dumps(list(obs)))
     env = dict(os.environ, GTEX62_CONFIG_DIR=str(cfg), GTEX62_CACHE_DIR=str(cache),
-               GTEX62_CONKY_CONFIG_DIR=str(cfg), GTEX62_CONKY_CACHE_DIR=str(cache))
+               GTEX62_CONKY_CONFIG_DIR=str(cfg), GTEX62_CONKY_CACHE_DIR=str(cache),
+               GTEX62_AIRNOW_BASE="http://127.0.0.1:9", GTEX62_NWS_BASE="http://127.0.0.1:9")   # the extras never reach a real service
     r = subprocess.run(["bash", str(SCRIPT), "home"], env=env, capture_output=True, text=True, timeout=60)
     cur = json.loads((out / "current.json").read_text()) if (out / "current.json").exists() else {}
     status = json.loads((out / "status.json").read_text()) if (out / "status.json").exists() else {}
+    extras = json.loads((out / "extras.json").read_text()) if (out / "extras.json").exists() else None
     shutil.rmtree(d, ignore_errors=True)
     if r.returncode != 0:
         print(r.stderr[-300:])
+    if want_extras:
+        return cur, status, extras
     return cur, status
 
 
@@ -118,6 +122,16 @@ cur, _ = run(data=[data_row("OZONE", 56.0, 67.0, H, *NEAR, unit="PPB")])
 check("ppb gases are converted to ug/m3 (ozone 67 ppb)", abs(cur["airnow"]["values"].get("o3", 0) - 67.0 * 1.96) < 0.01, str(cur["airnow"]["values"]))
 cur, st = run(obs=[obs_row("PM2.5", 63, H)], data=[data_row("PM2.5", 15.7, 17.4, H, *NEAR)])
 check("state ok, and the panel inputs line up: AQI 63 beside PM2.5 17.4", st.get("state") == "ok" and cur["airnow"]["aqi"] == 63 and cur["selected"]["pm2_5"] == 17.4, f"{st} {cur['airnow']['aqi']} {cur['selected']['pm2_5']}")
+
+# ---------------------------------------------------------------------------
+# Optional extras (AirNow forecast, NWS alerts) never change the provider's own result
+# ---------------------------------------------------------------------------
+cur, st, extras = run(obs=[obs_row("PM2.5", 63, H)], data=[data_row("PM2.5", 15.7, 17.4, H, *NEAR)], want_extras=True)
+check("options off: no extras.json, state ok", extras is None and st.get("state") == "ok")
+cur, st, extras = run(obs=[obs_row("PM2.5", 63, H)], data=[data_row("PM2.5", 15.7, 17.4, H, *NEAR)],
+                      profile_extra="forecast = true\n[nws]\nalerts = true\n", want_extras=True)
+check("options on but both services unreachable: the air result is untouched (state ok, AQI 63) and extras.json says ok false",
+      st.get("state") == "ok" and cur["airnow"]["aqi"] == 63 and extras and extras["forecast"]["ok"] is False and extras["nws"]["ok"] is False, str((st, extras)))
 
 print()
 if FAILURES:

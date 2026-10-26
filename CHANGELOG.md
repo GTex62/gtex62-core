@@ -18,6 +18,21 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
+## Unreleased
+
+**air: optional AirNow forecast and NWS air-quality alerts, and the advisor uses them (2026-10-26).** New `providers/air/fetch_air_extras.py`
+(run at the end of `fetch_air.sh`, its exit status ignored) writes `extras.json` beside the air `current.json`: with `[airnow] forecast = true`
+today's AirNow forecast from `/aq/forecast/current/` (AQI per pollutant, category, the action day flag, the discussion); with `[nws] alerts = true`
+the National Weather Service air-quality, smoke and dust products active at the site (Air Quality Alert, Dense Smoke Advisory, Air Stagnation
+Advisory, the dust products) from `api.weather.gov`, identified by a User-Agent that names gtex62-core's public repository. The AirGradient advisor gets
+rule 1a: an NWS Air Quality Alert, Dense Smoke Advisory or dust product is a hard `CLOSE` (`CLOSE WIN // NWS AIR QUALITY`, ...); a stagnation advisory and an
+AirNow action day or forecast AQI of 101 or more are notes; with `[notices]` on they also appear on the DATA line (`NWS AIR QUALITY ALERT`,
+`AQI ACTION DAY: PM2.5 112`). The input log gains `out_nws_events` and `out_aq_forecast_aqi`. AirNow retired six web services on 2026-09-30 (forecast by ZIP and by
+latitude/longitude, and four observation services); the provider's own calls were not among them (`env-provider-status.md`). Tests:
+`tests/air/test_air_extras.py` and new advisor and provider cases.
+
+---
+
 ## 0.17.0 — 2026-10-27
 
 Optional event notices for the AirGradient indoor air: the provider reports a sudden PM2.5 or VOC jump as a fact for the ENV
