@@ -18,7 +18,25 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
-## Unreleased
+## 0.16.0 — 2026-10-26
+
+The AirGradient provider now reports how each indoor reading has changed over the last hour and the last 24 hours, for the
+ENV panel's new trend columns, and can fill that history from Home Assistant after a boot. Minor bump: new `status.json`
+fields and a new optional profile section; nothing to migrate.
+
+### Upgrading
+
+Pull the latest and restart your suite:
+
+```bash
+cd ~/.config/gtex62-core
+git pull
+```
+
+The trend block appears on its own (`null` values for the first hour after the provider starts, except the 24-hour change,
+which is seeded from the input logs). To use Home Assistant history for the first hour as well, set up the HA export (see
+`docs/airgradient-provider-design.md`, *History outside the engine*) and add `[trend] use_ha_export = true` to the
+airgradient profile. Display side: `gtex62-osa` 0.6.0 draws the new columns.
 
 **airgradient: one-hour and 24-hour trend in `status.json` (2026-10-26).** A reading alone does not say whether the air is
 getting better or worse. The provider now keeps a short history (the last 10 minutes of readings plus a median per 10-minute
