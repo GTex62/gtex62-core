@@ -70,7 +70,7 @@ def run(profile_extra="", site=True, coords=True, key=True, existing=None, env_e
     out = cache / "shared" / "air" / "home"
     out.mkdir(parents=True)
     (cfg / "profiles" / "air" / "home.toml").write_text(
-        'profile_id = "home"\nenabled = true\n[location]\n' + ('lat = 35.123456\nlon = -89.654321\n' if coords else '')
+        'profile_id = "home"\nenabled = true\n[location]\n' + ('lat = 40.123456\nlon = -90.654321\n' if coords else '')
         + '[airnow]\nenabled = true\ndistance_miles = 25\n' + ('api_key = "TESTKEY"\n' if key else '') + profile_extra)
     if existing is not None:
         (out / "extras.json").write_text(json.dumps(existing))
@@ -100,7 +100,7 @@ check("forecast rows carry date, pollutant, AQI, category, action day, agency an
       and f["rows"][0]["category"].startswith("Unhealthy") and f["rows"][0]["agency"] == "Test County Health" and f["rows"][0]["discussion"] == "Stagnant air and smoke aloft.")
 check("action_day and max_aqi are summarized", f["action_day"] is True and f["max_aqi"] == 112)
 check("the request goes to /aq/forecast/current/ with 4-decimal coordinates, the distance and the key; no NWS call",
-      len(STATE["seen"]) == 1 and "latitude=35.1235" in STATE["seen"][0]["path"] and "longitude=-89.6543" in STATE["seen"][0]["path"]
+      len(STATE["seen"]) == 1 and "latitude=40.1235" in STATE["seen"][0]["path"] and "longitude=-90.6543" in STATE["seen"][0]["path"]
       and "distance=25" in STATE["seen"][0]["path"] and "API_KEY=TESTKEY" in STATE["seen"][0]["path"], str(STATE["seen"]))
 check("no nws block when alerts are not enabled", "nws" not in doc)
 doc, r = run("forecast = true\n", key=False)
@@ -131,7 +131,7 @@ check("alert entries: severity, headline, effective, and expiry from `ends` when
       n["alerts"][0]["expires"] == "2026-10-27T00:00:00-05:00" and n["alerts"][1]["expires"] == "2026-10-27T06:00:00-05:00" and n["alerts"][0]["severity"] == "Moderate")
 req = STATE["seen"][0]
 check("the NWS request uses the point with 4-decimal coordinates and the default User-Agent that names gtex62-core",
-      "point=35.1235,-89.6543" in req["path"] and req["ua"] == "gtex62-core (https://github.com/GTex62/gtex62-core)", str(req))
+      "point=40.1235,-90.6543" in req["path"] and req["ua"] == "gtex62-core (https://github.com/GTex62/gtex62-core)", str(req))
 doc, r = run('[nws]\nalerts = true\nuser_agent = "my-agent (https://example.org)"\n')
 check("a configured user_agent is sent instead", STATE["seen"][0]["ua"] == "my-agent (https://example.org)")
 STATE["nws"] = {"features": []}
