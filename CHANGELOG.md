@@ -18,7 +18,20 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
-## Unreleased
+## 0.17.0 — 2026-10-27
+
+Optional event notices for the AirGradient indoor air: the provider reports a sudden PM2.5 or VOC jump as a fact for the ENV
+panel's DATA line. Minor bump: a new `status.json` field and a new optional profile section; nothing to migrate.
+
+### Upgrading
+
+```bash
+cd ~/.config/gtex62-core
+git pull
+```
+
+Then restart your suite. Notices are off until you add `[notices] enabled = true` to the airgradient profile (see
+`examples/runtime/profiles/airgradient/indoor.toml.example`). Display side: `gtex62-osa` 0.7.0 shows them.
 
 **airgradient: event notices for the DATA line (opt-in, 2026-10-26).** New optional `[notices] enabled = true` in the profile. The provider
 (new module `providers/airgradient/notices.py`, built on the trend history) writes `notices` to `status.json`: `PM SPIKE // 2.5: 99` when PM2.5 is
