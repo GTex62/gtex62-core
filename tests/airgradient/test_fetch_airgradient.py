@@ -757,6 +757,72 @@ check("seeded from yesterday's input log: the 24-hour change (400 then, 600 now 
       tr2["co2_ppm"]["h24_pct"] == 50 and tr2["co2_ppm"]["h1_pct"] is None, str(tr2["co2_ppm"]))
 sc.done()
 
+# ---------------------------------------------------------------------------
+# 12. Trend history from Home Assistant's export (opt-in: [trend] use_ha_export)
+# ---------------------------------------------------------------------------
+def ha_csv(sc_, minutes_back, co2):
+    d = sc_.dir / "data" / "airgradient" / "indoor" / "ha_export"
+    d.mkdir(parents=True, exist_ok=True)
+    with open(d / "indoor_1min.csv", "w", newline="") as fh:
+        w_ = csv.writer(fh)
+        w_.writerow(["local_time", "utc_time", "co2_ppm", "pm03_per_dl", "pm1_ugm3", "pm25_ugm3", "pm10_ugm3", "voc_index", "temp_f", "humidity_pct", "nox_index"])
+        for k in range(minutes_back, 5, -1):                      # up to 5 minutes before the provider's first reading
+            t_ = sc_.t + 60 - 60 * k
+            w_.writerow([time.strftime("%Y-%m-%d %H:%M", time.localtime(t_)), time.strftime("%Y-%m-%d %H:%M", time.gmtime(t_)),
+                         co2, 800, 4.0, 5.0, 6.0, 50, 75.0, 50.0, 1])
+    return d / "indoor_1min.csv"
+
+
+set_payload(rco2=600)
+sc = Scenario(air=clean_air, wx=clean_wx, toml_extra="[trend]\nuse_ha_export = true\n")
+ha_csv(sc, 120, 400)
+for _ in range(3):
+    sc.run(advance=60)
+st_ = sc.status()
+check("with [trend] use_ha_export the one-hour change is there on the first reading (CO2 400 an hour ago, 600 now = +50%), and says it came from HA",
+      st_["trend"]["co2_ppm"]["h1_pct"] == 50 and st_["trend_from_ha"] is True, str(st_["trend"]["co2_ppm"]) + str(st_.get("trend_from_ha")))
+sc.done()
+
+sc = Scenario(air=clean_air, wx=clean_wx)
+ha_csv(sc, 120, 400)
+for _ in range(3):
+    sc.run(advance=60)
+st_ = sc.status()
+check("without the option the export is ignored: no one-hour change, trend_from_ha false", st_["trend"]["co2_ppm"]["h1_pct"] is None and st_["trend_from_ha"] is False, str(st_["trend"]["co2_ppm"]))
+sc.done()
+
+sc = Scenario(air=clean_air, wx=clean_wx, toml_extra="[trend]\nuse_ha_export = true\n")
+for _ in range(3):
+    sc.run(advance=60)
+st_ = sc.status()
+check("option on but no export file yet: no error, nothing from HA", st_["state"] == "ok" and st_["trend"]["co2_ppm"]["h1_pct"] is None and st_["trend_from_ha"] is False)
+ha_csv(sc, 120, 400)
+for _ in range(2):
+    sc.run(advance=60)
+st_ = sc.status()
+check("the export appears later: the next reading picks it up", st_["trend"]["co2_ppm"]["h1_pct"] == 50 and st_["trend_from_ha"] is True, str(st_["trend"]["co2_ppm"]))
+sc.done()
+
+sc = Scenario(air=clean_air, wx=clean_wx, toml_extra="[trend]\nuse_ha_export = true\n")
+ha_csv(sc, 130, 400)
+for _ in range(70):
+    sc.run(advance=60)
+st_ = sc.status()
+check("an hour later the comparison bin is the provider's own (600 then, 600 now): 0%, and the HA flag goes away",
+      st_["trend"]["co2_ppm"]["h1_pct"] == 0 and st_["trend_from_ha"] is False, str(st_["trend"]["co2_ppm"]) + str(st_.get("trend_from_ha")))
+sc.done()
+
+# the export reader on its own
+sc = Scenario()
+mod = sc.load()
+p_ = sc.dir / "x.csv"
+p_.write_text("local_time,utc_time,co2_ppm,voc_index,temp_f\n2026-10-26 11:00,2026-10-26 16:00,420,50,70\nbroken line\n2026-10-26 11:01,2026-10-26 16:01,,51,70\n2026-10-26 11:02,not a time,430,52,70\n")
+rows_ = mod.ha_history_rows(p_, 0)
+check("the HA export reader: valid rows only, blank cells are None, a missing file or junk gives []",
+      len(rows_) == 2 and rows_[0][1]["co2_ppm"] == 420.0 and rows_[1][1]["co2_ppm"] is None and rows_[0][0] == 1_793_030_400
+      and mod.ha_history_rows(sc.dir / "nope.csv", 0) == [], str(rows_))
+sc.done()
+
 server.shutdown()
 print()
 if FAILURES:

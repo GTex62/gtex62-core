@@ -562,7 +562,7 @@ def envelope(state: str, label: str, note: str, now: float, **kw) -> dict:
         "co2_ppm": None, "voc_index": None, "nox_index": None,
         "pm": {"pm03_per_dl": None, "pm1_ugm3": None, "pm25_ugm3": None, "pm10_ugm3": None},
         "temp_f": None, "humidity_pct": None, "dew_point_f": None, "wifi_rssi": None,
-        "ventilation": None, "trend": None,
+        "ventilation": None, "trend": None, "trend_from_ha": False,
     }
     doc.update(kw)
     return doc
@@ -635,6 +635,46 @@ def ensure_header(path: Path):
         for r in old_rows:
             w.writerow([r.get(c, "") or "" for c in INPUT_COLUMNS])
     tmp.replace(path)
+
+
+def ha_export_dir(profile: dict) -> Path:
+    """Where scripts/airgradient-ha-export.py writes: [ha_export] out, else <data_root>/airgradient/<profile>/ha_export."""
+    out = (profile.get("ha_export") or {}).get("out")
+    return Path(str(out)).expanduser() if out else data_root() / "airgradient" / PROFILE_ID / "ha_export"
+
+
+def ha_history_rows(path: Path, now: float, max_bytes: int = 600_000):
+    """(epoch, values) rows from the tail (about the last 30 hours) of the HA export's indoor_1min.csv, whose
+    utc_time column is "YYYY-MM-DD HH:MM". Empty on any problem: this history is an optional extra."""
+    rows = []
+    try:
+        size = path.stat().st_size
+        with open(path, "rb") as f:
+            header = f.readline().decode("utf-8", "replace").strip().split(",")
+            if size > max_bytes:
+                f.seek(size - max_bytes)
+                f.readline()                                  # drop the partial line
+            lines = f.read().decode("utf-8", "replace").splitlines()
+        want = {m: header.index(m) for m in trendlib.METRICS if m in header}
+        tcol = header.index("utc_time")
+        for line in lines:
+            c = line.split(",")
+            if len(c) < len(header):
+                continue
+            try:
+                t = datetime.strptime(c[tcol], "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc).timestamp()
+            except ValueError:
+                continue
+            vals = {}
+            for m, i in want.items():
+                try:
+                    vals[m] = float(c[i]) if c[i] != "" else None
+                except ValueError:
+                    pass
+            rows.append((t, vals))
+    except (OSError, ValueError):
+        return []
+    return rows
 
 
 def trend_backfill_rows(now: float):
@@ -813,18 +853,30 @@ def main():
     state["carry"] = carry
     if len(((state.get("trend") or {}).get("bins") or {}).get("co2_ppm", {})) < 6:      # under an hour of history: seed it from the input logs
         state["trend"] = trendlib.backfill(state.get("trend"), trend_backfill_rows(now), now)
+    if bool((profile.get("trend") or {}).get("use_ha_export")):
+        ha_csv = ha_export_dir(profile) / "indoor_1min.csv"
+        try:
+            mtime = ha_csv.stat().st_mtime
+        except OSError:
+            mtime = None
+        tr_state = state.get("trend") or {}
+        if mtime is not None and tr_state.get("ha_mtime") != mtime:      # a new export: fill the bins the provider missed
+            tr_state = trendlib.backfill(tr_state, ha_history_rows(ha_csv, now), now, "h")
+            tr_state["ha_mtime"] = mtime
+            state["trend"] = tr_state
     state["trend"] = trendlib.update(state.get("trend"), now, {
         "co2_ppm": reading["co2_ppm"], "voc_index": reading["voc_index"], "nox_index": reading["nox_index"],
         "pm1_ugm3": reading["pm"]["pm1_ugm3"], "pm25_ugm3": reading["pm"]["pm25_ugm3"],
         "pm10_ugm3": reading["pm"]["pm10_ugm3"], "pm03_per_dl": reading["pm"]["pm03_per_dl"]})
     atomic_write(STATE_JSON, json.dumps(state, separators=(",", ":")) + "\n")
 
+    trend_now, trend_from_ha = trendlib.compute_with_sources(state["trend"], now)
     doc = envelope("partial" if partial else "ok", label,
                    ("fields unavailable: " + ", ".join(unavailable)) if partial else "", now,
                    generated_at=iso(now), carried_fields=carried,
                    device={"host": host, "serialno": payload.get("serialno"), "model": payload.get("model"),
                            "firmware": payload.get("firmware")},
-                   ventilation=vent, trend=trendlib.compute(state["trend"], now), **reading)
+                   ventilation=vent, trend=trend_now, trend_from_ha=trend_from_ha, **reading)
     write_status(doc)
     return 0
 

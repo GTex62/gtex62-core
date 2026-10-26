@@ -69,3 +69,9 @@ wx_max_age_sec = 1800
 # weather = "weather.<your_weather_entity>"             # optional: HA's outdoor weather entity
 # zone_thermostats = ["climate.<other_zone>"]          # optional: other zones' thermostats (zone_thermostats.csv), to compare rooms
 # keep_months = 12                                      # months kept live; older rows go to archive/ as monthly .csv.gz
+
+# Trend columns (1H and 24H change on the display). The provider keeps its own history; when it has just started it has
+# none for the first hour, so the 1H column is blank. With the export above running, it can fill that gap from Home
+# Assistant's history (which keeps recording while this machine is off). Off by default; needs [ha_export] working.
+# [trend]
+# use_ha_export = true

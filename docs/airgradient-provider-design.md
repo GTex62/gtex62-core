@@ -256,6 +256,15 @@ value is `null` when there is no comparison: the provider was not running then (
 4 readings, or the earlier value was 0 and the change is real. Capped at plus or minus 999. The history (about 40 hours of
 bins, a few tens of kilobytes) lives in the provider's state file in the cache, so it starts again after the cache is deleted.
 
+**Filling the gap from Home Assistant (opt-in).** With `[trend] use_ha_export = true` in the profile and the HA export
+working (`scripts/airgradient-ha-export.py`, see above), the provider also reads the last 30 hours of the export's
+`indoor_1min.csv` (from `[ha_export] out`, else `<data_root>/airgradient/<profile>/ha_export/`) whenever that file changes, and fills
+the 10-minute bins it has no readings for, such as the hour before a boot, since Home Assistant records the sensor while the
+machine is off. Its own readings always win over Home Assistant's for a bin they cover. `trend_from_ha` in `status.json` is
+`true` while at least one number on the display was compared against a bin that came from Home Assistant, and OSA then adds
+`| HA` to the SRC line. The export runs at boot plus 5 minutes (the systemd timer), so the one-hour column fills in about
+6 minutes after a boot instead of an hour. Without the option, or when the file is missing, nothing changes.
+
 `carried_fields` has entries such as `{"field": "temp_f", "age_sec": 31}` when the device omitted a
 field and the previous value was reused.
 

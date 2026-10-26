@@ -61,15 +61,16 @@ def update(state, now, values):
 
 
 def _bin_value(st, m, t):
-    """Median of the 10-minute bin that contains time t, or None when there is none or it is thin."""
+    """(median, from_ha) of the 10-minute bin that contains time t, or (None, False) when there is none or it is thin.
+    from_ha is True for a bin that was filled from Home Assistant's history, not from the provider's own readings."""
     idx = int(t // BIN_S)
     b = (st.get("bins") or {}).get(m, {}).get(str(idx))
     if b and b[1] >= MIN_BIN_SAMPLES:
-        return b[0]
+        return b[0], len(b) > 2 and b[2] == "h"
     acc = (st.get("acc") or {}).get(m)
     if acc and acc["b"] == idx and len(acc["v"]) >= MIN_BIN_SAMPLES:
-        return statistics.median(acc["v"])
-    return None
+        return statistics.median(acc["v"]), False
+    return None, False
 
 
 def _pct(now_v, then_v, floor):
@@ -83,24 +84,34 @@ def _pct(now_v, then_v, floor):
     return int(max(-CAP_PCT, min(CAP_PCT, round(p))))
 
 
-def compute(state, now):
-    """{metric: {"h1_pct": int|None, "h24_pct": int|None}} for every metric."""
+def compute_with_sources(state, now):
+    """(trend, from_ha): trend is {metric: {"h1_pct": int|None, "h24_pct": int|None}} for every metric; from_ha is True
+    when at least one number shown was compared against a bin filled from Home Assistant's history."""
     st = state if isinstance(state, dict) else {}
-    out = {}
+    out, from_ha = {}, False
     for m in METRICS:
         recent = [x[1] for x in (st.get("samples") or {}).get(m, []) if 0 <= now - x[0] <= NOW_S]
         now_v = statistics.median(recent) if len(recent) >= MIN_NOW_SAMPLES else None
-        out[m] = {
-            "h1_pct": _pct(now_v, _bin_value(st, m, now - 3600), FLOORS[m]),
-            "h24_pct": _pct(now_v, _bin_value(st, m, now - 86400), FLOORS[m]),
-        }
-    return out
+        cell = {}
+        for key, lag in (("h1_pct", 3600), ("h24_pct", 86400)):
+            then_v, ha = _bin_value(st, m, now - lag)
+            cell[key] = _pct(now_v, then_v, FLOORS[m])
+            if cell[key] is not None and ha:
+                from_ha = True
+        out[m] = cell
+    return out, from_ha
 
 
-def backfill(state, rows, now):
+def compute(state, now):
+    """{metric: {"h1_pct": int|None, "h24_pct": int|None}} for every metric."""
+    return compute_with_sources(state, now)[0]
+
+
+def backfill(state, rows, now, source=None):
     """Seed the 10-minute bins from past readings, for a provider that has just started (or lost its state):
     rows is an iterable of (epoch, {metric: value}) in any order; readings from the current bin or later are
-    left to update(). Existing bins are kept. Returns the state dict."""
+    left to update(). Existing bins are kept. `source` "h" marks the new bins as filled from Home Assistant's
+    history (the display can say so). Returns the state dict."""
     st = state if isinstance(state, dict) else {}
     bins = st.setdefault("bins", {})
     cur = int(now // BIN_S)
@@ -116,5 +127,6 @@ def backfill(state, rows, now):
             if v is not None:
                 grouped.setdefault((m, idx), []).append(v)
     for (m, idx), vs in grouped.items():
-        bins.setdefault(m, {}).setdefault(str(idx), [statistics.median(vs), len(vs)])
+        entry = [statistics.median(vs), len(vs)] + ([source] if source else [])
+        bins.setdefault(m, {}).setdefault(str(idx), entry)
     return st

@@ -28,6 +28,13 @@ comparison point (the provider was not running then, so the one-hour value is `n
 New module `providers/airgradient/trend.py`; tests `tests/airgradient/test_trend.py` and new cases in
 `test_fetch_airgradient.py`. Outdoor rows have no trend yet.
 
+**airgradient trend: fill the history from Home Assistant (opt-in, 2026-10-26).** New `[trend] use_ha_export = true` in the profile
+(off by default; needs the HA export): the provider reads the tail of the export's `indoor_1min.csv` whenever it changes and fills
+the 10-minute bins it has no readings for, so the one-hour column works about 6 minutes after a boot (the export's timer
+fires at boot plus 5 minutes) instead of after an hour. The provider's own readings always win. `status.json` gains
+`trend_from_ha`, `true` while a displayed number was compared against a Home Assistant bin. The provider also seeds its history
+from the per-minute input logs of today and the previous two days on a fresh start, so the 24-hour change works at once.
+
 ---
 
 ## 0.15.0 — 2026-10-24
