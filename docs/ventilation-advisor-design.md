@@ -70,8 +70,9 @@ need it:
 the variable is unset), the same default `env.lua` uses. A missing file turns pollen off, silently
 apart from one log line. The advisor must read v2 (v1 and v2 disagree on mold).
 
-HVAC state (`hvac_action`, setpoint) is not an input: the engine has no Home Assistant access. See
-Open Items.
+HVAC state (`hvac_action`, setpoint) is not an input: the advisor has no Home Assistant access (the export
+tool's thermostat and zone files are for analysis, and the only live use of Home Assistant's data is the trend history in the
+provider). See Open Items.
 
 ---
 
@@ -906,20 +907,17 @@ an `OPEN` alert.
 
 ## Open Items
 
-- Thresholds are defaults. A week of history has been replayed once; revisit after a few more weeks
-  and in a different season, particularly the VOC 250 line (two long episodes need an explanation;
-  consider a release near 200), the 70% / 66% humidity thresholds, and the 55 to 85 F outdoor comfort
-  band, which no history yet exercises because outdoor temperature was not logged. The shadow
-  week's input log (see the provider document) is meant to close this.
-- The new outdoor rules (humidity with drier outdoor air, free cooling, AirNow PM comparisons,
-  pollen weighing) are covered by synthetic cases only.
+- Thresholds are defaults. A week of history was replayed once, and since then the shadow-mode and live logs have added
+  outdoor temperature, humidity, wind and PM; revisit after the DST change on 2026-11-01 and in a different season,
+  particularly the VOC 250 line (the episodes have causes only partly known; see the observations), the 70% / 66% humidity
+  thresholds, the `co2_enter` line, and the 55 to 85 F outdoor comfort band.
+- The outdoor rules (humidity with drier outdoor air, free cooling, AirNow PM comparisons, pollen weighing) have had only a
+  few weeks of real conditions, mostly mild, dry autumn days; a hot, humid summer and a cold winter are untested.
 - AirNow's overlay was usually empty in the air cache until 2026-10-07: the air provider took
   AirNow's `RawConcentration = -999` (not yet available) instead of `Value` and discarded the newest
   hour. Fixed in `fetch_air.sh`, with `max_age_sec = 7200` in the example profile (see
   `env-provider-status.md`). The provider also picks the nearest monitor per pollutant now.
   `pm_source` is `owm` only when AirNow has nothing under 2 hours old.
-- Whether OSA shows the verdict as a status-line tag, a color on the ENV panel header, or
-  only as a transient alert.
 - NOx index (1 to 6 all week) is not used; it is logged by the provider design but never
   approached a level worth an alert.
 - Pollen stays on the static seasonal curve unless a live source becomes free and accurate
@@ -929,3 +927,11 @@ an `OPEN` alert.
 - A window contact sensor and `hvac_action` from Home Assistant would let the advisor say "close the
   windows" only when they are actually open, and allow a "windows open while the AC is cooling"
   alert. That needs Home Assistant access in the engine, which it does not have.
+- Outdoor chemical work (cleaning, spraying, painting) next to the windows makes a VOC-driven `OPEN` point the wrong
+  way, because the advisor reads only indoor VOC. Options (a manual hold, a second sensor, leaving it to the occupant)
+  are in the observations; none is built.
+- The weather rules read the METAR, the TAF and OpenWeather's condition code, which describe an airport or a model cell,
+  not the house; the window direction is a single setting (`window_facing_deg`) while a house has windows on several sides.
+- `co2_enter` (1000) never fired in the author's closed-window AC days, when the office sat at 750 to 850 ppm; a lower
+  value (about 800) would have said `OPEN` earlier. For the DST review.
+

@@ -179,9 +179,12 @@ copy is `~/.config/gtex62-core/profiles/airgradient/indoor.toml`. Keys:
 | `[device] host` | none, required | Address of the unit; empty gives `state: "error"` |
 | `[device] timeout_sec`, `carry_max_age_sec` | 5, 600 | HTTP timeout; how long an omitted field is carried forward |
 | `[advisor] enabled`, `shadow` | `true`, `true` | `shadow` computes and logs but never shows an alert |
+| `[advisor] window_facing_deg`, `wind_side_deg` | none, 90 | The compass direction the windows face (180 = south) switches the rain rule on (rain with the wind from within `wind_side_deg` of it is a hard `CLOSE`); thunder closes with or without it. See the advisor document, rule 1b |
+| `[advisor] storm_lookahead_min` | 180 | How far ahead the TAF is searched for thunder or rain |
 | `[advisor] log_inputs`, `log_keep_days` | `true`, 365 | Per-minute input log (`inputs-YYYYMMDD.csv`) in `log_dir`; a year, to match the Home Assistant archive window. Pruning touches only `inputs-*.csv`, so other files in that folder are safe |
 | `[advisor] log_dir` | `<data_root>/airgradient/<profile>/logs` | Where `verdict_log.txt` and the input logs go (`~` allowed). The data root is `$GTEX62_DATA_DIR`, else `core.toml` `[paths] data_root`, else `~/.local/share/gtex62-core` |
-| `[ha_export]` | absent (off) | Optional Home Assistant archive: `ha_db`, `prefix` (required), `thermostat`, `weather`, `keep_months` (12); see *History outside the engine* |
+| `[ha_export]` | absent (off) | Optional Home Assistant archive: `ha_db`, `prefix` (required), `thermostat`, `zone_thermostats` (a list of other zones' climate entities), `weather`, `keep_months` (12); see *History outside the engine* |
+| `[trend] use_ha_export` | `false` | Fill the trend history from the export's `indoor_1min.csv` (needs `[ha_export]` working); see the `trend` paragraph under the status.json schema |
 | `[advisor.thresholds]` | the advisor's `DEFAULTS` | Any threshold name from `ventilation_advisor.py`, numbers only |
 | `[advisor.pollen]` | on, 80, tree + grass | Optional `csv` path; defaults to the shared-assets pollen file |
 | `[advisor.outdoor] air_max_age_sec`, `wx_max_age_sec` | 7200, 1800 | Freshness limits for the outdoor caches |
@@ -243,7 +246,8 @@ refers here.
     "co2_ppm": { "h1_pct": 3, "h24_pct": -4 },
     "pm25_ugm3": { "h1_pct": -12, "h24_pct": 85 },
     "voc_index": { "h1_pct": 0, "h24_pct": null }
-  }
+  },
+  "trend_from_ha": false
 }
 ```
 
@@ -253,7 +257,7 @@ whole percent, for the display's trend columns; the block lists `co2_ppm`, `pm1_
 minutes of readings, and the comparison is the median of the 10-minute bin containing one hour (or 24 hours) ago, so one
 noisy reading cannot move it. A change smaller than a per-metric floor (CO2 10 ppm, PM masses 0.5, PM0.3 50, VOC 5, NOx 1) is `0`. The
 value is `null` when there is no comparison: the provider was not running then (Titan was off), the bin held fewer than
-4 readings, or the earlier value was 0 and the change is real. Capped at plus or minus 999. The history (about 40 hours of
+4 readings, or the earlier value was 0 and the change is real. Capped at plus or minus 999. `trend_from_ha` is explained below. The history (about 40 hours of
 bins, a few tens of kilobytes) lives in the provider's state file in the cache, so it starts again after the cache is deleted.
 
 **Filling the gap from Home Assistant (opt-in).** With `[trend] use_ha_export = true` in the profile and the HA export
@@ -410,38 +414,42 @@ windows and the replay still steps one minute at a time.
 
 ### Indoor view
 
-The POLLUTION table (7 rows) switches to an indoor table with the same 7 rows, same
-column layout, same (V) column. Pollen and the AQI bars do not change.
+The POLLUTION table (7 rows) switches to an indoor table with the same 7 rows and the same (V) column, plus two trend
+columns, `1H` and `24H`. Pollen and the AQI bars do not change (the pollen table keeps just name, bar and value).
 
 | Row | Label | Shown value |
 | --- | --- | --- |
-| 1 | CARBON DIOXIDE (PPM) | ppm, up to four digits, no leading zeros |
-| 2 | PARTICULATE MATTER 2.5 | ug/m3 |
-| 3 | PARTICULATE MATTER 10 | ug/m3 |
-| 4 | PARTICULATE MATTER 1 | ug/m3 |
-| 5 | PARTICLES 0.3 (/DL) | particles/dL, up to four digits, no leading zeros |
+| 1 | CO2 (PPM) | ppm, a whole number |
+| 2 | PM 2.5 | ug/m3 |
+| 3 | PM 10 | ug/m3 |
+| 4 | PM 1 | ug/m3 |
+| 5 | PM 0.3 (/DL) | particles/dL, a whole number |
 | 6 | VOC INDEX | index, 0 to 500 |
 | 7 | NOX INDEX | index, 0 to 500 |
 
-Header reads `INDOOR // <LABEL> (V)` in place of `POLLUTION (V)`, or `INDOOR (V)` when the profile has
-no `label`. The SRC line reads `SRC // AG <LABEL>` (or `SRC // AG`) during the indoor phase. A null
-value (for instance PM0.3 on firmware older than 3.7.0, or a carried field past its maximum age)
-shows as dashes in its row.
+The outdoor rows use the same short names (PM 2.5, OZONE, PM 10, NO2, SO2, CO, NH3) and show the trend headers with
+blank cells (an outdoor trend is not built yet).
 
-**Fixed width, never switching.** CO2 and PM0.3 routinely exceed 999 (CO2 1,150 ppm; PM0.3 1,856 to
-3,389 particles/dL during vacuuming), so those two rows show up to four digits with no leading zeros (`482`,
-`1150`; `500`, `3389`), capped at 9999, and every other row stays zero-padded to three (capped at 999). Nothing is rescaled
-by magnitude or divided by 10, so the displayed number is always the real one and the alert line's
-value (`CO2 1150 PPM`) matches the table. The earlier design divided both rows by 10 to stay inside
-three digits, with the scale in the label (`(PPM X10)`); a width test on the live panel on
-2026-10-07 showed a four-digit value fills the 36 px value cell exactly, edge to edge, with no overflow
-(the label column ends where the value cell begins), so the scaling was dropped. The cost is label
-length: the label column holds 22 characters (the font is monospaced) and a four-digit value's text
-starts 2 px after it, so the two four-digit rows use labels of 20 characters or fewer, which is why the
-PM0.3 label is `PARTICLES 0.3 (/DL)` rather than `PARTICULATE MATTER 0.3`.
+**Header.** `INDOOR // <LABEL>` when that fits in 12 characters, else `INDOOR` alone; the name is also on the SRC line,
+`SRC // AG <LABEL>` (or `SRC // AG`) during the indoor phase, which reads `SRC // AG <LABEL> | HA` while a trend number on
+screen was compared against Home Assistant history (`trend_from_ha`). A null value (for instance PM0.3 on firmware older
+than 3.7.0, or a carried field past its maximum age) shows as dashes in its row.
 
-Temperature and humidity do not fit the table and are not shown in it (the advisor uses
-them). The (V) column itself is not widened, so panel alignment is unchanged.
+**Values, as the source reports them.** The (V) column is right-aligned and shows at most five characters: two decimals under
+100 (`5.27`), one decimal under 1,000 (`121.3`), a whole number with a thousands separator above (`1,107`), capped at `9,999`;
+CO2, PM0.3, VOC and NOx are always whole. Nothing is rescaled by magnitude or divided by 10, so the displayed number is the real one and the
+alert line's value (`CO2 1150 PPM`) matches the table. History of this decision: the first design divided CO2 and PM0.3 by 10 to stay
+inside three digits, with the scale in the label (`(PPM X10)`); a width test on 2026-10-07 showed a four-digit value fills the old
+36-unit value cell edge to edge, so the scaling was dropped; on 2026-10-23 the column grew to 50 units (taken from the SOLAR gauge) and
+the zero padding went, so values show in their natural format.
+
+**Trend columns.** `1H` and `24H` show the change over the last hour and the last 24 hours in whole percent with a sign (`+12%`,
+`-5%`, `0%`, `--` when there is no comparison point), from the `trend` block of `status.json` (see above): the engine computes it,
+OSA only draws it. Short labels leave room for them: the label column is about 12 characters. Widths are theme settings
+(`table_value_w` 50, `table_trend_w` 46, `solar_meter_w` 108, `solar_value_spread` 36, `meter_value_font_pt` 15); an older
+theme file still draws, with the value column widening to fit.
+
+Temperature and humidity do not fit the table and are not shown in it (the advisor uses them).
 
 ### Rotation
 
@@ -463,7 +471,7 @@ including which conditions have no text, is in the advisor document. Examples:
 | --- | --- |
 | `OPEN` | `OPEN WIN // CO2 1150 PPM`, `OPEN WIN // VOC 263`, `OPEN WIN // HUMID, DRIER OUT` |
 | `BRIEF` | `BRIEF OPEN // CO2 1700 PPM` |
-| `CLOSE` (hazard) | `CLOSE WIN // OUTDOOR AIR` |
+| `CLOSE` (hazard) | `CLOSE WIN // OUTDOOR AIR`, `CLOSE WIN // STORM` (thunder now or in the TAF), `CLOSE WIN // RAIN` (rain with the wind toward the windows) |
 | `CLOSE` (indoor humidity) | `CLOSE WIN // HUMID INSIDE` |
 | stale | `AG STALE` (built by OSA from `generated_at`, not by the engine) |
 
@@ -511,8 +519,8 @@ Core (`gtex62-core`), done 2026-10-07 unless marked:
    implementation, pure and importable; a test fails if it drifts from the advisor document).
 2. `examples/runtime/profiles/airgradient/indoor.toml.example`. Installing it needs
    `bin/gtex62-core-bootstrap-runtime` (the Bootstrap Gap: a missing profile TOML falls back to a
-   60-second TTL), then the device address in the installed copy. **Not yet run against the live
-   runtime config.**
+   60-second TTL), then the device address in the installed copy. Installed on the author's runtime on 2026-10-07 and running
+   live since.
 3. Launcher (`bin/gtex62-core-launch`): flag, suite gating, profile, TOML path, TTL, stamp, pid
    file, `mkdir`, cleanup, `initial_refresh` and `refresh_loop`, with the suite's air and weather
    profiles passed as arguments 2, 3 and 4. Syntax-checked, and since run under a live launch.
@@ -531,20 +539,23 @@ Core (`gtex62-core`), done 2026-10-07 unless marked:
    Doctor never inspects nested fields, so a silent gap has to be reported through `state`. Tests:
    `tests/airgradient/test_doctor_row.py`.
 7. Docs: `architecture.md`, `README.md`, `docs/README.md` and `CHANGELOG.md` updated.
-8. Tests: `tests/airgradient/run-tests.sh` runs `test_advisor.py` (replay against the fixtures,
-   synthetic cases, state round-trip, gaps, alert cap, doc drift) and `test_fetch_airgradient.py`
-   (fake device on localhost: scaling, partial and failed responses, hold, shadow versus live,
-   outdoor inputs, pollen, thresholds, corrupt state, lock).
+8. Tests: `tests/airgradient/run-tests.sh` runs `test_advisor.py` (replay against the fixtures, synthetic cases including the
+   weather rules, state round-trip, gaps, alert cap, doc drift), `test_trend.py` (the one-hour and 24-hour change),
+   `test_fetch_airgradient.py` (fake device on localhost: scaling, partial and failed responses, hold, shadow versus live,
+   outdoor inputs, pollen, thresholds, METAR and TAF parsing, corrupt state, lock, the trend block and its Home Assistant
+   history), `test_doctor_row.py` and `test_ha_export.py` (the Home Assistant export, with the zone thermostats and archive).
+   `tests/air/test_fetch_air.py` covers the air provider's AirNow handling.
 
-OSA (`gtex62-osa`, separate repo; commit `1b8d6a4`, done 2026-10-07): `lua/suite/env.lua` reads
+OSA (`gtex62-osa`, separate repo, first done 2026-10-07): `lua/suite/env.lua` reads
 `shared/airgradient/<profile>/status.json` (profile from `[profiles] airgradient` in
 `suites/osa.toml`), draws the indoor table through a clock-driven rotation, puts the engine's
 alert text on the `DATA //` line in place of `NOMINAL` (never over an outdoor FAULT, PARTIAL or
 STALE), and shows `AG STALE` when the reading is over 3 minutes old. `lua/ui/frame.lua` takes the
 table title from `env.pollution_title()`. Everything is `pcall`-guarded so a failure leaves the
-outdoor view alone. Verified on the live panel in both phases; the alert and stale lines are
-covered by an offline harness only, since shadow mode hides alerts. OSA's own description is in
-`gtex62-osa/docs/atmos_meters.md`.
+outdoor view alone. The display settings (name, title, rotation timing, stale limit, alerts, the
+column widths) are `theme.env.airgradient` and `theme.env.atmos` in `theme/osa-theme.lua`, and the
+indoor view is off in the shipped theme (`enabled = false`). Offline tests: `tests/env_airgradient/run-tests.sh`. OSA's own description
+is in `gtex62-osa/docs/atmos_meters.md`.
 
 ---
 
@@ -564,8 +575,8 @@ covered by an offline harness only, since shadow mode hides alerts. OSA's own de
    - `inputs-YYYYMMDD.csv`: one line per minute with every input the advisor saw (indoor readings, outdoor
      AQI, PM2.5 and PM10 with `pm_source`, outdoor temperature and humidity, pollen values, the
      verdict, the outdoor wind (METAR speed, gust, direction and observation time from the aviation cache, plus
-     OpenWeather's speed for comparison; logged only, no rule uses it), and whether the device response was
-     complete), rotated daily and kept 365 days
+     OpenWeather's speed for comparison; logged only, no rule uses it), the weather inputs of the weather rules
+     (`out_rain_min`, `out_ts_min`, `out_wind_deg`), and whether the device response was complete), rotated daily and kept 365 days
      (at most about 80 MB if the machine never slept; far less in practice). This is what lets the next
      replay include outdoor data, which the first week lacked. The 60-day default it shipped with would
      have deleted the outdoor record that exists nowhere else just as the seasonal patterns became visible.
@@ -573,7 +584,9 @@ covered by an offline harness only, since shadow mode hides alerts. OSA's own de
    Run about a week, spanning the DST change on 2026-11-01, and compare the log to what you would
    have wanted. This is where tuning happens: the VOC 250 line, the humidity thresholds, and the
    outdoor-data rules, which the historical week could not exercise.
-2. **Show it.** Set `shadow = false`; enable the indoor view, rotation and alert line in OSA.
+2. **Show it.** Set `shadow = false`; enable the indoor view, rotation and alert line in OSA. Done on the author's
+   install by 2026-10-15 (the first alerts shown were a smoke puff and a cooking VOC episode on 10-24); the DST review is still
+   ahead.
 3. **Optional notification** on verdict changes only.
 
 Optionally record "opened" or "ignored" when you act on an alert; it is the cheapest way to
@@ -590,8 +603,9 @@ of 2026-10-08:
 
 - Raw history is kept for 10 days (`recorder: purge_keep_days: 10`); hourly long-term statistics
   (mean, min, max) for all nine sensors are kept indefinitely (back to 2026-07-01 here).
-- It records every indoor channel, the cave thermostat (setpoint, whether the AC was cooling) and one
-  outdoor entity, `weather.forecast_home` (temperature, humidity, dew point, about hourly).
+- It records every indoor channel, the thermostats (setpoint, whether the system was cooling or heating, the fan;
+  the main one drives the per-minute `ac_*` columns, other zones can be listed in `[ha_export] zone_thermostats` and go to
+  `zone_thermostats.csv`) and one outdoor entity, `weather.forecast_home` (temperature, humidity, dew point, about hourly).
 - It does **not** hold outdoor PM2.5/PM10 or AQI, the advisor's verdicts or its inputs. Those exist only
   in the engine's `inputs-*.csv` and `verdict_log.txt` (AirNow itself can supply recent outdoor PM history
   to fill a gap; not tried).
@@ -604,9 +618,10 @@ statistics, with a `manifest.json`. The thermostat columns include whether the A
 air handler's fan was running (`ac_fan_running`; the fan pulses on its own in `Circulation` mode, so it is not the
 same thing), and `ac_heating` (the main thermostat's `hvac_action` is `heating`; other zones' heating is in `zone_thermostats.csv`). A file written before a column existed is upgraded in place on the next run. It reads Home Assistant's database read-only, through a private
 copy, and **merges** with what is already archived (a new value wins; a blank never erases an archived
-value), so a re-run after the 10-day purge keeps the old rows. It is an analysis aid: nothing in the
-live provider or display depends on it, which keeps the earlier decision that the engine has no live
-Home Assistant access. The first export ran on 2026-10-08 and covers 2026-09-28 onward.
+value), so a re-run after the 10-day purge keeps the old rows. It is an analysis aid first: nothing
+in the advisor or the display depends on it, which keeps the earlier decision that the engine has no live Home Assistant
+access. The one optional exception is the trend history (`[trend] use_ha_export`, see the status.json section): the
+provider can read the export's file to fill the first hour after a boot. The first export ran on 2026-10-08 and covers 2026-09-28 onward.
 
 **Automatic catch-up and rolling retention.** A systemd user timer runs the export
 (`systemd/user/gtex62-airgradient-ha-export.{service,timer}`, installed by copying both to
@@ -659,8 +674,9 @@ average, so short spikes are filtered rather than treated as room conditions.
 
 **Outdoor air is borrowed.** Outdoor PM comes from AirNow monitoring stations within the air
 profile's search radius (hourly, with publication lag) or, failing that, from OpenWeather's model,
-and may lag either way. No outdoor temperature or humidity was logged for the validation week, so
-the outdoor comfort-band and dew-point rules are untested on real data.
+and may lag either way. Outdoor temperature and humidity (OpenWeather) and wind (the METAR) have been logged since
+2026-10-08, but a few weeks of them cannot yet validate the comfort-band and dew-point rules; the weather rules read
+the METAR, the TAF and OpenWeather's condition code, which describe an airport or a model cell, not the house.
 
 **AirNow overlay.** Until 2026-10-07 the air provider's `airnow.values` was usually empty: AirNow's
 newest one to two hours of rows carry `RawConcentration = -999.0` (missing) and `fetch_air.sh` took it
@@ -676,11 +692,15 @@ pollutant. Residual limit: readings are hourly and can be up to 2 hours old.
 
 - How a replay should join the Home Assistant archive with the engine's own outdoor log (`inputs-*.csv`):
   indoor from the archive wherever the engine log has a hole, outdoor from the engine log only.
-- Re-check thresholds after a few weeks of shadow mode, and in a different season, using
-  `inputs.csv` for a replay that includes the outdoor rules.
-- Explain or accept the two long VOC episodes (2026-10-01 evening, peak 475; 2026-10-04
-  evening, peak 310). If they match a real activity the trigger is right; if not, the 250
-  line may need to rise, or VOC may need a release threshold near 200.
-- Re-evaluate the humidity thresholds after the bathroom exhaust fan is repaired; the
-  morning-shower episodes should shrink.
-- Lua-side panel implementation (indoor table, rotation, alert line).
+- Review the shadow logs after the DST change on 2026-11-01 and tune thresholds with outdoor data and a different
+  season: the VOC 250 line, the humidity thresholds, `co2_enter` (the room sat at 750 to 850 ppm without an alert on
+  closed-window AC days), and the weather rules. The causes of the VOC episodes are only partly known (cooking gives a slow
+  VOC rise with particles; the 2026-10-20 episode had none; the garage under the office and cleaning products are open
+  candidates); see the "Observations" section of the advisor document.
+- An outdoor trend (1H and 24H columns for the outdoor rows): AirNow's raw file already holds about six hours of
+  hourly readings, enough for the one-hour change; the 24-hour change needs a small history in the air provider.
+- A second sensor (a downstairs room, planned): the suite binds one `airgradient` profile today. The provider and the export
+  already work per profile; the open questions are how the advisor should combine two rooms and how OSA, Doctor and the
+  launcher should show a second profile.
+- An outdoor-chemical-work hold, so a VOC-driven `OPEN` stays quiet while the source is outside (design options in the
+  advisor document; nothing built).

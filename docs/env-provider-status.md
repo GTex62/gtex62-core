@@ -12,8 +12,9 @@ doc because they are consumed together as a single suite panel (see Suite Consum
 
 Companion docs: [Architecture](architecture.md) (provider pattern, cache layout — its TTL
 table's `air`/`solar` rows are corrected by this doc, see Known Quirks), [AirGradient
-Provider Design](airgradient-provider-design.md) (planned third ENV input — indoor
-AQI — not yet implemented; no `providers/airgradient/` exists yet).
+Provider Design](airgradient-provider-design.md) (the optional indoor view, a third ENV
+input: a separate `airgradient` domain, implemented in `providers/airgradient/`, which alternates with the
+POLLUTION table; the ENV panel's value column and trend columns are described there and in `gtex62-osa/docs/atmos_meters.md`).
 
 ---
 
