@@ -238,9 +238,23 @@ refers here.
     "annotations": [],
     "outdoor": { "pm_source": "airnow", "air_fresh": true, "wx_fresh": true },
     "shadow": false
+  },
+  "trend": {
+    "co2_ppm": { "h1_pct": 3, "h24_pct": -4 },
+    "pm25_ugm3": { "h1_pct": -12, "h24_pct": 85 },
+    "voc_index": { "h1_pct": 0, "h24_pct": null }
   }
 }
 ```
+
+`trend` (`providers/airgradient/trend.py`) is the change in each reading over the last hour and the last 24 hours, in
+whole percent, for the display's trend columns; the block lists `co2_ppm`, `pm1_ugm3`, `pm25_ugm3`, `pm10_ugm3`,
+`pm03_per_dl`, `voc_index` and `nox_index` (the sample above shows three of them). "Now" is the median of the last 10
+minutes of readings, and the comparison is the median of the 10-minute bin containing one hour (or 24 hours) ago, so one
+noisy reading cannot move it. A change smaller than a per-metric floor (CO2 10 ppm, PM masses 0.5, PM0.3 50, VOC 5, NOx 1) is `0`. The
+value is `null` when there is no comparison: the provider was not running then (Titan was off), the bin held fewer than
+4 readings, or the earlier value was 0 and the change is real. Capped at plus or minus 999. The history (about 40 hours of
+bins, a few tens of kilobytes) lives in the provider's state file in the cache, so it starts again after the cache is deleted.
 
 `carried_fields` has entries such as `{"field": "temp_f", "age_sec": 31}` when the device omitted a
 field and the previous value was reused.

@@ -26,6 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ventilation_advisor as va  # noqa: E402
+import trend as trendlib  # noqa: E402
 
 HOME = Path(os.path.expanduser("~"))
 XDG_CACHE_HOME = Path(os.getenv("XDG_CACHE_HOME") or (HOME / ".cache"))
@@ -561,7 +562,7 @@ def envelope(state: str, label: str, note: str, now: float, **kw) -> dict:
         "co2_ppm": None, "voc_index": None, "nox_index": None,
         "pm": {"pm03_per_dl": None, "pm1_ugm3": None, "pm25_ugm3": None, "pm10_ugm3": None},
         "temp_f": None, "humidity_pct": None, "dew_point_f": None, "wifi_rssi": None,
-        "ventilation": None,
+        "ventilation": None, "trend": None,
     }
     doc.update(kw)
     return doc
@@ -792,6 +793,10 @@ def main():
         state["log"] = lg
         state["advisor"] = adv.to_state()
     state["carry"] = carry
+    state["trend"] = trendlib.update(state.get("trend"), now, {
+        "co2_ppm": reading["co2_ppm"], "voc_index": reading["voc_index"], "nox_index": reading["nox_index"],
+        "pm1_ugm3": reading["pm"]["pm1_ugm3"], "pm25_ugm3": reading["pm"]["pm25_ugm3"],
+        "pm10_ugm3": reading["pm"]["pm10_ugm3"], "pm03_per_dl": reading["pm"]["pm03_per_dl"]})
     atomic_write(STATE_JSON, json.dumps(state, separators=(",", ":")) + "\n")
 
     doc = envelope("partial" if partial else "ok", label,
@@ -799,7 +804,7 @@ def main():
                    generated_at=iso(now), carried_fields=carried,
                    device={"host": host, "serialno": payload.get("serialno"), "model": payload.get("model"),
                            "firmware": payload.get("firmware")},
-                   ventilation=vent, **reading)
+                   ventilation=vent, trend=trendlib.compute(state["trend"], now), **reading)
     write_status(doc)
     return 0
 

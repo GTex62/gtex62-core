@@ -713,6 +713,32 @@ v = drive(sc, 3, rco2=1200)["ventilation"]
 check("a stale weather cache is not used for 'raining now'", v["verdict"] == "OPEN", str(v))
 sc.done()
 
+# ---------------------------------------------------------------------------
+# 11. Trend columns: the one-hour and 24-hour change in status.json
+# ---------------------------------------------------------------------------
+set_payload()
+sc = Scenario(air=clean_air, wx=clean_wx)
+sc.run()
+t0 = sc.status()
+check("first reading: the trend block exists with every metric None",
+      isinstance(t0.get("trend"), dict) and set(t0["trend"]) == {"co2_ppm", "pm1_ugm3", "pm25_ugm3", "pm10_ugm3", "pm03_per_dl", "voc_index", "nox_index"}
+      and all(v == {"h1_pct": None, "h24_pct": None} for v in t0["trend"].values()), str(t0.get("trend")))
+for _ in range(10):
+    sc.run(advance=60)
+check("ten minutes in: still no one-hour change", sc.status()["trend"]["co2_ppm"]["h1_pct"] is None)
+set_payload(rco2=500)
+for _ in range(60):
+    sc.run(advance=60)
+set_payload(rco2=700)
+for _ in range(14):
+    sc.run(advance=60)
+tr_ = sc.status()["trend"]
+check("an hour later with CO2 up from 500 to 700: +40%, and a steady metric reads 0%", tr_["co2_ppm"]["h1_pct"] == 40 and tr_["voc_index"]["h1_pct"] == 0, str(tr_["co2_ppm"]) + str(tr_["voc_index"]))
+check("the 24-hour change is still None (no data from yesterday)", tr_["co2_ppm"]["h24_pct"] is None)
+st_ = json.loads((sc.cache / "runtime" / "airgradient" / "indoor" / "advisor_state.json").read_text())
+check("the trend history lives in the provider state, and stays small", "trend" in st_ and len(json.dumps(st_["trend"])) < 60000, str(len(json.dumps(st_.get("trend", {})))))
+sc.done()
+
 server.shutdown()
 print()
 if FAILURES:

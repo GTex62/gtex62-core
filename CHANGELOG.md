@@ -18,6 +18,18 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
+## Unreleased
+
+**airgradient: one-hour and 24-hour trend in `status.json` (2026-10-26).** A reading alone does not say whether the air is
+getting better or worse. The provider now keeps a short history (the last 10 minutes of readings plus a median per 10-minute
+bin for 40 hours, in its state file) and writes a `trend` block: for CO2, PM1, PM2.5, PM10, PM0.3, VOC and NOx the change
+over the last hour and the last 24 hours in whole percent, `0` under a per-metric noise floor, `null` when there is no
+comparison point (the provider was not running then, so the one-hour value is `null` for the first hour after a boot).
+New module `providers/airgradient/trend.py`; tests `tests/airgradient/test_trend.py` and new cases in
+`test_fetch_airgradient.py`. Outdoor rows have no trend yet.
+
+---
+
 ## 0.15.0 — 2026-10-24
 
 A modem T2/T4/SYNC banner alert, plus the AirGradient advisor and export follow-ups and a GitHub traffic
