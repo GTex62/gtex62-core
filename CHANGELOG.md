@@ -18,7 +18,20 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
-## Unreleased
+## 0.18.0 — 2026-10-26
+
+Optional AirNow forecast and National Weather Service air-quality alerts for the air provider, used by the AirGradient advisor.
+Minor bump: a new optional helper, new profile keys and new fields in the air cache; nothing to migrate.
+
+### Upgrading
+
+```bash
+cd ~/.config/gtex62-core
+git pull
+```
+
+Then restart your suite. Both extras are off until you add them to the air profile (see `examples/runtime/profiles/air/home.toml.example`):
+`forecast = true` under `[airnow]` and an `[nws]` section with `alerts = true`.
 
 **air: optional AirNow forecast and NWS air-quality alerts, and the advisor uses them (2026-10-26).** New `providers/air/fetch_air_extras.py`
 (run at the end of `fetch_air.sh`, its exit status ignored) writes `extras.json` beside the air `current.json`: with `[airnow] forecast = true`
