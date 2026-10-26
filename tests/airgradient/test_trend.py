@@ -102,6 +102,24 @@ n = sum(len(b) for b in st["bins"].values())
 check("state keeps about 40 hours of bins, not everything (7 metrics x about 240 bins)", n <= 7 * 242, str(n))
 check("garbage state and values never raise", tr.compute(None, T0) is not None and tr.update("x", T0, {"co2_ppm": "abc"}) is not None)
 
+# ---- backfill from past readings
+rows = [(T0 + 30 * k, ONE) for k in range(0, 240)]                       # two hours of 30 s readings, an hour ago and more
+st = tr.backfill({}, rows, T0 + 50 * 3600)
+check("backfill ignores readings from more than 40 hours ago", all(not b for b in st["bins"].values()))
+st = tr.backfill({}, rows, T0 + 3 * 3600)
+c_now = T0 + 3 * 3600
+st = run(c_now, c_now + 900, lambda t: ONE, st=st)
+c = tr.compute(st, c_now + 900)
+check("backfill gives the one-hour comparison at once (no hour of waiting)", c["co2_ppm"]["h1_pct"] is None or c["co2_ppm"]["h1_pct"] == 0, str(c["co2_ppm"]))
+rows2 = [(T0 + 30 * k, dict(ONE, co2_ppm=400)) for k in range(0, 360)]    # T0 .. T0 + 3 h at 400
+st = tr.backfill({}, rows2, T0 + 3 * 3600 + 600)
+st = run(T0 + 3 * 3600 + 600, T0 + 3 * 3600 + 1500, lambda t: dict(ONE, co2_ppm=500), st=st)
+c = tr.compute(st, T0 + 3 * 3600 + 1500)
+check("backfilled history: CO2 400 an hour ago and 500 now is +25% straight away", c["co2_ppm"]["h1_pct"] == 25, str(c["co2_ppm"]))
+st2 = tr.backfill(st, [(T0 + 30 * k, dict(ONE, co2_ppm=999)) for k in range(0, 120)], T0 + 3 * 3600 + 1500)
+check("backfill never overwrites a bin that already exists", tr.compute(st2, T0 + 3 * 3600 + 1500)["co2_ppm"]["h1_pct"] == 25)
+check("backfill with junk rows never raises", tr.backfill({}, [(1, None), ("x", {}), (T0, {"co2_ppm": "abc"})], T0 + 3600) is not None)
+
 print()
 if FAILURES:
     print(f"{len(FAILURES)} FAILED: " + "; ".join(FAILURES))

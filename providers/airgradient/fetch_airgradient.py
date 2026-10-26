@@ -637,6 +637,24 @@ def ensure_header(path: Path):
     tmp.replace(path)
 
 
+def trend_backfill_rows(now: float):
+    """Past readings from the per-minute input logs of today and the previous two days, as (epoch, values)."""
+    rows = []
+    for back in (2, 1, 0):
+        path = LOG_DIR / f"inputs-{datetime.fromtimestamp(now - back * 86400).strftime('%Y%m%d')}.csv"
+        try:
+            with open(path, newline="", encoding="utf-8") as f:
+                for r in csv.DictReader(f):
+                    try:
+                        t = float(r["epoch"])
+                    except (KeyError, TypeError, ValueError):
+                        continue
+                    rows.append((t, {m: r.get(m) and float(r[m]) for m in trendlib.METRICS if r.get(m) not in (None, "")}))
+        except (OSError, ValueError, csv.Error):
+            continue
+    return rows
+
+
 def log_inputs(now: float, reading: dict, carried: list, out: dict, flags: dict, pollen, adv, keep_days: int, wind=None):
     """One row per minute: every input the advisor saw, so a later replay can include outdoor data."""
     pm = reading["pm"]
@@ -793,6 +811,8 @@ def main():
         state["log"] = lg
         state["advisor"] = adv.to_state()
     state["carry"] = carry
+    if len(((state.get("trend") or {}).get("bins") or {}).get("co2_ppm", {})) < 6:      # under an hour of history: seed it from the input logs
+        state["trend"] = trendlib.backfill(state.get("trend"), trend_backfill_rows(now), now)
     state["trend"] = trendlib.update(state.get("trend"), now, {
         "co2_ppm": reading["co2_ppm"], "voc_index": reading["voc_index"], "nox_index": reading["nox_index"],
         "pm1_ugm3": reading["pm"]["pm1_ugm3"], "pm25_ugm3": reading["pm"]["pm25_ugm3"],

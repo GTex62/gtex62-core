@@ -739,6 +739,24 @@ st_ = json.loads((sc.cache / "runtime" / "airgradient" / "indoor" / "advisor_sta
 check("the trend history lives in the provider state, and stays small", "trend" in st_ and len(json.dumps(st_["trend"])) < 60000, str(len(json.dumps(st_.get("trend", {})))))
 sc.done()
 
+# trend history seeded from yesterday's input log: the 24-hour change works on the first reading
+sc = Scenario(air=clean_air, wx=clean_wx)
+sc.log_dir.mkdir(parents=True, exist_ok=True)
+set_payload(rco2=600)
+yday = time.strftime("%Y%m%d", time.localtime(sc.t + 60 - 86400))
+with open(sc.log_dir / f"inputs-{yday}.csv", "w", newline="") as fh:
+    w_ = csv.writer(fh)
+    w_.writerow(["epoch", "utc", "co2_ppm", "pm25_ugm3", "pm10_ugm3", "pm1_ugm3", "pm03_per_dl", "voc_index", "nox_index"])
+    for k in range(0, 40):                                              # 20 minutes of 30 s rows around this time yesterday
+        t_ = sc.t + 60 - 86400 - 600 + 30 * k
+        w_.writerow([int(t_), "", 400, 3.0, 5.0, 2.0, 800, 50, 1])
+for _ in range(3):
+    sc.run(advance=60)
+tr2 = sc.status()["trend"]
+check("seeded from yesterday's input log: the 24-hour change (400 then, 600 now = +50%) is there on the first reading, the one-hour change is not",
+      tr2["co2_ppm"]["h24_pct"] == 50 and tr2["co2_ppm"]["h1_pct"] is None, str(tr2["co2_ppm"]))
+sc.done()
+
 server.shutdown()
 print()
 if FAILURES:

@@ -95,3 +95,26 @@ def compute(state, now):
             "h24_pct": _pct(now_v, _bin_value(st, m, now - 86400), FLOORS[m]),
         }
     return out
+
+
+def backfill(state, rows, now):
+    """Seed the 10-minute bins from past readings, for a provider that has just started (or lost its state):
+    rows is an iterable of (epoch, {metric: value}) in any order; readings from the current bin or later are
+    left to update(). Existing bins are kept. Returns the state dict."""
+    st = state if isinstance(state, dict) else {}
+    bins = st.setdefault("bins", {})
+    cur = int(now // BIN_S)
+    grouped = {}
+    for t, vals in rows:
+        if _num(t) is None:
+            continue
+        idx = int(t // BIN_S)
+        if idx >= cur or now - t > KEEP_S:
+            continue
+        for m in METRICS:
+            v = _num((vals or {}).get(m))
+            if v is not None:
+                grouped.setdefault((m, idx), []).append(v)
+    for (m, idx), vs in grouped.items():
+        bins.setdefault(m, {}).setdefault(str(idx), [statistics.median(vs), len(vs)])
+    return st
