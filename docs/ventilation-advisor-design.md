@@ -211,6 +211,10 @@ dictionary lists them.
   for at most 3600 seconds from the change or escalation. On the 281-minute VOC episode of Oct 1 the
   alert would have been visible for the first 60 minutes only.
 
+- **Notices are separate.** The provider can also publish event notices (`PM SPIKE`, `VOC SPIKE`, facts about a sudden change; see the
+  provider document). They do not feed the verdict, the dwell or the alert cap, and the advisor's alert text always takes the
+  `DATA //` line first.
+
 ### Alert line text (29 characters or fewer)
 
 Built in the same pass as the verdict, from structured needs, not by parsing the reason string.

@@ -508,6 +508,14 @@ Tied to the condition, not a timer, with a cap:
   banner that long becomes wallpaper.
 - Conky takes no input, so there is no acknowledge control; the cap is the substitute.
 
+### Event notices
+
+With `[notices] enabled = true` the provider also hands the display facts about a sudden change (`notices` in `status.json`,
+defined under the status.json schema). They are not advice and not tied to the verdict. On the `DATA //` line OSA gives them the
+lowest priority: an outdoor FAULT, PARTIAL or STALE state, then `AG STALE`, then an advisor alert, then a notice, then `NOMINAL`. A
+notice still active when an alert ends takes the line; more than one take turns every 10 seconds. The texts (`PM SPIKE // 2.5: 99`,
+`VOC SPIKE // 485`) state what was measured and are at most 29 characters.
+
 ---
 
 ## Design Decisions Carried Over from SitRep
