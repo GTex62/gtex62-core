@@ -30,6 +30,11 @@ max_age_sec = 7200
 # Optional: today's AirNow forecast (forecast AQI per pollutant, the action day flag) in extras.json. Uses the same key.
 # forecast = true
 
+# Optional: the change over the last hour and the last 24 hours of the outdoor readings (the 1H and 24H columns of the ENV panel's
+# outdoor rows), from this provider's own history. The 1H column needs an hour of running, 24H the second day.
+# [trend]
+# outdoor = true
+
 # Optional: National Weather Service air-quality, smoke and dust products active at your location (Air Quality Alert, Dense
 # Smoke Advisory, Air Stagnation Advisory, the dust products), also in extras.json. Keyless. The NWS wants a User-Agent that
 # identifies the client; the default names gtex62-core's public repository.

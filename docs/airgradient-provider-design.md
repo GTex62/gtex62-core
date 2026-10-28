@@ -440,8 +440,9 @@ columns, `1H` and `24H`. Pollen and the AQI bars do not change (the pollen table
 | 6 | VOC INDEX | index, 0 to 500 |
 | 7 | NOX INDEX | index, 0 to 500 |
 
-The outdoor rows use the same short names (PM 2.5, OZONE, PM 10, NO2, SO2, CO, NH3) and show the trend headers with
-blank cells (an outdoor trend is not built yet).
+The outdoor rows use the same short names (PM 2.5, OZONE, PM 10, NO2, SO2, CO, NH3) and the same trend columns: with
+`[trend] outdoor = true` in the air profile (`extras.json`'s `trend`, see `env-provider-status.md`) they show the change in each outdoor
+reading; without it the cells stay blank.
 
 **Header.** `INDOOR // <LABEL>` when that fits in 12 characters, else `INDOOR` alone; the name is also on the SRC line,
 `SRC // AG <LABEL>` (or `SRC // AG`) during the indoor phase, which reads `SRC // AG <LABEL> | HA` while a trend number on
@@ -718,8 +719,9 @@ pollutant. Residual limit: readings are hourly and can be up to 2 hours old.
   closed-window AC days), and the weather rules. The causes of the VOC episodes are only partly known (cooking gives a slow
   VOC rise with particles; the 2026-10-20 episode had none; the garage under the office and cleaning products are open
   candidates); see the "Observations" section of the advisor document.
-- An outdoor trend (1H and 24H columns for the outdoor rows): AirNow's raw file already holds about six hours of
-  hourly readings, enough for the one-hour change; the 24-hour change needs a small history in the air provider.
+- The outdoor trend columns have no backfill yet: after a boot the one-hour value waits an hour, because the air provider keeps its
+  own history. AirNow's raw file holds about six hours of hourly readings and its `aq/data` service takes a longer window, enough to seed both
+  columns at start; OpenWeather has a history endpoint for the model values.
 - A second sensor (a downstairs room, planned): the suite binds one `airgradient` profile today. The provider and the export
   already work per profile; the open questions are how the advisor should combine two rooms and how OSA, Doctor and the
   launcher should show a second profile.

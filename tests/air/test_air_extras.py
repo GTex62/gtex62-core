@@ -63,7 +63,7 @@ def feature(event, status="Actual", msg="Alert", ends=None, expires="2026-10-27T
                            "effective": "2026-10-26T09:00:00-05:00", "expires": expires, "ends": ends}}
 
 
-def run(profile_extra="", site=True, coords=True, key=True, existing=None, env_extra=None, nows=True):
+def run(profile_extra="", site=True, coords=True, key=True, existing=None, env_extra=None, nows=True, current=None, seed=None, want_state=False):
     d = Path(tempfile.mkdtemp(prefix="airx_"))
     cfg, cache = d / "config", d / "cache"
     (cfg / "profiles" / "air").mkdir(parents=True)
@@ -74,13 +74,24 @@ def run(profile_extra="", site=True, coords=True, key=True, existing=None, env_e
         + '[airnow]\nenabled = true\ndistance_miles = 25\n' + ('api_key = "TESTKEY"\n' if key else '') + profile_extra)
     if existing is not None:
         (out / "extras.json").write_text(json.dumps(existing))
+    if current is not None:
+        (out / "current.json").write_text(json.dumps(current))
+    if seed is not None:
+        sp = cache / "runtime" / "air" / "home"
+        sp.mkdir(parents=True)
+        (sp / "trend_state.json").write_text(json.dumps(seed))
     STATE["seen"] = []
     env = dict(os.environ, GTEX62_CONFIG_DIR=str(cfg), GTEX62_CACHE_DIR=str(cache), GTEX62_AIRNOW_BASE=BASE, GTEX62_NWS_BASE=BASE,
                GTEX62_CONKY_CONFIG_DIR=str(cfg), GTEX62_CONKY_CACHE_DIR=str(cache))
     env.update(env_extra or {})
     r = subprocess.run([sys.executable, str(SCRIPT), "home"], env=env, capture_output=True, text=True, timeout=60)
     doc = json.loads((out / "extras.json").read_text()) if (out / "extras.json").exists() else None
+    tstate = None
+    if (cache / "runtime" / "air" / "home" / "trend_state.json").exists():
+        tstate = json.loads((cache / "runtime" / "air" / "home" / "trend_state.json").read_text())
     shutil.rmtree(d, ignore_errors=True)
+    if want_state:
+        return doc, r, tstate
     return doc, r
 
 
@@ -153,6 +164,27 @@ doc, r = run("[nws]\nalerts = true\n", coords=False)
 check("no coordinates anywhere: nothing written, no request, exit 0", doc is None and STATE["seen"] == [] and r.returncode == 0)
 doc, r = run("[nws]\nalerts = true\n", env_extra={"GTEX62_NWS_BASE": "http://127.0.0.1:9"})
 check("an unreachable server is survived", doc["nws"]["ok"] is False and r.returncode == 0)
+
+# ---- outdoor trend (own history of the air provider's `selected` readings)
+import time as _time
+now_ = _time.time()
+SEL = {"selected": {"pm2_5": 12.0, "o3": 60.0, "pm10": 14.0, "no2": 4.0, "so2": 1.0, "co": 150.0, "nh3": 0.5, "no": 0.1}}
+seed = {"samples": {"pm2_5": [[now_ - 3600, 8.0], [now_ - 3500, 8.0], [now_ - 86400, 6.0]], "o3": [[now_ - 3600, 60.0]]}}
+doc, r, ts = run("[trend]\noutdoor = true\n", current=SEL, seed=seed, want_state=True)
+t = (doc or {}).get("trend") or {}
+check("[trend] outdoor = true alone writes extras.json with a trend block and makes no network request",
+      t.get("ok") is True and t.get("computed_at", "").endswith("Z") and STATE["seen"] == [] and "forecast" not in doc and "nws" not in doc, str(doc)[:200])
+check("PM2.5 8 an hour ago, 12 now: +50% over the hour; 6 a day ago: +100% over 24 hours", t["values"]["pm2_5"] == {"h1_pct": 50, "h24_pct": 100}, str(t["values"]["pm2_5"]))
+check("ozone unchanged: 0% over the hour, None over 24 hours (no sample a day ago); a metric with no history is None",
+      t["values"]["o3"] == {"h1_pct": 0, "h24_pct": None} and t["values"]["no2"] == {"h1_pct": None, "h24_pct": None})
+check("the history is kept in the provider's runtime state and gains this reading", ts and any(abs(x[0] - now_) < 60 for x in ts["samples"]["pm2_5"]) and len(ts["samples"]["pm2_5"]) == 4, str(ts)[:200])
+doc, r = run("[trend]\noutdoor = true\n", coords=False, current=SEL)
+check("the trend needs no coordinates", (doc or {}).get("trend", {}).get("ok") is True)
+doc, r = run("[trend]\noutdoor = true\n")
+check("no current.json yet (a fresh install): a trend block with every value None, no error", doc["trend"]["ok"] is True and all(v == {"h1_pct": None, "h24_pct": None} for v in doc["trend"]["values"].values()) and r.returncode == 0)
+STATE["forecast"] = FORECAST
+doc, r = run("forecast = true\n[trend]\noutdoor = true\n", current=SEL)
+check("with the forecast on as well: one file with both blocks", doc["forecast"]["ok"] and doc["trend"]["ok"])
 
 server.shutdown()
 print()

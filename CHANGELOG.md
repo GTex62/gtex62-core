@@ -18,6 +18,17 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
+## Unreleased
+
+**air: one-hour and 24-hour trend for the outdoor readings (opt-in, 2026-10-28).** `[trend] outdoor = true` in the air profile makes
+`fetch_air_extras.py` keep the `selected` readings (PM2.5, PM10, ozone, NO2, SO2, CO, NH3) for 27 hours (new `providers/air/air_trend.py`,
+state in `runtime/air/<profile>/trend_state.json`) and write `trend` into `extras.json`: the change over the last hour and the last 24 hours in
+whole percent, `0` under a per-pollutant noise floor, `null` without a comparison sample. No backfill: the one-hour value needs an hour of running,
+the 24-hour value the second day. `gtex62-osa` draws them in the outdoor rows' 1H and 24H columns. Tests: `tests/air/test_air_trend.py` and new
+cases in `test_air_extras.py`.
+
+---
+
 ## 0.18.0 — 2026-10-26
 
 Optional AirNow forecast and National Weather Service air-quality alerts for the air provider, used by the AirGradient advisor.

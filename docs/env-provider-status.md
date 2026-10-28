@@ -237,12 +237,20 @@ no cache"` and the script exits 0 without writing `current.json`.
 | --- | --- | --- | --- |
 | AirNow forecast | `[airnow] forecast = true` (needs AirNow enabled and its key) | `/aq/forecast/current/` by latitude, longitude and `distance_miles` | `forecast`: `rows` (date valid and issued, pollutant, AQI, category, `action_day`, the forecaster's discussion, agency, reporting area), `action_day`, `max_aqi`, `ok`, `fetched_at` |
 | NWS alerts | `[nws] alerts = true`, optional `user_agent` | `api.weather.gov/alerts/active?point=lat,lon` (coordinates rounded to 4 decimals, as the NWS requires) | `nws`: `alerts` (event, severity, headline, effective, expires or ends), `ok`, `fetched_at` |
+| Outdoor trend | `[trend] outdoor = true` | this provider's own history of the `selected` readings the panel shows (`air_trend.py`, state in `runtime/air/<profile>/trend_state.json`) | `trend`: `computed_at`, `values` (per pollutant `h1_pct` and `h24_pct`: whole percent, `0` under a per-pollutant noise floor, `null` with no comparison sample) |
 
 Only the air-quality, smoke and dust products are kept: Air Quality Alert, Air Stagnation Advisory, Dense Smoke Advisory, Dust Advisory,
 Blowing Dust Advisory and Warning, Dust Storm Warning. Test products and cancellations are dropped. The NWS asks every client to send a
 User-Agent that identifies it; the default is `gtex62-core (https://github.com/GTex62/gtex62-core)` (keep contact details in a public URL, not
 an address). A failed fetch keeps the last good rows with `ok: false` and the old `fetched_at`, so a consumer decides how old is too old; the
 AirGradient provider trusts the alerts for 90 minutes and the forecast for 12 hours.
+
+**Outdoor trend.** `[trend] outdoor = true` keeps every air refresh's `selected` readings (PM2.5, PM10, ozone, NO2, SO2, CO, NH3) for 27 hours and
+writes the change over the last hour and the last 24 hours: "now" is the median of the last 40 minutes, the comparison the median of the
+samples within 20 minutes of an hour ago (30 minutes of a day ago). The sources report hourly at best, so changes arrive in steps. There is no
+backfill: the one-hour change needs an hour of running (the loop runs only while the suite does), and the 24-hour change works from the second
+day, as long as the loop was running at the same time the day before. ENV's outdoor rows show the cells while `computed_at` is under 90
+minutes old, as `+12%`, `-5%`, `0%` or `--`.
 
 **AirNow web-service retirement (2026-09-30).** AirNow retired six services: forecast by ZIP and by latitude/longitude, current observations by
 reporting area by ZIP and by latitude/longitude, and the two historical observation services. This provider uses `aq/observation/current/ziplatlong`

@@ -6,11 +6,13 @@
 #             the "action day" flag and the forecaster's discussion)
 #   nws       the National Weather Service's active alerts for the site that bear on air quality (Air Quality Alert,
 #             Dense Smoke Advisory, Air Stagnation Advisory, the dust products)
+#   trend     the one-hour and 24-hour change of the outdoor readings the ENV panel shows (air_trend.py)
 #
 # Both are opt-in in the air profile and neither can make the air provider fail: fetch_air.sh runs this after its own
 # work and ignores its exit status. Usage: fetch_air_extras.py <profile>
 #
 #   [airnow]  forecast = true               needs airnow enabled and its API key, as the provider already has
+#   [trend]   outdoor = true                one- and 24-hour change of the outdoor readings, from this provider's own history
 #   [nws]     alerts = true                 keyless; api.weather.gov wants a User-Agent that identifies the client
 #             user_agent = "..."            default: gtex62-core's public repository URL
 #
@@ -26,6 +28,9 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import air_trend  # noqa: E402
 
 HOME = Path(os.path.expanduser("~"))
 CONFIG_ROOT = Path(os.getenv("GTEX62_CONFIG_DIR") or os.getenv("GTEX62_CONKY_CONFIG_DIR") or (HOME / ".config" / "gtex62-core"))
@@ -107,7 +112,8 @@ def main(argv):
     out_path = out_dir / "extras.json"
     want_forecast = bool((prof.get("airnow") or {}).get("forecast")) and (prof.get("airnow") or {}).get("enabled", True) is not False
     want_nws = bool((prof.get("nws") or {}).get("alerts"))
-    if not (want_forecast or want_nws):
+    want_trend = bool((prof.get("trend") or {}).get("outdoor"))
+    if not (want_forecast or want_nws or want_trend):
         try:
             out_path.unlink()
         except OSError:
@@ -117,7 +123,11 @@ def main(argv):
     try:
         lat, lon = float(loc["lat"]), float(loc["lon"])
     except (KeyError, TypeError, ValueError):
-        return 0
+        lat = lon = None
+    if lat is None and (want_forecast or want_nws):
+        want_forecast = want_nws = False
+        if not want_trend:
+            return 0
     try:
         prev = json.loads(out_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -154,6 +164,22 @@ def main(argv):
         except (urllib.error.URLError, OSError, ValueError):
             pass
         doc["nws"] = new
+
+    if want_trend:
+        state_path = CACHE_ROOT / "runtime" / "air" / profile_id / "trend_state.json"
+        try:
+            tstate = json.loads(state_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            tstate = {}
+        try:
+            cur = json.loads((out_dir / "current.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            cur = {}
+        now_ts = datetime.now(timezone.utc).timestamp()
+        tstate = air_trend.update(tstate, now_ts, (cur.get("selected") or {}) if isinstance(cur, dict) else {})
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(json.dumps(tstate, separators=(",", ":")) + "\n", encoding="utf-8")
+        doc["trend"] = {"ok": True, "computed_at": iso(now_ts), "values": air_trend.compute(tstate, now_ts)}
 
     out_dir.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix="extras_", suffix=".tmp", dir=str(out_dir))
