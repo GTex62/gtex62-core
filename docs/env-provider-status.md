@@ -247,10 +247,14 @@ AirGradient provider trusts the alerts for 90 minutes and the forecast for 12 ho
 
 **Outdoor trend.** `[trend] outdoor = true` keeps every air refresh's `selected` readings (PM2.5, PM10, ozone, NO2, SO2, CO, NH3) for 27 hours and
 writes the change over the last hour and the last 24 hours: "now" is the median of the last 40 minutes, the comparison the median of the
-samples within 20 minutes of an hour ago (30 minutes of a day ago). The sources report hourly at best, so changes arrive in steps. There is no
-backfill: the one-hour change needs an hour of running (the loop runs only while the suite does), and the 24-hour change works from the second
-day, as long as the loop was running at the same time the day before. ENV's outdoor rows show the cells while `computed_at` is under 90
-minutes old, as `+12%`, `-5%`, `0%` or `--`.
+samples within 20 minutes of an hour ago (30 minutes of a day ago). The sources report hourly at best, so changes arrive in steps.
+**Backfill:** the air loop runs only while the suite does, so after a start (or days off) the history would be empty around one hour and
+24 hours ago. When it is, the helper seeds it once from the sources' own history (again after 6 hours, or 30 minutes after a failed attempt):
+one AirNow `aq/data` request over 28 hours (the provider's own parameters, a longer window) and one OpenWeather
+`air_pollution/history` request, and applies the provider's selection rules to them (`air_backfill.py`: the nearest monitor with a reading under
+`max_age_sec`, `RawConcentration` unless it is -999, the unit conversions, OpenWeather as the base and AirNow over it), so the seeded series is
+the one the live loop would have recorded. Its own readings always win. Either source may be missing; with neither, the columns read `--`.
+ENV's outdoor rows show the cells while `computed_at` is under 90 minutes old, as `+12%`, `-5%`, `0%` or `--`.
 
 **AirNow web-service retirement (2026-09-30).** AirNow retired six services: forecast by ZIP and by latitude/longitude, current observations by
 reporting area by ZIP and by latitude/longitude, and the two historical observation services. This provider uses `aq/observation/current/ziplatlong`

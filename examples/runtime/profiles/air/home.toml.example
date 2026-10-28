@@ -31,7 +31,7 @@ max_age_sec = 7200
 # forecast = true
 
 # Optional: the change over the last hour and the last 24 hours of the outdoor readings (the 1H and 24H columns of the ENV panel's
-# outdoor rows), from this provider's own history. The 1H column needs an hour of running, 24H the second day.
+# outdoor rows). Kept from this provider's own readings and seeded at start from AirNow's and OpenWeather's history (one request each).
 # [trend]
 # outdoor = true
 

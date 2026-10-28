@@ -23,9 +23,11 @@ this file and has not been backfilled — see each domain's own
 **air: one-hour and 24-hour trend for the outdoor readings (opt-in, 2026-10-28).** `[trend] outdoor = true` in the air profile makes
 `fetch_air_extras.py` keep the `selected` readings (PM2.5, PM10, ozone, NO2, SO2, CO, NH3) for 27 hours (new `providers/air/air_trend.py`,
 state in `runtime/air/<profile>/trend_state.json`) and write `trend` into `extras.json`: the change over the last hour and the last 24 hours in
-whole percent, `0` under a per-pollutant noise floor, `null` without a comparison sample. No backfill: the one-hour value needs an hour of running,
-the 24-hour value the second day. `gtex62-osa` draws them in the outdoor rows' 1H and 24H columns. Tests: `tests/air/test_air_trend.py` and new
-cases in `test_air_extras.py`.
+whole percent, `0` under a per-pollutant noise floor, `null` without a comparison sample. When the history is empty around one hour or 24 hours
+ago (a start, or days off) it is seeded once from the sources' own history (new `providers/air/air_backfill.py`: one AirNow `aq/data` request over 28 hours
+and one OpenWeather `air_pollution/history` request, the provider's own selection rules applied; retried after 6 hours, or 30 minutes after a failure), so
+both columns work right after a boot. `gtex62-osa` draws them in the outdoor rows' 1H and 24H columns. Tests: `tests/air/test_air_trend.py`,
+`test_air_backfill.py` and new cases in `test_air_extras.py`.
 
 ---
 

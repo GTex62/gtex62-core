@@ -25,7 +25,8 @@ def check(label, condition, detail=""):
         FAILURES.append(label)
 
 
-STATE = {"forecast": None, "nws": None, "forecast_status": 200, "nws_status": 200, "seen": []}
+STATE = {"forecast": None, "nws": None, "airdata": [], "owmhist": None, "forecast_status": 200, "nws_status": 200,
+         "airdata_status": 200, "owmhist_status": 200, "seen": []}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -34,7 +35,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         STATE["seen"].append({"path": self.path, "ua": self.headers.get("User-Agent")})
-        which = "forecast" if self.path.startswith("/aq/forecast/current/") else "nws"
+        p = self.path
+        which = ("forecast" if p.startswith("/aq/forecast/current/") else "airdata" if p.startswith("/aq/data/")
+                 else "owmhist" if p.startswith("/data/2.5/air_pollution/history") else "nws")
         status = STATE[which + "_status"]
         body = STATE[which]
         raw = body if isinstance(body, str) else json.dumps(body)
@@ -81,7 +84,7 @@ def run(profile_extra="", site=True, coords=True, key=True, existing=None, env_e
         sp.mkdir(parents=True)
         (sp / "trend_state.json").write_text(json.dumps(seed))
     STATE["seen"] = []
-    env = dict(os.environ, GTEX62_CONFIG_DIR=str(cfg), GTEX62_CACHE_DIR=str(cache), GTEX62_AIRNOW_BASE=BASE, GTEX62_NWS_BASE=BASE,
+    env = dict(os.environ, GTEX62_CONFIG_DIR=str(cfg), GTEX62_CACHE_DIR=str(cache), GTEX62_AIRNOW_BASE=BASE, GTEX62_NWS_BASE=BASE, GTEX62_OWM_BASE=BASE,
                GTEX62_CONKY_CONFIG_DIR=str(cfg), GTEX62_CONKY_CACHE_DIR=str(cache))
     env.update(env_extra or {})
     r = subprocess.run([sys.executable, str(SCRIPT), "home"], env=env, capture_output=True, text=True, timeout=60)
@@ -185,6 +188,63 @@ check("no current.json yet (a fresh install): a trend block with every value Non
 STATE["forecast"] = FORECAST
 doc, r = run("forecast = true\n[trend]\noutdoor = true\n", current=SEL)
 check("with the forecast on as well: one file with both blocks", doc["forecast"]["ok"] and doc["trend"]["ok"])
+
+# ---- outdoor trend backfill (AirNow aq/data over a longer window, OpenWeather history)
+import datetime as _dt
+
+
+def airdata_rows(now_ts, fn):
+    """Hourly AirNow rows for the 29 hours up to now from one near monitor; fn(offset in hours, 0 = the current hour) gives the PM2.5 value."""
+    h0 = int(now_ts // 3600) * 3600
+    rows = []
+    for off in range(0, -29, -1):
+        ts = _dt.datetime.fromtimestamp(h0 + off * 3600, _dt.timezone.utc).strftime("%Y-%m-%dT%H:%M")
+        v = fn(off)
+        rows.append({"Latitude": 40.2, "Longitude": -90.5, "Parameter": "PM2.5", "UTC": ts, "Value": v, "RawConcentration": v, "Unit": "UG/M3"})
+    return rows
+
+
+now_ = _time.time()
+STATE["airdata"] = airdata_rows(now_, lambda off: 12.0 if off == 0 else 8.0 if off > -24 else 6.0)
+STATE["owmhist"] = None
+doc, r, ts = run("[trend]\noutdoor = true\n", current=SEL, want_state=True)
+v = ((doc or {}).get("trend") or {}).get("values", {}).get("pm2_5", {})
+check("a fresh start with AirNow's hourly rows: the first run already has both changes (8 an hour ago, 6 a day ago, 12 now: +50% and +100%)",
+      v == {"h1_pct": 50, "h24_pct": 100}, str(v))
+check("the backfill is one AirNow request over a 28 hour window with the provider's own parameters; OpenWeather is not asked (no key)",
+      sum(1 for x in STATE["seen"] if x["path"].startswith("/aq/data/")) == 1 and not any("air_pollution/history" in x["path"] for x in STATE["seen"])
+      and "startDate=" in STATE["seen"][0]["path"] and "monitorType=2" in STATE["seen"][0]["path"] and "includerawconcentrations=1" in STATE["seen"][0]["path"], str([x["path"][:90] for x in STATE["seen"]]))
+check("the state records the attempt (time and success) and holds the seeded samples plus the live reading",
+      ts["backfill_ok"] is True and isinstance(ts["backfill_at"], float) and len(ts["samples"]["pm2_5"]) > 50, str({k: ts[k] for k in ("backfill_ok", "backfill_at")}))
+
+doc, r = run("[trend]\noutdoor = true\n", current=SEL, seed={"backfill_at": now_ - 600, "backfill_ok": True, "samples": {}})
+check("the backfill is not repeated within 6 hours of a successful one (no request, nulls stay null)",
+      not any(x["path"].startswith("/aq/data/") for x in STATE["seen"]) and doc["trend"]["values"]["pm2_5"] == {"h1_pct": None, "h24_pct": None})
+doc, r = run("[trend]\noutdoor = true\n", current=SEL, seed={"backfill_at": now_ - 22000, "backfill_ok": True, "samples": {}})
+check("...but is tried again once 6 hours have passed", any(x["path"].startswith("/aq/data/") for x in STATE["seen"]))
+STATE["airdata_status"] = 500
+doc, r, ts = run("[trend]\noutdoor = true\n", current=SEL, want_state=True)
+check("AirNow failing: no values, the attempt is recorded as failed, nothing raises",
+      doc["trend"]["values"]["pm2_5"] == {"h1_pct": None, "h24_pct": None} and ts["backfill_ok"] is False and r.returncode == 0)
+doc, r = run("[trend]\noutdoor = true\n", current=SEL, seed={"backfill_at": now_ - 600, "backfill_ok": False, "samples": {}})
+check("after a failed attempt it waits 30 minutes: 10 minutes later, no request", not any(x["path"].startswith("/aq/data/") for x in STATE["seen"]))
+doc, r = run("[trend]\noutdoor = true\n", current=SEL, seed={"backfill_at": now_ - 2000, "backfill_ok": False, "samples": {}})
+check("...and 33 minutes later it tries again", any(x["path"].startswith("/aq/data/") for x in STATE["seen"]))
+STATE["airdata_status"] = 200
+
+# OpenWeather's history alone (no AirNow key): the pollutants it models, NH3 here
+h0 = int(now_ // 3600) * 3600
+STATE["owmhist"] = {"list": [{"dt": h0 - k * 3600, "components": {"nh3": 1.0 if k >= 1 else 1.6, "pm2_5": 3.0}} for k in range(0, 30)]}
+SEL2 = {"selected": {"nh3": 2.0, "pm2_5": 3.0}}
+doc, r = run("[trend]\noutdoor = true\n[openweather]\nenabled = true\napi_key = \"OWMKEY\"\n", key=False, current=SEL2)
+v = doc["trend"]["values"]
+check("OpenWeather history alone: NH3 1.0 an hour ago and a day ago, 2.0 now: +100% / +100%; steady PM2.5 reads 0%",
+      v["nh3"] == {"h1_pct": 100, "h24_pct": 100} and v["pm2_5"] == {"h1_pct": 0, "h24_pct": 0}, str(v))
+check("the OpenWeather request carries start and end and the key; AirNow is not asked without its key",
+      any("air_pollution/history" in x["path"] and "appid=OWMKEY" in x["path"] and "start=" in x["path"] for x in STATE["seen"]) and not any(x["path"].startswith("/aq/data/") for x in STATE["seen"]))
+doc, r = run("[trend]\noutdoor = true\n", key=False, current=SEL2)
+check("no AirNow key and no OpenWeather key: no request at all, nulls, no error", STATE["seen"] == [] and doc["trend"]["values"]["nh3"] == {"h1_pct": None, "h24_pct": None})
+STATE["owmhist"] = None
 
 server.shutdown()
 print()

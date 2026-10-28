@@ -719,9 +719,8 @@ pollutant. Residual limit: readings are hourly and can be up to 2 hours old.
   closed-window AC days), and the weather rules. The causes of the VOC episodes are only partly known (cooking gives a slow
   VOC rise with particles; the 2026-10-20 episode had none; the garage under the office and cleaning products are open
   candidates); see the "Observations" section of the advisor document.
-- The outdoor trend columns have no backfill yet: after a boot the one-hour value waits an hour, because the air provider keeps its
-  own history. AirNow's raw file holds about six hours of hourly readings and its `aq/data` service takes a longer window, enough to seed both
-  columns at start; OpenWeather has a history endpoint for the model values.
+- The outdoor trend columns are seeded at start from AirNow's `aq/data` (28 hours) and OpenWeather's history, then kept by the air
+  provider's own readings; a source that is down leaves its pollutants `--` until its next try (see `env-provider-status.md`).
 - A second sensor (a downstairs room, planned): the suite binds one `airgradient` profile today. The provider and the export
   already work per profile; the open questions are how the advisor should combine two rooms and how OSA, Doctor and the
   launcher should show a second profile.
