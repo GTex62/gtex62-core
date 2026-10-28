@@ -18,7 +18,20 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
-## Unreleased
+## 0.19.0 — 2026-10-28
+
+Outdoor trend for the ENV panel: the air provider can report the change in each outdoor reading over the last hour and the last 24 hours, seeded
+from AirNow's and OpenWeather's history at start. Minor bump: a new optional profile key and new fields in `extras.json`; nothing to migrate.
+
+### Upgrading
+
+```bash
+cd ~/.config/gtex62-core
+git pull
+```
+
+Then restart your suite. The trend is off until you add `[trend]` with `outdoor = true` to the air profile (see
+`examples/runtime/profiles/air/home.toml.example`). Display side: `gtex62-osa` 0.8.0 draws it in the outdoor rows' `1H` and `24H` columns.
 
 **air: one-hour and 24-hour trend for the outdoor readings (opt-in, 2026-10-28).** `[trend] outdoor = true` in the air profile makes
 `fetch_air_extras.py` keep the `selected` readings (PM2.5, PM10, ozone, NO2, SO2, CO, NH3) for 27 hours (new `providers/air/air_trend.py`,
