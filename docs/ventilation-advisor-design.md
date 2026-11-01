@@ -233,7 +233,7 @@ free cooling.
 | `OPEN`, indoor PM | `OPEN WIN // PM2.5 14.6` |
 | `OPEN`, humid and outdoor drier | `OPEN WIN // HUMID, DRIER OUT` |
 | `OPEN`, free cooling | `OPEN WIN // COOLER OUTSIDE` |
-| `BRIEF` | `BRIEF OPEN // ` + the same short need (`DRIER OUT` for humidity) |
+| `BRIEF` | `BRIEF OPEN //`, a space, then the same short need (`DRIER OUT` for humidity) |
 | `BRIEF`, humidity trip with severe need | `BRIEF OPEN // CO2 1700 PPM` or `BRIEF OPEN // VOC 270` |
 | `CLOSE`, hazard | `CLOSE WIN // OUTDOOR AIR` |
 | `CLOSE`, humidity | `CLOSE WIN // HUMID INSIDE` |
@@ -1014,4 +1014,3 @@ Done on the day of the change, from the per-minute HA export (49,700 minutes fro
   not the house; the window direction is a single setting (`window_facing_deg`) while a house has windows on several sides.
 - `co2_enter` (1000) never fired in the author's closed-window AC days, when the office sat at 750 to 850 ppm; a lower
   value (about 800) would have said `OPEN` earlier. The DST review found it would have fired in eight short episodes, none since 10-15.
-
