@@ -977,6 +977,10 @@ Done on the day of the change, from the per-minute HA export (49,700 minutes fro
   `wind_side_deg` line (90). The verdict moved between `CLOSE` ("rain with the wind toward the windows") and `NEUTRAL` ("raining: a
   wind shift could blow rain in") three times in five hours (04:59, 08:00 and 08:49Z), each switch held at least the 10-minute dwell,
   so the display never flickered. No real bug; it is what a wind along the facade looks like at a hard 90-degree edge.
+- **Decisions (2026-11-01).** `pm_enter` set to 12 in the author's live profile (`[advisor.thresholds]`; the shipped default stays 9) to
+  see how it works out: it is one number used both for the outdoor PM2.5 that blocks `OPEN` and for the indoor PM2.5 that asks for it,
+  so both moved, and `pm_leave` stayed 6. `co2_enter` stays 1000, `wind_side_deg` stays 90. The user, at the desk, saw the storm
+  alert and used it to open a radar view; rain coming in through windows left open is the case the weather rules are for.
 - **Not done:** no NWS air-quality product has been seen yet (the first live one will test rule 1a), and neither summer heat and
   humidity nor winter cold has been tested.
 
