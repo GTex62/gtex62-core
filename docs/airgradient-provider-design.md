@@ -714,9 +714,10 @@ pollutant. Residual limit: readings are hourly and can be up to 2 hours old.
 
 - How a replay should join the Home Assistant archive with the engine's own outdoor log (`inputs-*.csv`):
   indoor from the archive wherever the engine log has a hole, outdoor from the engine log only.
-- Review the shadow logs after the DST change on 2026-11-01 and tune thresholds with outdoor data and a different
-  season: the VOC 250 line, the humidity thresholds, `co2_enter` (the room sat at 750 to 850 ppm without an alert on
-  closed-window AC days), and the weather rules. The causes of the VOC episodes are only partly known (cooking gives a slow
+- The post-DST review was done on 2026-11-01 (findings in the advisor document, "The DST review"): the change itself caused nothing;
+  the HA export's `local_time` repeats for the 01:xx fall-back hour, so key on `utc_time`. Threshold changes (`co2_enter`, `pm_enter`)
+  were proposed, not applied. Still open for a different season: the humidity thresholds, the outdoor comfort band and the
+  weather rules (the east wind sat exactly on `wind_side_deg`). The causes of the VOC episodes are only partly known (cooking gives a slow
   VOC rise with particles; the 2026-10-20 episode had none; the garage under the office and cleaning products are open
   candidates); see the "Observations" section of the advisor document.
 - The outdoor trend columns are seeded at start from AirNow's `aq/data` (28 hours) and OpenWeather's history, then kept by the air

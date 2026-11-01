@@ -938,14 +938,55 @@ an `OPEN` alert.
   (about 25 minutes) together with a particle rise, so the 10-20 event does not look like cooking; the garage, a cleaning product or an aerosol
   remain the candidates. A kitchen-fan-on or cooking time next to a VOC spike with no particles would be worth a closer look.
 
+### The DST review (2026-11-01)
+
+Done on the day of the change, from the per-minute HA export (49,700 minutes from 2026-09-28) and the engine's own logs
+(22,000 rows from 2026-10-08, 160 verdict events).
+
+- **The change itself.** The suite ran through the fall-back hour (07:00Z). Every timestamp the engine uses is epoch seconds, and it
+  showed: no gap marker, no bad dwell (the 10-minute dwell is exact on both sides), no spurious trend or notice, and the HA export's
+  `utc_time` is continuous. One thing to know when reading the exports: `local_time` repeats for the 01:xx hour (once in CDT, once in
+  CST), so anything that joins or sorts these files must key on `utc_time` or `epoch`, never on `local_time`. The two "offline" gaps in
+  the verdict log (10-31 05:56Z to 15:49Z, 11-01 09:58Z to 18:08Z) are the suite being closed, not the clock.
+- **CO2.** One minute at or above 1000 ppm in 34 days (1004, 10-02), 75 minutes at or above 800 and 6 at or above 900. Since 10-17
+  the office has not passed 579 ppm on any day. `co2_enter` (1000) has therefore never been the deciding rule. A line at 800 would
+  have been crossed in eight short episodes (09-28, 10-02, 10-07 twice, 10-08, 10-15 three times), the longest 29 minutes, the
+  highest 1004, and none since 10-15.
+- **VOC.** 17 episodes of 250 or more (1,037 minutes of 49,700). Two thirds of those minutes fall between 20:00 and 24:00 local, a
+  smaller group in the afternoon (13:00 to 18:00), none between 02:00 and 13:00. Only 23% occurred while the AC was cooling (the AC cools
+  15% of all minutes), so the AC is not the cause. The hour-of-day pattern says when, not what; the garage, cooking and cleaning
+  remain separate candidates. From 10-20 to 10-31, seven VOC episodes produced an `OPEN` verdict (`Open windows: VOC index 250` or more).
+- **Humidity.** One `CLOSE humidity` event since the log began (11-01, 70%). Indoor RH reached 73% on 10-03, 10-04 and 10-07, before
+  the log began, and has been at most 68% since, apart from today.
+- **Notice detector replay.** The PM and VOC notice rules, run over all 49,700 per-minute rows, give eight notices in 34 days: seven VOC
+  and one PM (the 10-24 smoke puff). Each falls inside one of the 17 VOC episodes above (the PM one is the 10-24 smoke puff); the
+  slow 10-23 VOC rise (the power wash) did not trigger one. Four VOC notices ran to the 60-minute cap (episodes longer than an hour).
+  No notice fired outside an episode.
+- **Trend columns.** Hour-over-hour, CO2 reads `0%` or within 10% 94% of the time; PM2.5 reads `0%` 79% of the time; VOC is the noisiest
+  (30% `0%`, 10% beyond 50%). Day-over-day the particle columns are large far more often (PM1 and PM10 beyond 50% about half the time,
+  PM2.5 30%), because the room is near zero most of the time and small absolute changes are big percentages. The noise floors work;
+  the large numbers are real changes against a small base, not noise.
+- **Outdoor PM2.5.** At 9 ug/m3 or more (`pm_enter`) in 42% of samples, at 12 or more in 19%, at 35 or more never (maximum 24.7). With
+  the 55 to 85 F band this makes `CLOSE advisory` the verdict for 51% of the time (11,150 of 21,965 rows): 6,631 rows by PM alone,
+  1,956 by temperature alone, 1,220 by both and 1,343 by neither of those (other advisory reasons; not broken down).
+  The 9 ug/m3 line is the top of the EPA `Good` band (AQI 50); it is the largest single input to how often the advisor says "keep
+  closed".
+- **The first real weather-rule night (10-31 to 11-01).** Rain with the wind toward the windows, then a thunderstorm: eight hard
+  `CLOSE` events, thunder reported 11 minutes ahead by the TAF, then `thunderstorm now`. The wind was from the east all night (METAR
+  70 to 110 degrees, OpenWeather 60 to 120), which is 70 to 110 degrees off the south-facing windows: exactly on the
+  `wind_side_deg` line (90). The verdict moved between `CLOSE` ("rain with the wind toward the windows") and `NEUTRAL` ("raining: a
+  wind shift could blow rain in") three times in five hours (04:59, 08:00 and 08:49Z), each switch held at least the 10-minute dwell,
+  so the display never flickered. No real bug; it is what a wind along the facade looks like at a hard 90-degree edge.
+- **Not done:** no NWS air-quality product has been seen yet (the first live one will test rule 1a), and neither summer heat and
+  humidity nor winter cold has been tested.
+
 ---
 
 ## Open Items
 
-- Thresholds are defaults. A week of history was replayed once, and since then the shadow-mode and live logs have added
-  outdoor temperature, humidity, wind and PM; revisit after the DST change on 2026-11-01 and in a different season,
-  particularly the VOC 250 line (the episodes have causes only partly known; see the observations), the 70% / 66% humidity
-  thresholds, the `co2_enter` line, and the 55 to 85 F outdoor comfort band.
+- Thresholds are defaults. The DST review (above) found the VOC 250 line, the humidity thresholds and the notice rules sound for this
+  autumn, and `co2_enter` and `pm_enter` as the two candidates to change; the user decides. A different season (hot, humid summer;
+  cold winter) is still untested.
 - The outdoor rules (humidity with drier outdoor air, free cooling, AirNow PM comparisons, pollen weighing) have had only a
   few weeks of real conditions, mostly mild, dry autumn days; a hot, humid summer and a cold winter are untested.
 - AirNow's overlay was usually empty in the air cache until 2026-10-07: the air provider took
@@ -968,5 +1009,5 @@ an `OPEN` alert.
 - The weather rules read the METAR, the TAF and OpenWeather's condition code, which describe an airport or a model cell,
   not the house; the window direction is a single setting (`window_facing_deg`) while a house has windows on several sides.
 - `co2_enter` (1000) never fired in the author's closed-window AC days, when the office sat at 750 to 850 ppm; a lower
-  value (about 800) would have said `OPEN` earlier. For the DST review.
+  value (about 800) would have said `OPEN` earlier. The DST review found it would have fired in eight short episodes, none since 10-15.
 
