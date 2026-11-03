@@ -984,6 +984,29 @@ Done on the day of the change, from the per-minute HA export (49,700 minutes fro
 - **Not done:** no NWS air-quality product has been seen yet (the first live one will test rule 1a), and neither summer heat and
   humidity nor winter cold has been tested.
 
+### A glass cleaner and leaf blowers (2026-11-03)
+
+Two VOC events on one day, both with the office windows in known states (the user's notes are in `window_events.txt`).
+
+- **Foam glass cleaner on the bathroom mirror, about 01:15 local (07:15Z), windows fully open, ceiling fan low.** VOC went 39 to 175
+  to 465 in two minutes and peaked at 488 at 07:22Z; the index tops out at 500, so the peak may have been clipped, and the plateau
+  of 484 to 470 until 07:27Z is partly the sensor's range, not the room. PM2.5 stayed at 3 to 5 and PM0.3 at 1,100 to 1,500 although
+  the user saw mist: the sensor responded to the vapor and not to the droplets. This is the same signature as the 10-20 event (34 to
+  485 in eight minutes, no particle change), which a spray cleaner now explains better than the garage or cooking. The user
+  partly closed the windows (about 50%, fan low) at about 07:29Z because of a chance of rain (CO2 460 to 495 at 07:30Z). From the
+  488 peak: 300 at 28 minutes, 244 (half) at about 34, 150 at 49, 105 at 68 (and flat there for 20 minutes), 60 at 2 h 19 min. The floor
+  was 24 to 38 before the event with the windows fully open and about 60 afterward with them half open.
+- **Leaf blowers next door, morning.** The user smelled exhaust and closed the office windows at about 08:00 CST (14:00Z) and
+  opened them fully at about 11:00 CST (17:00Z). VOC began to rise at 13:30 to 14:00Z (43, 57), reached 181 at 15:00Z and 294 at
+  15:15Z, and fell to 147 by 16:50Z. While the windows were closed PM2.5 and PM0.3 fell (PM0.3 from about 1,250 to 570) and CO2 crept up
+  (421 to 484): less outdoor air coming in, the occupant breathing, and an outdoor VOC source leaking through the closed windows.
+  Within 10 minutes of opening them VOC fell from 147 to 65. The provider was off from 07:41Z to 16:59Z, so no verdict was logged;
+  the VOC level alone was at or above the 250 `OPEN` line from about 15:12 to 15:40Z, with the cause outside the window.
+- **What it shows.** The advisor reads indoor VOC only, so an outdoor source (exhaust, cleaning, spraying, painting) next to the windows
+  makes `Open windows: VOC` point the wrong way, as the open item on outdoor chemical work already says; this is the first measured case.
+  It also cannot tell whether the windows are already open (during the cleaner spike they were), which a window contact sensor would fix.
+  Neither is built. Particles do not help: the sensor's PM channels show neither exhaust nor spray vapor.
+
 ---
 
 ## Open Items
@@ -1008,7 +1031,7 @@ Done on the day of the change, from the per-minute HA export (49,700 minutes fro
   windows" only when they are actually open, and allow a "windows open while the AC is cooling"
   alert. That needs Home Assistant access in the engine, which it does not have.
 - Outdoor chemical work (cleaning, spraying, painting) next to the windows makes a VOC-driven `OPEN` point the wrong
-  way, because the advisor reads only indoor VOC. Options (a manual hold, a second sensor, leaving it to the occupant)
+  way, because the advisor reads only indoor VOC. The 2026-11-03 leaf-blower morning is the first measured case (see the observations). Options (a manual hold, a second sensor, leaving it to the occupant)
   are in the observations; none is built.
 - The weather rules read the METAR, the TAF and OpenWeather's condition code, which describe an airport or a model cell,
   not the house; the window direction is a single setting (`window_facing_deg`) while a house has windows on several sides.
