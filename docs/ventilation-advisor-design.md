@@ -1007,6 +1007,21 @@ Two VOC events on one day, both with the office windows in known states (the use
   It also cannot tell whether the windows are already open (during the cleaner spike they were), which a window contact sensor would fix.
   Neither is built. Particles do not help: the sensor's PM channels show neither exhaust nor spray vapor.
 
+### Where the sensor sits, and what a vent does to it (2026-11-07)
+
+- The user says the AirGradient is under a ceiling vent, with a plastic inlay on the top shelf that probably blocks direct airflow onto
+  the unit (this replaces the 10-18 note that put the register 8 to 10 feet away). On 11-07 the heat came on and the windows were
+  closed at about 06:30 CST; the Cave thermostat went to heat at 06:34:40. The office sensor read 61.7 F at 06:30 and 75.1 F at 07:00
+  (the `ac_heating` flag set from about 06:40) while the Cave thermostat's own reading was 67.5 F; by mid-morning, with the vent off,
+  the sensor was back to 65.5 F. RH fell from 58% to 43% over the same half hour.
+- What it affects: RH (the humidity trip at 70% and the 60% need) moves opposite to the air's temperature, so warm supply air makes
+  it read low and cold AC air near the sensor would make it read high; the dew point barely changes, so the dew-point-rise leg of the
+  trip and the "drier outside" comparison are the sturdier inputs. The free-cooling need (`cool_indoor` 78 F) needs the indoor
+  temperature above 78 F and could be hidden by cold AC air at the sensor; the AC has not run since this was noticed, so that is
+  unmeasured. CO2, VOC and particles are not affected.
+- To do when the AC runs: compare the sensor's temperature to the Cave thermostat's during cooling cycles and decide whether the
+  `cool_indoor` rule needs a different input (the thermostat reading is already in the HA export).
+
 ---
 
 ## Open Items
