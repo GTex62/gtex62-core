@@ -1022,6 +1022,13 @@ Two VOC events on one day, both with the office windows in known states (the use
 - To do when the AC runs: compare the sensor's temperature to the Cave thermostat's during cooling cycles and decide whether the
   `cool_indoor` rule needs a different input (the thermostat reading is already in the HA export).
 
+### Evening particle bursts and the soldering setup (2026-11-08)
+
+- With the seven-day HI and LO on the panel, the week's PM0.3 high stood out: three evening bursts, Tue 11-03 20:07 to 21:25 local (77 minutes at 2,000 or more, peak 4,133), Wed 11-04 at 20:41 (4 minutes, 2,868) and Fri 11-06 at 20:27 to 20:32 (6 minutes, peak 4,159 with PM2.5 23.9, PM10 42.7 and PM1 21.8, VOC and CO2 unchanged; PM0.3 387 to 4,159 and back to 742 within 20 minutes). The
+  10-24 cooking test peaked near 1,900 PM0.3 and 8.7 PM2.5. The bursts are 2 to 4 times larger, short, and all fall between 20:00 and 21:30; the data does not say what caused them.
+- The user has set up a soldering station in the office (moved from the Cave exercise room) and names soldering smoke, or other smoke, as candidates. The date of the move is not recorded, so the three bursts are not attributed. A soldering session with a VOC rise of its own (flux) and
+  particles together would be a new signature, to compare with the cleaner (VOC only) and the leaf blowers (VOC only) in the observations above.
+
 ---
 
 ## Open Items
