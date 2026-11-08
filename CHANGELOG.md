@@ -18,9 +18,21 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
-## Unreleased
+## 0.20.0 — 2026-11-08
 
-Seven-day HI and LO for the indoor readings (ENV panel). A new optional block in the airgradient `status.json`; nothing to migrate.
+Seven-day HI and LO for the ENV panel: the highest and lowest reading of the last seven days, for the AirGradient indoor readings and, with the existing outdoor trend option,
+for the outdoor readings. Minor bump: new fields in the airgradient `status.json` and in the air provider's `extras.json`; nothing to migrate.
+
+### Upgrading
+
+```bash
+cd ~/.config/gtex62-core
+git pull
+```
+
+Then restart your suite. The indoor week is filled at once from the engine's own input logs and, with `[trend] use_ha_export = true`, the Home Assistant export. The
+outdoor week appears with `[trend] outdoor = true` in the air profile and is filled from AirNow and OpenWeather on the next air refresh. Display side: `gtex62-osa` 0.9.0 draws
+the `HI` and `LO` columns.
 
 **airgradient: the highest and lowest reading of the last seven days (2026-11-08).** `trend.py` keeps the minimum and maximum of every clock hour
 for each metric (7 days, in the provider's state file) and `status.json` gains `extremes` (`{metric: {"hi", "lo"}}`, the raw readings, not
