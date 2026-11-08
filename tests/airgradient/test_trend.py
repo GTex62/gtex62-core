@@ -120,6 +120,32 @@ st2 = tr.backfill(st, [(T0 + 30 * k, dict(ONE, co2_ppm=999)) for k in range(0, 1
 check("backfill never overwrites a bin that already exists", tr.compute(st2, T0 + 3 * 3600 + 1500)["co2_ppm"]["h1_pct"] == 25)
 check("backfill with junk rows never raises", tr.backfill({}, [(1, None), ("x", {}), (T0, {"co2_ppm": "abc"})], T0 + 3600) is not None)
 
+# ---- the seven-day HI and LO
+H = 3600
+st = tr.update({}, T0, dict(ONE, co2_ppm=450))
+st = tr.update(st, T0 + 30, dict(ONE, co2_ppm=900))
+st = tr.update(st, T0 + 60, dict(ONE, co2_ppm=300))
+ex, span = tr.extremes(st, T0 + 90)
+check("HI and LO are the actual highest and lowest readings, not medians", ex["co2_ppm"] == {"hi": 900.0, "lo": 300.0}, str(ex["co2_ppm"]))
+check("a metric never seen has hi and lo None", tr.extremes({}, T0)[0]["co2_ppm"] == {"hi": None, "lo": None} and tr.extremes({}, T0)[1] == 0)
+check("a young history says how short it is (one hour)", span == 1, str(span))
+st = tr.update(st, T0 + 6 * 86400, dict(ONE, co2_ppm=500))
+ex, span = tr.extremes(st, T0 + 6 * 86400 + 30)
+check("six days later the first hour is still inside the window", ex["co2_ppm"] == {"hi": 900.0, "lo": 300.0} and span == 145, str(ex["co2_ppm"]) + str(span))
+st = tr.update(st, T0 + 8 * 86400, dict(ONE, co2_ppm=500))
+ex, span = tr.extremes(st, T0 + 8 * 86400 + 30)
+check("eight days later the old extremes have rolled out of the window", ex["co2_ppm"] == {"hi": 500.0, "lo": 500.0}, str(ex["co2_ppm"]))
+check("hours older than seven days are dropped from the state", sum(len(b) for b in st["ext"].values()) <= 7 * 2, str(sum(len(b) for b in st["ext"].values())))
+rows = [(T0 - 3 * 86400 + 60 * k, dict(ONE, co2_ppm=800 if k == 5 else 500, pm25_ugm3=0.0)) for k in range(0, 600)]
+st = tr.backfill_extremes({}, rows, T0)
+st = tr.backfill_extremes(st, rows, T0)                                    # the same rows twice change nothing
+ex, span = tr.extremes(st, T0)
+check("backfilled readings give the week's HI and LO, a repeat is harmless", ex["co2_ppm"] == {"hi": 800.0, "lo": 500.0} and ex["pm25_ugm3"] == {"hi": 0.0, "lo": 0.0}, str(ex["co2_ppm"]) + str(ex["pm25_ugm3"]))
+check("backfilled extremes reach back by the stored hours", 72 <= span <= 82, str(span))
+check("backfill of rows older than seven days or junk is ignored and never raises",
+      tr.extremes(tr.backfill_extremes({}, [(T0 - 9 * 86400, ONE), (1, None), ("x", {}), (T0, {"co2_ppm": "abc"})], T0), T0)[1] == 0)
+check("garbage state never raises in extremes", tr.extremes("x", T0)[1] == 0)
+
 print()
 if FAILURES:
     print(f"{len(FAILURES)} FAILED: " + "; ".join(FAILURES))

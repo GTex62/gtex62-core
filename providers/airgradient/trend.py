@@ -10,11 +10,18 @@
 # readings, because the particle counts swing 20% from one minute to the next. A change smaller than a
 # per-metric floor is reported as 0%; a missing comparison bin (the provider was not running then, or
 # had fewer than MIN_BIN_SAMPLES samples in it) is reported as None, never guessed.
+#
+# The display's HI and LO columns: the highest and the lowest raw reading of the last seven days. Each metric keeps
+# the minimum and maximum of every clock hour for EXT_KEEP_S seconds; folding a reading in twice changes nothing,
+# so the same hours can be seeded from the input logs and again from Home Assistant's history. The window is
+# whole hours: it starts at the hour that contains now - seven days.
 import statistics
 
 BIN_S = 600
 NOW_S = 600
 KEEP_S = 40 * 3600
+EXT_BIN_S = 3600
+EXT_KEEP_S = 7 * 86400
 MIN_NOW_SAMPLES = 3
 MIN_BIN_SAMPLES = 4
 CAP_PCT = 999
@@ -53,9 +60,14 @@ def update(state, now, values):
             acc = {"b": idx, "v": []}
         acc["v"].append(v)
         accs[m] = acc
+        _ext_add(st.setdefault("ext", {}), m, now, v)
     cutoff = int((now - KEEP_S) // BIN_S)
     for m, b in bins.items():
         for k in [k for k in b if int(k) < cutoff]:
+            del b[k]
+    ext_cutoff = int((now - EXT_KEEP_S) // EXT_BIN_S)
+    for m, b in (st.get("ext") or {}).items():
+        for k in [k for k in b if int(k) < ext_cutoff]:
             del b[k]
     return st
 
@@ -130,3 +142,47 @@ def backfill(state, rows, now, source=None):
         entry = [statistics.median(vs), len(vs)] + ([source] if source else [])
         bins.setdefault(m, {}).setdefault(str(idx), entry)
     return st
+
+
+def _ext_add(ext, m, t, v):
+    """Fold one reading into the min/max of its clock hour."""
+    hours = ext.setdefault(m, {})
+    key = str(int(t // EXT_BIN_S))
+    e = hours.get(key)
+    if e:
+        e[0], e[1] = min(e[0], v), max(e[1], v)
+    else:
+        hours[key] = [v, v]
+
+
+def backfill_extremes(state, rows, now):
+    """Fold past readings into the hourly min/max: rows is an iterable of (epoch, {metric: value}) in any order.
+    Safe to repeat with overlapping rows. Returns the state dict."""
+    st = state if isinstance(state, dict) else {}
+    ext = st.setdefault("ext", {})
+    for t, vals in rows:
+        if _num(t) is None or not 0 <= now - t <= EXT_KEEP_S:
+            continue
+        for m in METRICS:
+            v = _num((vals or {}).get(m))
+            if v is not None:
+                _ext_add(ext, m, t, v)
+    return st
+
+
+def extremes(state, now):
+    """({metric: {"hi": number|None, "lo": number|None}}, span_hours): the highest and lowest reading of the last
+    seven days, and how many hours back the oldest stored hour reaches (at most 168; less when the history is young)."""
+    st = state if isinstance(state, dict) else {}
+    first = int((now - EXT_KEEP_S) // EXT_BIN_S)
+    out, oldest = {}, None
+    for m in METRICS:
+        hours = [(int(k), e) for k, e in ((st.get("ext") or {}).get(m) or {}).items() if int(k) >= first]
+        if hours:
+            out[m] = {"hi": round(max(e[1] for _, e in hours), 2), "lo": round(min(e[0] for _, e in hours), 2)}
+            lo = min(k for k, _ in hours)
+            oldest = lo if oldest is None else min(oldest, lo)
+        else:
+            out[m] = {"hi": None, "lo": None}
+    span = 0 if oldest is None else min(168, int((now - oldest * EXT_BIN_S) // 3600) + 1)
+    return out, span

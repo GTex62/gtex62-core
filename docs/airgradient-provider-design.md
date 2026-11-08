@@ -249,6 +249,12 @@ refers here.
     "voc_index": { "h1_pct": 0, "h24_pct": null }
   },
   "trend_from_ha": false,
+  "extremes": {
+    "co2_ppm": { "hi": 619, "lo": 401 },
+    "pm25_ugm3": { "hi": 23.03, "lo": 0 },
+    "voc_index": { "hi": 488, "lo": 22 }
+  },
+  "extremes_span_h": 168,
   "notices": [
     { "type": "pm_spike", "text": "PM SPIKE // 2.5: 99", "since": "2026-10-24T23:51:00Z", "expires_at": "2026-10-25T00:51:00Z" }
   ]
@@ -263,6 +269,14 @@ noisy reading cannot move it. A change smaller than a per-metric floor (CO2 10 p
 value is `null` when there is no comparison: the provider was not running then (Titan was off), the bin held fewer than
 4 readings, or the earlier value was 0 and the change is real. Capped at plus or minus 999. `trend_from_ha` is explained below. The history (about 40 hours of
 bins, a few tens of kilobytes) lives in the provider's state file in the cache, so it starts again after the cache is deleted.
+
+`extremes` is the highest (`hi`) and lowest (`lo`) reading of each metric over the last seven days, for the display's `HI` and `LO` columns: the
+raw readings, whatever they happen to be (not medians), so a five-minute VOC spike counts. The provider keeps the minimum and maximum of every
+clock hour for 7 days in the same state file, and the window is whole hours, starting at the hour that contains now minus seven days.
+`extremes_span_h` says how many hours back the oldest stored hour reaches (at most 168), which is how young a history looks. The hours are seeded once
+(the state flag `ext_logs`) from the per-minute `inputs-*.csv` logs of the last eight days, and again, with `[trend] use_ha_export = true`, from the last
+nine days of the HA export's `indoor_1min.csv` whenever that file changes; a reading folded in twice changes nothing, so the sources may overlap and
+a stretch with the machine off is covered from Home Assistant. A metric with no readings has `hi` and `lo` null.
 
 **Filling the gap from Home Assistant (opt-in).** With `[trend] use_ha_export = true` in the profile and the HA export
 working (`scripts/airgradient-ha-export.py`, see above), the provider also reads the last 30 hours of the export's
@@ -427,24 +441,30 @@ windows and the replay still steps one minute at a time.
 
 ### Indoor view
 
-The POLLUTION table (7 rows) switches to an indoor table with the same 7 rows and the same (V) column, plus two trend
-columns, `1H` and `24H`. Pollen and the AQI bars do not change (the pollen table keeps just name, bar and value).
+The OUTDOOR table (7 rows; it was called POLLUTION until the HI and LO columns switches to an indoor table with the same 7 rows and the same (V) column, plus
+two trend columns, `1H` and `24H`, and two extreme columns, `HI` and `LO` (the highest and lowest reading of the last seven days). Pollen
+and the AQI bars do not change (the pollen table keeps just name, bar and value). To make room the SOLAR meter is as narrow as the AQI meter and the
+labels are at most eight characters.
 
 | Row | Label | Shown value |
 | --- | --- | --- |
-| 1 | CO2 (PPM) | ppm, a whole number |
+| 1 | CO2 | ppm, a whole number |
 | 2 | PM 2.5 | ug/m3 |
 | 3 | PM 10 | ug/m3 |
 | 4 | PM 1 | ug/m3 |
-| 5 | PM 0.3 (/DL) | particles/dL, a whole number |
-| 6 | VOC INDEX | index, 0 to 500 |
-| 7 | NOX INDEX | index, 0 to 500 |
+| 5 | PM 0.3 | particles/dL, a whole number |
+| 6 | VOC | index, 0 to 500 |
+| 7 | NOX | index, 0 to 500 |
 
 The outdoor rows use the same short names (PM 2.5, OZONE, PM 10, NO2, SO2, CO, NH3) and the same trend columns: with
 `[trend] outdoor = true` in the air profile (`extras.json`'s `trend`, see `env-provider-status.md`) they show the change in each outdoor
 reading; without it the cells stay blank.
 
-**Header.** `INDOOR // <LABEL>` when that fits in 12 characters, else `INDOOR` alone; the name is also on the SRC line,
+**HI and LO cells** show at most four characters: one decimal under 100 (`4.3`, `12.3`), a whole number above (`488`, `1004`), `10k` from 10,000, `0` for
+zero, `--` when `status.json` has no value (an older core). Particle lows are mostly `0`: the sensor reports 0.0 in clean air.
+The outdoor view leaves them blank (the air provider keeps only 27 hours).
+
+**Header.** `INDOOR // <LABEL>` when that fits above the label column, else `INDOOR` alone (the column holds 7 characters with the HI and LO columns, 12 without them, so with the HI and LO columns it is `INDOOR` alone); the name is also on the SRC line,
 `SRC // AG <LABEL>` (or `SRC // AG`) during the indoor phase, which reads `SRC // AG <LABEL> | HA` while a trend number on
 screen was compared against Home Assistant history (`trend_from_ha`). A null value (for instance PM0.3 on firmware older
 than 3.7.0, or a carried field past its maximum age) shows as dashes in its row.

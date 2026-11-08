@@ -757,6 +757,32 @@ check("seeded from yesterday's input log: the 24-hour change (400 then, 600 now 
       tr2["co2_ppm"]["h24_pct"] == 50 and tr2["co2_ppm"]["h1_pct"] is None, str(tr2["co2_ppm"]))
 sc.done()
 
+# the seven-day HI and LO, seeded from the input logs of the last days
+sc = Scenario(air=clean_air, wx=clean_wx)
+sc.log_dir.mkdir(parents=True, exist_ok=True)
+set_payload(rco2=600)
+for back, co2_ in ((5, 1200), (2, 350)):
+    day_ = time.strftime("%Y%m%d", time.localtime(sc.t + 60 - back * 86400))
+    with open(sc.log_dir / f"inputs-{day_}.csv", "w", newline="") as fh:
+        w_ = csv.writer(fh)
+        w_.writerow(["epoch", "utc", "co2_ppm", "pm25_ugm3", "pm10_ugm3", "pm1_ugm3", "pm03_per_dl", "voc_index", "nox_index"])
+        for k in range(0, 10):
+            w_.writerow([int(sc.t + 60 - back * 86400 + 30 * k), "", co2_, 3.0, 5.0, 2.0, 800, 50, 1])
+sc.run(advance=60)
+sc.run(advance=60)
+ex_ = sc.status()
+check("the week's HI and LO come from the input logs of the last days (CO2 1200 five days ago, 350 two days ago, 600 now)",
+      ex_["extremes"]["co2_ppm"] == {"hi": 1200.0, "lo": 350.0}, str(ex_.get("extremes", {}).get("co2_ppm")))
+check("the span says the history reaches back about five days", 100 <= ex_["extremes_span_h"] <= 130, str(ex_.get("extremes_span_h")))
+sc.run(advance=60)
+check("a later reading keeps them (state), without reading the logs again", sc.status()["extremes"]["co2_ppm"]["hi"] == 1200.0)
+sc.done()
+sc = Scenario(air=clean_air, wx=clean_wx)
+sc.run()
+e0 = sc.status()
+check("a fresh install: extremes are the first reading, span 1", e0["extremes"]["co2_ppm"]["hi"] == e0["extremes"]["co2_ppm"]["lo"] and e0["extremes_span_h"] == 1, str(e0.get("extremes_span_h")))
+sc.done()
+
 # ---------------------------------------------------------------------------
 # 12. Trend history from Home Assistant's export (opt-in: [trend] use_ha_export)
 # ---------------------------------------------------------------------------

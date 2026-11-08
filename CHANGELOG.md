@@ -18,6 +18,19 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
+## Unreleased
+
+Seven-day HI and LO for the indoor readings (ENV panel). A new optional block in the airgradient `status.json`; nothing to migrate.
+
+**airgradient: the highest and lowest reading of the last seven days (2026-11-08).** `trend.py` keeps the minimum and maximum of every clock hour
+for each metric (7 days, in the provider's state file) and `status.json` gains `extremes` (`{metric: {"hi", "lo"}}`, the raw readings, not
+medians) and `extremes_span_h` (how many hours back the oldest stored hour reaches, at most 168). The hours are seeded once from the engine's own
+`inputs-*.csv` logs of the last eight days and again whenever a new Home Assistant export lands (with `[trend] use_ha_export = true`, the last nine days of
+`indoor_1min.csv`); folding the same readings in twice changes nothing, so the sources can overlap. Display side: `gtex62-osa` draws `HI` and `LO`
+columns after `24H`. Tests: new cases in `test_trend.py` and `test_fetch_airgradient.py`.
+
+---
+
 ## 0.19.0 — 2026-10-28
 
 Outdoor trend for the ENV panel: the air provider can report the change in each outdoor reading over the last hour and the last 24 hours, seeded

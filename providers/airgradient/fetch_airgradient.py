@@ -593,7 +593,7 @@ def envelope(state: str, label: str, note: str, now: float, **kw) -> dict:
         "co2_ppm": None, "voc_index": None, "nox_index": None,
         "pm": {"pm03_per_dl": None, "pm1_ugm3": None, "pm25_ugm3": None, "pm10_ugm3": None},
         "temp_f": None, "humidity_pct": None, "dew_point_f": None, "wifi_rssi": None,
-        "ventilation": None, "trend": None, "trend_from_ha": False, "notices": [],
+        "ventilation": None, "trend": None, "trend_from_ha": False, "extremes": None, "extremes_span_h": 0, "notices": [],
     }
     doc.update(kw)
     return doc
@@ -674,8 +674,8 @@ def ha_export_dir(profile: dict) -> Path:
     return Path(str(out)).expanduser() if out else data_root() / "airgradient" / PROFILE_ID / "ha_export"
 
 
-def ha_history_rows(path: Path, now: float, max_bytes: int = 600_000):
-    """(epoch, values) rows from the tail (about the last 30 hours) of the HA export's indoor_1min.csv, whose
+def ha_history_rows(path: Path, now: float, max_bytes: int = 1_500_000):
+    """(epoch, values) rows from the tail (about the last nine days) of the HA export's indoor_1min.csv, whose
     utc_time column is "YYYY-MM-DD HH:MM". Empty on any problem: this history is an optional extra."""
     rows = []
     try:
@@ -708,10 +708,10 @@ def ha_history_rows(path: Path, now: float, max_bytes: int = 600_000):
     return rows
 
 
-def trend_backfill_rows(now: float):
-    """Past readings from the per-minute input logs of today and the previous two days, as (epoch, values)."""
+def trend_backfill_rows(now: float, days: int = 3):
+    """Past readings from the per-minute input logs of today and the previous days (three by default), as (epoch, values)."""
     rows = []
-    for back in (2, 1, 0):
+    for back in range(days - 1, -1, -1):
         path = LOG_DIR / f"inputs-{datetime.fromtimestamp(now - back * 86400).strftime('%Y%m%d')}.csv"
         try:
             with open(path, newline="", encoding="utf-8") as f:
@@ -885,6 +885,10 @@ def main():
     state["carry"] = carry
     if len(((state.get("trend") or {}).get("bins") or {}).get("co2_ppm", {})) < 6:      # under an hour of history: seed it from the input logs
         state["trend"] = trendlib.backfill(state.get("trend"), trend_backfill_rows(now), now)
+    tr_state = state.get("trend") or {}
+    if not tr_state.get("ext_logs"):                      # the seven-day HI/LO: seed it once from the input logs
+        state["trend"] = trendlib.backfill_extremes(tr_state, trend_backfill_rows(now, 8), now)
+        state["trend"]["ext_logs"] = True
     if bool((profile.get("trend") or {}).get("use_ha_export")):
         ha_csv = ha_export_dir(profile) / "indoor_1min.csv"
         try:
@@ -893,7 +897,9 @@ def main():
             mtime = None
         tr_state = state.get("trend") or {}
         if mtime is not None and tr_state.get("ha_mtime") != mtime:      # a new export: fill the bins the provider missed
-            tr_state = trendlib.backfill(tr_state, ha_history_rows(ha_csv, now), now, "h")
+            ha_rows = ha_history_rows(ha_csv, now)
+            tr_state = trendlib.backfill(tr_state, ha_rows, now, "h")
+            tr_state = trendlib.backfill_extremes(tr_state, ha_rows, now)
             tr_state["ha_mtime"] = mtime
             state["trend"] = tr_state
     state["trend"] = trendlib.update(state.get("trend"), now, {
@@ -913,12 +919,14 @@ def main():
     atomic_write(STATE_JSON, json.dumps(state, separators=(",", ":")) + "\n")
 
     trend_now, trend_from_ha = trendlib.compute_with_sources(state["trend"], now)
+    extremes_now, extremes_span_h = trendlib.extremes(state["trend"], now)
     doc = envelope("partial" if partial else "ok", label,
                    ("fields unavailable: " + ", ".join(unavailable)) if partial else "", now,
                    generated_at=iso(now), carried_fields=carried,
                    device={"host": host, "serialno": payload.get("serialno"), "model": payload.get("model"),
                            "firmware": payload.get("firmware")},
-                   ventilation=vent, trend=trend_now, trend_from_ha=trend_from_ha, notices=notices, **reading)
+                   ventilation=vent, trend=trend_now, trend_from_ha=trend_from_ha,
+                   extremes=extremes_now, extremes_span_h=extremes_span_h, notices=notices, **reading)
     write_status(doc)
     return 0
 
