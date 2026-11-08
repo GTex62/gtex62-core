@@ -172,7 +172,8 @@ check("an unreachable server is survived", doc["nws"]["ok"] is False and r.retur
 import time as _time
 now_ = _time.time()
 SEL = {"selected": {"pm2_5": 12.0, "o3": 60.0, "pm10": 14.0, "no2": 4.0, "so2": 1.0, "co": 150.0, "nh3": 0.5, "no": 0.1}}
-seed = {"samples": {"pm2_5": [[now_ - 3600, 8.0], [now_ - 3500, 8.0], [now_ - 86400, 6.0]], "o3": [[now_ - 3600, 60.0]]}}
+seed = {"samples": {"pm2_5": [[now_ - 3600, 8.0], [now_ - 3500, 8.0], [now_ - 86400, 6.0]], "o3": [[now_ - 3600, 60.0]]},
+        "backfill_at": now_ - 600, "backfill_ok": True, "ext_at": now_ - 600, "ext_ok": True}
 doc, r, ts = run("[trend]\noutdoor = true\n", current=SEL, seed=seed, want_state=True)
 t = (doc or {}).get("trend") or {}
 check("[trend] outdoor = true alone writes extras.json with a trend block and makes no network request",
@@ -193,11 +194,11 @@ check("with the forecast on as well: one file with both blocks", doc["forecast"]
 import datetime as _dt
 
 
-def airdata_rows(now_ts, fn):
-    """Hourly AirNow rows for the 29 hours up to now from one near monitor; fn(offset in hours, 0 = the current hour) gives the PM2.5 value."""
+def airdata_rows(now_ts, fn, hours=29):
+    """Hourly AirNow rows for the `hours` hours up to now from one near monitor; fn(offset in hours, 0 = the current hour) gives the PM2.5 value."""
     h0 = int(now_ts // 3600) * 3600
     rows = []
-    for off in range(0, -29, -1):
+    for off in range(0, -hours, -1):
         ts = _dt.datetime.fromtimestamp(h0 + off * 3600, _dt.timezone.utc).strftime("%Y-%m-%dT%H:%M")
         v = fn(off)
         rows.append({"Latitude": 40.2, "Longitude": -90.5, "Parameter": "PM2.5", "UTC": ts, "Value": v, "RawConcentration": v, "Unit": "UG/M3"})
@@ -211,24 +212,45 @@ doc, r, ts = run("[trend]\noutdoor = true\n", current=SEL, want_state=True)
 v = ((doc or {}).get("trend") or {}).get("values", {}).get("pm2_5", {})
 check("a fresh start with AirNow's hourly rows: the first run already has both changes (8 an hour ago, 6 a day ago, 12 now: +50% and +100%)",
       v == {"h1_pct": 50, "h24_pct": 100}, str(v))
-check("the backfill is one AirNow request over a 28 hour window with the provider's own parameters; OpenWeather is not asked (no key)",
+check("the backfill is one AirNow request over a seven day window with the provider's own parameters; OpenWeather is not asked (no key)",
       sum(1 for x in STATE["seen"] if x["path"].startswith("/aq/data/")) == 1 and not any("air_pollution/history" in x["path"] for x in STATE["seen"])
       and "startDate=" in STATE["seen"][0]["path"] and "monitorType=2" in STATE["seen"][0]["path"] and "includerawconcentrations=1" in STATE["seen"][0]["path"], str([x["path"][:90] for x in STATE["seen"]]))
 check("the state records the attempt (time and success) and holds the seeded samples plus the live reading",
       ts["backfill_ok"] is True and isinstance(ts["backfill_at"], float) and len(ts["samples"]["pm2_5"]) > 50, str({k: ts[k] for k in ("backfill_ok", "backfill_at")}))
 
-doc, r = run("[trend]\noutdoor = true\n", current=SEL, seed={"backfill_at": now_ - 600, "backfill_ok": True, "samples": {}})
+# ---- the seven-day HI and LO (hourly min and max, seeded from the same history)
+doc, r = run("[trend]\noutdoor = true\n", current=SEL, seed={"samples": {"pm2_5": [[now_ - 3600, 8.0], [now_ - 86400, 6.0]]}, "backfill_at": now_ - 600, "backfill_ok": True})
+check("an upgrade (samples and a recent trend backfill, but no HI and LO yet): the week is requested at once, its own clock",
+      any(x["path"].startswith("/aq/data/") for x in STATE["seen"]))
+STATE["airdata"] = airdata_rows(now_, lambda off: 30.0 if off == -72 else 2.0 if off == -100 else 9.0, hours=170)
+STATE["owmhist"] = None
+doc, r, ts = run("[trend]\noutdoor = true\n", current=SEL, want_state=True)
+t = (doc or {}).get("trend") or {}
+check("a fresh start: HI and LO over the week come from AirNow's history (30 three days ago, 2 four days ago) and the live reading (12) is inside",
+      t.get("extremes", {}).get("pm2_5") == {"hi": 30.0, "lo": 2.0} and t.get("extremes_span_h", 0) >= 160, str(t.get("extremes", {}).get("pm2_5")) + str(t.get("extremes_span_h")))
+check("a pollutant AirNow did not report this week has only the live reading (here no OpenWeather key either)", t.get("extremes", {}).get("no2") == {"hi": 4.0, "lo": 4.0}, str(t.get("extremes", {}).get("no2")))
+check("the seven-day request is one aq/data call with a start about a week back", sum(1 for x in STATE["seen"] if x["path"].startswith("/aq/data/")) == 1)
+doc, r, ts2 = run("[trend]\noutdoor = true\n", current=SEL, seed=ts, want_state=True)
+check("a second run on the same state: nothing new to fetch (the week is covered), the extremes stay",
+      not any(x["path"].startswith("/aq/data/") for x in STATE["seen"]) and doc["trend"]["extremes"]["pm2_5"] == {"hi": 30.0, "lo": 2.0}, str(doc["trend"]["extremes"]["pm2_5"]))
+STATE["airdata"] = []
+doc, r = run("[trend]\noutdoor = true\n", current=SEL, seed={"samples": ts["samples"], "backfill_at": now_ - 600, "backfill_ok": True, "ext_at": now_ - 22000, "ext_ok": True})
+check("samples are fine but the week of hours is short, 6 hours after its last attempt: the history is requested again (HI and LO short of hours)",
+      any(x["path"].startswith("/aq/data/") for x in STATE["seen"]))
+STATE["airdata"] = airdata_rows(now_, lambda off: 12.0 if off == 0 else 8.0 if off > -24 else 6.0)
+
+doc, r = run("[trend]\noutdoor = true\n", current=SEL, seed={"backfill_at": now_ - 600, "backfill_ok": True, "ext_at": now_ - 600, "ext_ok": True, "samples": {}})
 check("the backfill is not repeated within 6 hours of a successful one (no request, nulls stay null)",
       not any(x["path"].startswith("/aq/data/") for x in STATE["seen"]) and doc["trend"]["values"]["pm2_5"] == {"h1_pct": None, "h24_pct": None})
-doc, r = run("[trend]\noutdoor = true\n", current=SEL, seed={"backfill_at": now_ - 22000, "backfill_ok": True, "samples": {}})
+doc, r = run("[trend]\noutdoor = true\n", current=SEL, seed={"backfill_at": now_ - 22000, "backfill_ok": True, "ext_at": now_ - 22000, "ext_ok": True, "samples": {}})
 check("...but is tried again once 6 hours have passed", any(x["path"].startswith("/aq/data/") for x in STATE["seen"]))
 STATE["airdata_status"] = 500
 doc, r, ts = run("[trend]\noutdoor = true\n", current=SEL, want_state=True)
 check("AirNow failing: no values, the attempt is recorded as failed, nothing raises",
       doc["trend"]["values"]["pm2_5"] == {"h1_pct": None, "h24_pct": None} and ts["backfill_ok"] is False and r.returncode == 0)
-doc, r = run("[trend]\noutdoor = true\n", current=SEL, seed={"backfill_at": now_ - 600, "backfill_ok": False, "samples": {}})
+doc, r = run("[trend]\noutdoor = true\n", current=SEL, seed={"backfill_at": now_ - 600, "backfill_ok": False, "ext_at": now_ - 600, "ext_ok": False, "samples": {}})
 check("after a failed attempt it waits 30 minutes: 10 minutes later, no request", not any(x["path"].startswith("/aq/data/") for x in STATE["seen"]))
-doc, r = run("[trend]\noutdoor = true\n", current=SEL, seed={"backfill_at": now_ - 2000, "backfill_ok": False, "samples": {}})
+doc, r = run("[trend]\noutdoor = true\n", current=SEL, seed={"backfill_at": now_ - 2000, "backfill_ok": False, "ext_at": now_ - 2000, "ext_ok": False, "samples": {}})
 check("...and 33 minutes later it tries again", any(x["path"].startswith("/aq/data/") for x in STATE["seen"]))
 STATE["airdata_status"] = 200
 

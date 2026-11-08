@@ -10,10 +10,17 @@
 # around one hour (or 24 hours) ago. A change under a per-metric floor is 0%; no sample in the
 # comparison window (the provider was not running then) is None, never a guess. Readings are hourly at best, so changes show
 # in steps.
+#
+# The display's HI and LO columns: the highest and the lowest reading of each pollutant over the last seven days. Each metric keeps the
+# minimum and maximum of every clock hour for EXT_KEEP_S seconds (state["ext"]); folding the same reading in twice changes nothing, so the live
+# readings and the sources' own history (air_backfill, hourly grid) can overlap. The window is whole hours: it starts at the hour that
+# contains now - seven days.
 import statistics
 
 NOW_S = 2400
 KEEP_S = 27 * 3600
+EXT_BIN_S = 3600
+EXT_KEEP_S = 7 * 86400
 WINDOW_1H_S = 1200
 WINDOW_24H_S = 1800
 CAP_PCT = 999
@@ -38,6 +45,11 @@ def update(state, now, values):
         s = [x for x in samples.get(m, []) if 0 <= now - x[0] <= KEEP_S and x[0] != now]
         s.append([now, v])
         samples[m] = s
+        _ext_add(st.setdefault("ext", {}), m, now, v)
+    cutoff = int((now - EXT_KEEP_S) // EXT_BIN_S)
+    for b in (st.get("ext") or {}).values():
+        for k in [k for k in b if int(k) < cutoff]:
+            del b[k]
     return st
 
 
@@ -96,3 +108,54 @@ def backfill(state, grid, now):
     for m in samples:
         samples[m].sort()
     return st
+
+
+def _ext_add(ext, m, t, v):
+    """Fold one reading into the min/max of its clock hour."""
+    hours = ext.setdefault(m, {})
+    key = str(int(t // EXT_BIN_S))
+    e = hours.get(key)
+    if e:
+        e[0], e[1] = min(e[0], v), max(e[1], v)
+    else:
+        hours[key] = [v, v]
+
+
+def backfill_extremes(state, grid, now):
+    """Fold past readings into the hourly min/max: grid is [(t, {metric: value})]. Safe to repeat with overlapping rows."""
+    st = state if isinstance(state, dict) else {}
+    ext = st.setdefault("ext", {})
+    for t, vals in grid or []:
+        if _num(t) is None or not 0 <= now - t <= EXT_KEEP_S:
+            continue
+        for m in METRICS:
+            v = _num((vals or {}).get(m))
+            if v is not None:
+                _ext_add(ext, m, t, v)
+    return st
+
+
+def extremes(state, now):
+    """({metric: {"hi": number|None, "lo": number|None}}, span_hours): the highest and lowest reading of the last seven days, and how many
+    hours back the oldest stored hour reaches (at most 168)."""
+    st = state if isinstance(state, dict) else {}
+    first = int((now - EXT_KEEP_S) // EXT_BIN_S)
+    out, oldest = {}, None
+    for m in METRICS:
+        hours = [(int(k), e) for k, e in ((st.get("ext") or {}).get(m) or {}).items() if int(k) >= first]
+        if hours:
+            out[m] = {"hi": round(max(e[1] for _, e in hours), 2), "lo": round(min(e[0] for _, e in hours), 2)}
+            lo = min(k for k, _ in hours)
+            oldest = lo if oldest is None else min(oldest, lo)
+        else:
+            out[m] = {"hi": None, "lo": None}
+    span = 0 if oldest is None else min(168, int((now - oldest * EXT_BIN_S) // 3600) + 1)
+    return out, span
+
+
+def coverage_hours(state, now):
+    """How many of the last 168 clock hours have a stored reading for any metric (a gap shows as fewer)."""
+    st = state if isinstance(state, dict) else {}
+    first = int((now - EXT_KEEP_S) // EXT_BIN_S)
+    seen = {int(k) for b in (st.get("ext") or {}).values() for k in b if int(k) >= first}
+    return len(seen)

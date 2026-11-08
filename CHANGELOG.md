@@ -29,6 +29,13 @@ medians) and `extremes_span_h` (how many hours back the oldest stored hour reach
 `indoor_1min.csv`); folding the same readings in twice changes nothing, so the sources can overlap. Display side: `gtex62-osa` draws `HI` and `LO`
 columns after `24H`. Tests: new cases in `test_trend.py` and `test_fetch_airgradient.py`.
 
+**air: the same HI and LO for the outdoor readings (2026-11-08, with `[trend] outdoor = true`).** `air_trend.py` keeps the minimum and maximum of every
+clock hour of each `selected` reading for seven days (`ext` in `runtime/air/<profile>/trend_state.json`) and `extras.json`'s `trend` gains `extremes`
+(`{pollutant: {"hi", "lo"}}`) and `extremes_span_h`. The week is seeded from AirNow's `aq/data` and OpenWeather's `air_pollution/history`, one request each, now over
+seven days instead of 28 hours (the trend's 15-minute grid still covers 27 hours, the hourly grid for HI and LO the whole week); it is asked for whenever fewer than
+150 of the last 168 hours have a reading, on its own 6-hour clock (30 minutes after a failure), so an upgrade fills the week at once. Tests: new cases in
+`test_air_trend.py` and `test_air_extras.py`.
+
 ---
 
 ## 0.19.0 — 2026-10-28

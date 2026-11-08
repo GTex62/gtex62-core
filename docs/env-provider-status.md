@@ -237,7 +237,7 @@ no cache"` and the script exits 0 without writing `current.json`.
 | --- | --- | --- | --- |
 | AirNow forecast | `[airnow] forecast = true` (needs AirNow enabled and its key) | `/aq/forecast/current/` by latitude, longitude and `distance_miles` | `forecast`: `rows` (date valid and issued, pollutant, AQI, category, `action_day`, the forecaster's discussion, agency, reporting area), `action_day`, `max_aqi`, `ok`, `fetched_at` |
 | NWS alerts | `[nws] alerts = true`, optional `user_agent` | `api.weather.gov/alerts/active?point=lat,lon` (coordinates rounded to 4 decimals, as the NWS requires) | `nws`: `alerts` (event, severity, headline, effective, expires or ends), `ok`, `fetched_at` |
-| Outdoor trend | `[trend] outdoor = true` | this provider's own history of the `selected` readings the panel shows (`air_trend.py`, state in `runtime/air/<profile>/trend_state.json`) | `trend`: `computed_at`, `values` (per pollutant `h1_pct` and `h24_pct`: whole percent, `0` under a per-pollutant noise floor, `null` with no comparison sample) |
+| Outdoor trend | `[trend] outdoor = true` | this provider's own history of the `selected` readings the panel shows (`air_trend.py`, state in `runtime/air/<profile>/trend_state.json`) | `trend`: `computed_at`, `values` (per pollutant `h1_pct` and `h24_pct`: whole percent, `0` under a per-pollutant noise floor, `null` with no comparison sample), `extremes` (per pollutant `hi` and `lo`, the highest and lowest `selected` reading of the last seven days) and `extremes_span_h` |
 
 Only the air-quality, smoke and dust products are kept: Air Quality Alert, Air Stagnation Advisory, Dense Smoke Advisory, Dust Advisory,
 Blowing Dust Advisory and Warning, Dust Storm Warning. Test products and cancellations are dropped. The NWS asks every client to send a
@@ -250,11 +250,20 @@ writes the change over the last hour and the last 24 hours: "now" is the median 
 samples within 20 minutes of an hour ago (30 minutes of a day ago). The sources report hourly at best, so changes arrive in steps.
 **Backfill:** the air loop runs only while the suite does, so after a start (or days off) the history would be empty around one hour and
 24 hours ago. When it is, the helper seeds it once from the sources' own history (again after 6 hours, or 30 minutes after a failed attempt):
-one AirNow `aq/data` request over 28 hours (the provider's own parameters, a longer window) and one OpenWeather
+one AirNow `aq/data` request over the last seven days and two hours (the provider's own parameters, a longer window) and one OpenWeather
 `air_pollution/history` request, and applies the provider's selection rules to them (`air_backfill.py`: the nearest monitor with a reading under
 `max_age_sec`, `RawConcentration` unless it is -999, the unit conversions, OpenWeather as the base and AirNow over it), so the seeded series is
 the one the live loop would have recorded. Its own readings always win. Either source may be missing; with neither, the columns read `--`.
 ENV's outdoor rows show the cells while `computed_at` is under 90 minutes old, as `+12%`, `-5%`, `0%` or `--`.
+
+**HI and LO.** The same state also keeps the minimum and maximum of every clock hour of each pollutant's `selected` reading for seven days
+(`ext` in `trend_state.json`), and `extremes` is the highest and lowest of them (whole hours: the window starts at the hour that contains now minus
+seven days); `extremes_span_h` is how many hours back the oldest stored hour reaches (at most 168). The seven days are seeded from the same two
+history requests, as an hourly grid (the 15-minute grid for the trend only covers 27 hours), when fewer than 150 of the last 168 hours have a reading:
+at a start, after days off, or after an upgrade. That need has its own clock, so it is not held back by a recent trend backfill (again after 6 hours,
+or 30 minutes after a failed attempt). A reading folded in twice changes nothing, so the live loop and the history overlap harmlessly. On the author's
+check AirNow's `aq/data` returned a full week (970 rows for PM2.5 and ozone within 25 miles) and OpenWeather's history 170 hourly
+entries. ENV draws them in the `HI` and `LO` columns, in at most four characters.
 
 **AirNow web-service retirement (2026-09-30).** AirNow retired six services: forecast by ZIP and by latitude/longitude, current observations by
 reporting area by ZIP and by latitude/longitude, and the two historical observation services. This provider uses `aq/observation/current/ziplatlong`

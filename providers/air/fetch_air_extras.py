@@ -6,7 +6,8 @@
 #             the "action day" flag and the forecaster's discussion)
 #   nws       the National Weather Service's active alerts for the site that bear on air quality (Air Quality Alert,
 #             Dense Smoke Advisory, Air Stagnation Advisory, the dust products)
-#   trend     the one-hour and 24-hour change of the outdoor readings the ENV panel shows (air_trend.py)
+#   trend     the one-hour and 24-hour change of the outdoor readings the ENV panel shows, and their highest and lowest
+#             over the last seven days (air_trend.py)
 #
 # Both are opt-in in the air profile and neither can make the air provider fail: fetch_air.sh runs this after its own
 # work and ignores its exit status. Usage: fetch_air_extras.py <profile>
@@ -37,6 +38,8 @@ import air_trend  # noqa: E402
 HOME = Path(os.path.expanduser("~"))
 CONFIG_ROOT = Path(os.getenv("GTEX62_CONFIG_DIR") or os.getenv("GTEX62_CONKY_CONFIG_DIR") or (HOME / ".config" / "gtex62-core"))
 CACHE_ROOT = Path(os.getenv("GTEX62_CACHE_DIR") or os.getenv("GTEX62_CONKY_CACHE_DIR") or (HOME / ".cache" / "gtex62-core"))
+EXT_HOURS = 7 * 24            # the HI and LO window; the backfill asks the sources for two hours more
+EXT_MIN_HOURS = 150           # fewer stored hours than this out of the last 168 and the history is seeded again
 AIRNOW_BASE = os.getenv("GTEX62_AIRNOW_BASE") or "https://www.airnowapi.org"
 OWM_BASE = os.getenv("GTEX62_OWM_BASE") or "https://api.openweathermap.org"
 NWS_BASE = os.getenv("GTEX62_NWS_BASE") or "https://api.weather.gov"
@@ -107,12 +110,12 @@ def nws_alerts(raw):
     return out
 
 
-def fetch_backfill(prof, site, lat, lon, now_ts):
-    """The last 27 hours of the outdoor readings as the air provider would have selected them (air_backfill.series): AirNow's hourly
-    rows from aq/data over a longer window than the provider's own, and OpenWeather's history list. Either may be missing; [] when
-    neither source answers or there are no coordinates."""
+def fetch_backfill(prof, site, lat, lon, now_ts, hours=EXT_HOURS + 2):
+    """The last seven days (`hours`) of the outdoor readings as the air provider would have selected them (air_backfill.series): AirNow's hourly
+    rows from aq/data over a longer window than the provider's own, and OpenWeather's history list. Returns (grid_15min_27h, grid_hourly_7d),
+    two lists of (t, {metric: value}); both [] when neither source answers or there are no coordinates."""
     if lat is None or lon is None:
-        return []
+        return [], []
     anw_cfg, owm_cfg = prof.get("airnow") or {}, prof.get("openweather") or {}
     creds = site.get("credentials") or {}
     anw_raw, owm_list = None, None
@@ -122,7 +125,7 @@ def fetch_backfill(prof, site, lat, lon, now_ts):
         dlat = dist / 69.0
         dlon = dist / (69.0 * math.cos(math.radians(lat))) if abs(lat) < 89 else 0.0
         q = urllib.parse.urlencode({
-            "startDate": datetime.fromtimestamp(now_ts - 28 * 3600, timezone.utc).strftime("%Y-%m-%dT%H"),
+            "startDate": datetime.fromtimestamp(now_ts - hours * 3600, timezone.utc).strftime("%Y-%m-%dT%H"),
             "endDate": datetime.fromtimestamp(now_ts + 3600, timezone.utc).strftime("%Y-%m-%dT%H"),
             "parameters": "OZONE,PM25,PM10,CO,NO2,SO2", "BBOX": f"{lon - dlon:.4f},{lat - dlat:.4f},{lon + dlon:.4f},{lat + dlat:.4f}",
             "dataType": "C", "format": "application/json", "verbose": 0, "monitorType": 2, "includerawconcentrations": 1, "API_KEY": akey})
@@ -133,15 +136,17 @@ def fetch_backfill(prof, site, lat, lon, now_ts):
             pass
     okey = owm_cfg.get("api_key") or creds.get("openweather_api_key")
     if owm_cfg.get("enabled", True) is not False and okey:
-        q = urllib.parse.urlencode({"lat": f"{lat:.4f}", "lon": f"{lon:.4f}", "start": int(now_ts - 28 * 3600), "end": int(now_ts), "appid": okey})
+        q = urllib.parse.urlencode({"lat": f"{lat:.4f}", "lon": f"{lon:.4f}", "start": int(now_ts - hours * 3600), "end": int(now_ts), "appid": okey})
         try:
             raw = get_json(f"{OWM_BASE}/data/2.5/air_pollution/history?{q}")
             owm_list = raw.get("list") if isinstance(raw, dict) else None
         except (urllib.error.URLError, OSError, ValueError):
             pass
     if anw_raw is None and owm_list is None:
-        return []
-    return air_backfill.series(anw_raw or [], owm_list or [], lat, lon, now_ts, max_age=float(anw_cfg.get("max_age_sec", 3600)))
+        return [], []
+    max_age = float(anw_cfg.get("max_age_sec", 3600))
+    return (air_backfill.series(anw_raw or [], owm_list or [], lat, lon, now_ts, max_age=max_age),
+            air_backfill.series(anw_raw or [], owm_list or [], lat, lon, now_ts, max_age=max_age, hours=hours - 1, step=3600))
 
 
 def main(argv):
@@ -216,18 +221,29 @@ def main(argv):
         except (OSError, ValueError):
             cur = {}
         now_ts = datetime.now(timezone.utc).timestamp()
-        # A start (or a long gap) leaves the history empty around one hour and 24 hours ago: seed it from the sources' own history, at
-        # most once per 6 hours (30 minutes after a failed attempt).
-        if not (air_trend.has_sample(tstate, now_ts - 86400, 1800) and air_trend.has_sample(tstate, now_ts - 3600, 1200)):
-            last = tstate.get("backfill_at")
-            if not isinstance(last, (int, float)) or now_ts - last >= (21600 if tstate.get("backfill_ok") else 1800):
-                grid = fetch_backfill(prof, site, lat, lon, now_ts)
-                tstate = air_trend.backfill(tstate, grid, now_ts)
-                tstate["backfill_at"], tstate["backfill_ok"] = now_ts, bool(grid)
+        # A start (or a long gap) leaves the history empty around one hour and 24 hours ago, or the seven days of HI and LO short of hours: seed
+        # both from the sources' own history (one request each for the last seven days). Each need has its own clock: at most once per 6 hours
+        # (30 minutes after a failed attempt).
+        def gate(at_key, ok_key):
+            last = tstate.get(at_key)
+            return not isinstance(last, (int, float)) or now_ts - last >= (21600 if tstate.get(ok_key) else 1800)
+
+        need_trend = (not (air_trend.has_sample(tstate, now_ts - 86400, 1800) and air_trend.has_sample(tstate, now_ts - 3600, 1200))
+                      and gate("backfill_at", "backfill_ok"))
+        need_week = air_trend.coverage_hours(tstate, now_ts) < EXT_MIN_HOURS and gate("ext_at", "ext_ok")
+        if need_trend or need_week:
+            grid, grid_week = fetch_backfill(prof, site, lat, lon, now_ts)
+            tstate = air_trend.backfill(tstate, grid, now_ts)
+            tstate = air_trend.backfill_extremes(tstate, grid_week, now_ts)
+            ok = bool(grid or grid_week)
+            tstate["backfill_at"], tstate["backfill_ok"] = now_ts, ok
+            tstate["ext_at"], tstate["ext_ok"] = now_ts, ok
         tstate = air_trend.update(tstate, now_ts, (cur.get("selected") or {}) if isinstance(cur, dict) else {})
         state_path.parent.mkdir(parents=True, exist_ok=True)
         state_path.write_text(json.dumps(tstate, separators=(",", ":")) + "\n", encoding="utf-8")
-        doc["trend"] = {"ok": True, "computed_at": iso(now_ts), "values": air_trend.compute(tstate, now_ts)}
+        extremes, span = air_trend.extremes(tstate, now_ts)
+        doc["trend"] = {"ok": True, "computed_at": iso(now_ts), "values": air_trend.compute(tstate, now_ts),
+                        "extremes": extremes, "extremes_span_h": span}
 
     out_dir.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix="extras_", suffix=".tmp", dir=str(out_dir))

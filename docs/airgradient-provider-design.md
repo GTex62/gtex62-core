@@ -462,7 +462,7 @@ reading; without it the cells stay blank.
 
 **HI and LO cells** show at most four characters: one decimal under 100 (`4.3`, `12.3`), a whole number above (`488`, `1004`), `10k` from 10,000, `0` for
 zero, `--` when `status.json` has no value (an older core). Particle lows are mostly `0`: the sensor reports 0.0 in clean air.
-The outdoor view leaves them blank (the air provider keeps only 27 hours).
+The outdoor view has the same columns with the air provider's `[trend] outdoor = true` (`extras.json`'s `trend.extremes`, see `env-provider-status.md`); without it the cells stay blank.
 
 **Header.** `INDOOR // <LABEL>` when that fits above the label column, else `INDOOR` alone (the column holds 7 characters with the HI and LO columns, 12 without them, so with the HI and LO columns it is `INDOOR` alone); the name is also on the SRC line,
 `SRC // AG <LABEL>` (or `SRC // AG`) during the indoor phase, which reads `SRC // AG <LABEL> | HA` while a trend number on
