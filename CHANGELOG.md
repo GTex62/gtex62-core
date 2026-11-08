@@ -18,6 +18,14 @@ this file and has not been backfilled — see each domain's own
 
 ---
 
+## Unreleased
+
+**airgradient: the HA export reaches the week's HI and LO after an upgrade (2026-11-08).** With `[trend] use_ha_export = true`, an export the provider had already read
+before 0.20.0 was not folded into the new seven-day HI and LO until a new export landed (the next daily one); the first look at an export since the upgrade now folds it
+(state flag `ext_ha`). Found when the week's PM0.3 HI read 4,058 on the panel and Home Assistant's per-minute export had 4,159 for the same burst. Test: `test_fetch_airgradient.py`.
+
+---
+
 ## 0.20.0 — 2026-11-08
 
 Seven-day HI and LO for the ENV panel: the highest and lowest reading of the last seven days, for the AirGradient indoor readings and, with the existing outdoor trend option,

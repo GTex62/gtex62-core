@@ -807,6 +807,17 @@ for _ in range(3):
 st_ = sc.status()
 check("with [trend] use_ha_export the one-hour change is there on the first reading (CO2 400 an hour ago, 600 now = +50%), and says it came from HA",
       st_["trend"]["co2_ppm"]["h1_pct"] == 50 and st_["trend_from_ha"] is True, str(st_["trend"]["co2_ppm"]) + str(st_.get("trend_from_ha")))
+check("the week's HI and LO took the export too (CO2 400 an hour ago is the LO, 600 now the HI)", st_["extremes"]["co2_ppm"] == {"hi": 600.0, "lo": 400.0}, str(st_["extremes"]["co2_ppm"]))
+# a state kept from before the seven-day HI and LO: the export it already read has not been folded into them yet
+state_file = sc.cache / "runtime" / "airgradient" / "indoor" / "advisor_state.json"
+old_ = json.loads(state_file.read_text())
+old_["trend"].pop("ext", None)
+old_["trend"].pop("ext_ha", None)
+state_file.write_text(json.dumps(old_))
+sc.run(advance=60)
+st_ = sc.status()
+check("an upgrade: the export the provider had already read (same file, no new export) is folded into the HI and LO once",
+      st_["extremes"]["co2_ppm"]["lo"] == 400.0 and json.loads(state_file.read_text())["trend"].get("ext_ha") is True, str(st_["extremes"]["co2_ppm"]))
 sc.done()
 
 sc = Scenario(air=clean_air, wx=clean_wx)

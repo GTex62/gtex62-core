@@ -896,11 +896,13 @@ def main():
         except OSError:
             mtime = None
         tr_state = state.get("trend") or {}
-        if mtime is not None and tr_state.get("ha_mtime") != mtime:      # a new export: fill the bins the provider missed
+        if mtime is not None and (tr_state.get("ha_mtime") != mtime or not tr_state.get("ext_ha")):
+            # a new export (or the first look at one since the seven-day HI/LO existed): fill the bins the provider missed
             ha_rows = ha_history_rows(ha_csv, now)
-            tr_state = trendlib.backfill(tr_state, ha_rows, now, "h")
+            if tr_state.get("ha_mtime") != mtime:
+                tr_state = trendlib.backfill(tr_state, ha_rows, now, "h")
             tr_state = trendlib.backfill_extremes(tr_state, ha_rows, now)
-            tr_state["ha_mtime"] = mtime
+            tr_state["ha_mtime"], tr_state["ext_ha"] = mtime, True
             state["trend"] = tr_state
     state["trend"] = trendlib.update(state.get("trend"), now, {
         "co2_ppm": reading["co2_ppm"], "voc_index": reading["voc_index"], "nox_index": reading["nox_index"],
