@@ -49,7 +49,7 @@ def make_db(path, minutes=range(20), co2_gap=range(5, 15), temp_unit="°C", drop
     """)
     ents = {"sensor.t_carbon_dioxide": 1, "sensor.t_pm0_3": 2, "sensor.t_pm1": 3, "sensor.t_pm2_5": 4, "sensor.t_pm10": 5,
             "sensor.t_voc_index": 6, "sensor.t_temperature": 7, "sensor.t_humidity": 8, "sensor.t_nox_index": 9,
-            "climate.t": 10, "weather.t": 11, "climate.main": 12, "climate.bed": 13}
+            "climate.t": 10, "weather.t": 11, "climate.main": 12, "climate.bed": 13, "sensor.heater_w": 14}
     for e, i in ents.items():
         con.execute("insert into states_meta values (?,?)", (i, e))
     aid = [0]
@@ -80,6 +80,10 @@ def make_db(path, minutes=range(20), co2_gap=range(5, 15), temp_unit="°C", drop
     state(12, T0 + 4 * 60, "cool", {"hvac_action": "cooling", "temperature": 76, "current_temperature": 76.2, "fan_mode": "Auto low", "fan_state": "Running / running low"})
     state(13, T0 + 90, "off", {"hvac_action": "idle", "temperature": None, "current_temperature": 76.4, "fan_mode": "Auto low", "fan_state": "Idle / off"})
     state(10, T0 + 6 * 60 + 5, "heat", {"hvac_action": "heating", "temperature": 70, "current_temperature": 68, "fan_mode": "Auto low", "fan_state": "Running / running low"})
+    state(14, T0 + 30, "0.5", {"unit_of_measurement": "W"})
+    state(14, T0 + 3 * 60 + 10, "890.2", {"unit_of_measurement": "W"})
+    state(14, T0 + 7 * 60 + 10, "unavailable", {"unit_of_measurement": "W"})
+    state(14, T0 + 9 * 60 + 10, "1230.7", {"unit_of_measurement": "W"})
     state(11, T0 + 10, "sunny", {"temperature": 70, "humidity": 60, "dew_point": 55, "pressure": 30.0})
     state(11, T0 + 600, "cloudy", {"temperature": 69, "humidity": 62, "dew_point": 55.5, "pressure": 30.0})
     con.execute("insert into statistics_meta values (1,'sensor.t_carbon_dioxide','ppm')")
@@ -148,6 +152,24 @@ check("a null setpoint (thermostat off) stays blank", zr[1]["mode"] == "off" and
 rz2 = run(db, zout, "--zone-thermostat", "climate.main", "--zone-thermostat", "climate.bed")
 check("re-running merges without duplicating rows", rz2.returncode == 0 and len(rows(zout / "zone_thermostats.csv")) == 3)
 check("the manifest lists the zone file", json.loads((zout / "manifest.json").read_text())["files"]["zone_thermostats.csv"]["rows"] == 3)
+check("without --heater there is no heater column and no heater file", "heater_w" not in ind[0] and not (out / "heater_power.csv").exists()
+      and "heater_power.csv" not in json.loads((out / "manifest.json").read_text())["files"])
+hout = d / "heater"
+rh = run(db, hout, "--heater", "sensor.heater_w")
+hi_ = rows(hout / "indoor_1min.csv") if (hout / "indoor_1min.csv").exists() else []
+hp = rows(hout / "heater_power.csv") if (hout / "heater_power.csv").exists() else []
+check("--heater: every minute carries the heater's power as of its start (0.5 W standby, 890.2 W from its change, blank while unavailable, 1230.7 W after)",
+      rh.returncode == 0 and [hi_[k]["heater_w"] for k in (0, 2, 3, 4, 6, 7, 8, 9)] == ["0.5", "0.5", "890.2", "890.2", "890.2", "", "", "1230.7"],
+      str([r["heater_w"] for r in hi_]) + rh.stderr[-200:])
+check("--heater: heater_power.csv has one row per change, with the unavailable one blank",
+      [r["watts"] for r in hp] == ["0.5", "890.2", "", "1230.7"] and hp[0]["utc_time"].endswith("Z"), str(hp))
+check("--heater: the manifest lists the file and the entity",
+      json.loads((hout / "manifest.json").read_text())["files"]["heater_power.csv"]["rows"] == 4 and json.loads((hout / "manifest.json").read_text())["entities"]["heater_w"] == "sensor.heater_w")
+rh2 = run(db, hout, "--heater", "sensor.heater_w")
+check("--heater: a re-run merges without duplicating", rh2.returncode == 0 and len(rows(hout / "heater_power.csv")) == 4 and len(rows(hout / "indoor_1min.csv")) == len(hi_))
+rh3 = run(db, d / "heater_nope", "--heater", "sensor.nope")
+check("a heater entity with no recorder history is reported, not fatal, and the column is blank",
+      rh3.returncode == 0 and "sensor.nope" in rh3.stderr and all(r["heater_w"] == "" for r in rows(d / "heater_nope" / "indoor_1min.csv")), rh3.stderr[-200:])
 check("indoor rows carry whether the system was heating, as of each minute start (blank when there is no thermostat state)",
       ind[4]["ac_heating"] == "0" and ind[4]["ac_cooling"] == "1" and ind[6]["ac_heating"] == "1" and ind[6]["ac_cooling"] == "0" and ind[6]["thermostat_setpoint_f"] == "70", str([ind[6][k] for k in ("ac_heating", "ac_cooling", "thermostat_setpoint_f")]))
 st = rows(out / "statistics_hourly.csv")

@@ -183,7 +183,7 @@ copy is `~/.config/gtex62-core/profiles/airgradient/indoor.toml`. Keys:
 | `[advisor] storm_lookahead_min` | 180 | How far ahead the TAF is searched for thunder or rain |
 | `[advisor] log_inputs`, `log_keep_days` | `true`, 365 | Per-minute input log (`inputs-YYYYMMDD.csv`) in `log_dir`; a year, to match the Home Assistant archive window. Pruning touches only `inputs-*.csv`, so other files in that folder are safe |
 | `[advisor] log_dir` | `<data_root>/airgradient/<profile>/logs` | Where `verdict_log.txt` and the input logs go (`~` allowed). The data root is `$GTEX62_DATA_DIR`, else `core.toml` `[paths] data_root`, else `~/.local/share/gtex62-core` |
-| `[ha_export]` | absent (off) | Optional Home Assistant archive: `ha_db`, `prefix` (required), `thermostat`, `zone_thermostats` (a list of other zones' climate entities), `weather`, `keep_months` (12); see *History outside the engine* |
+| `[ha_export]` | absent (off) | Optional Home Assistant archive: `ha_db`, `prefix` (required), `thermostat`, `zone_thermostats` (a list of other zones' climate entities), `heater` (a plug's power sensor, W), `weather`, `keep_months` (12); see *History outside the engine* |
 | `[notices] enabled` | `false` | Event notices for the display's DATA line (`notices` in `status.json`); see the notices paragraph under the status.json schema. Also `pm_ratio` (3), `pm_min_rise` (10 ug/m3), `voc_rise` (150), `voc_clear` (75), `hold_ratio` (1.5), `cap_min` (60) |
 | `[trend] use_ha_export` | `false` | Fill the trend history from the export's `indoor_1min.csv` (needs `[ha_export]` working); see the `trend` paragraph under the status.json schema |
 | `[advisor.thresholds]` | the advisor's `DEFAULTS` | Any threshold name from `ventilation_advisor.py`, numbers only |
@@ -647,7 +647,8 @@ of 2026-10-08:
   (mean, min, max) for all nine sensors are kept indefinitely (back to 2026-07-01 here).
 - It records every indoor channel, the thermostats (setpoint, whether the system was cooling or heating, the fan;
   the main one drives the per-minute `ac_*` columns, other zones can be listed in `[ha_export] zone_thermostats` and go to
-  `zone_thermostats.csv`) and one outdoor entity, `weather.forecast_home` (temperature, humidity, dew point, about hourly).
+  `zone_thermostats.csv`; a plug that meters a space heater can be named in `[ha_export] heater`: its power goes to `heater_power.csv` (one row per change) and to a
+  `heater_w` column of `indoor_1min.csv`, as of each minute start, so heater on-time and level line up with the room's readings) and one outdoor entity, `weather.forecast_home` (temperature, humidity, dew point, about hourly).
 - It does **not** hold outdoor PM2.5/PM10 or AQI, the advisor's verdicts or its inputs. Those exist only
   in the engine's `inputs-*.csv` and `verdict_log.txt` (AirNow itself can supply recent outdoor PM history
   to fill a gap; not tried).

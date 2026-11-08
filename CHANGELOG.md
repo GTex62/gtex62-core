@@ -20,6 +20,10 @@ this file and has not been backfilled — see each domain's own
 
 ## Unreleased
 
+**airgradient: a metered space heater in the HA export (2026-11-08, optional).** `[ha_export] heater = "sensor.<plug>_current_consumption"` (or `--heater`) adds a `heater_w`
+column to `indoor_1min.csv` (the plug's power in watts as of each minute start, blank while the plug is unavailable) and writes `heater_power.csv` (one row per change of the
+plug's power sensor), so the heater's on-time and level can be lined up with the room's readings. Nothing in the live provider or display uses it. Test: `test_ha_export.py`.
+
 **airgradient: the HA export reaches the week's HI and LO after an upgrade (2026-11-08).** With `[trend] use_ha_export = true`, an export the provider had already read
 before 0.20.0 was not folded into the new seven-day HI and LO until a new export landed (the next daily one); the first look at an export since the upgrade now folds it
 (state flag `ext_ha`). Found when the week's PM0.3 HI read 4,058 on the panel and Home Assistant's per-minute export had 4,159 for the same burst. Test: `test_fetch_airgradient.py`.
