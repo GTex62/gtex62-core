@@ -256,7 +256,7 @@ false-positive combo. Confirmed groups today:
 
 | Group | Suites | Catalog |
 | ----- | ------ | ------- |
-| A | OSA, SitRep, Doctor | Byte-identical `osa-palettes.lua`/`palettes.lua`, 73 flat-role (`bg`/`fg`/`ink`) entries (63 plus the 10-palette trailing "Midnight palettes" group added 2026-11-08). Safe combo candidate — shared prompt. Re-verified 2026-11-08: all three still hash identically (`1ea27bf4…`), all three copies committed. |
+| A | OSA, SitRep, Doctor | Byte-identical `osa-palettes.lua`/`palettes.lua`, 78 flat-role (`bg`/`fg`/`ink`) entries (63 plus the trailing 10-palette "Midnight palettes" and 5-palette "Ash palettes" groups added 2026-11-08). Safe combo candidate — shared prompt. Re-verified 2026-11-08: all three still hash identically (`3a0c5183…`), all three copies committed. |
 | B | clean-suite-e | Standalone, 2 entries, different role shape (`bg`/`fg`/`ink`/`dim`/`accent`/`ok`/`warn`/`err`/...). |
 | C | LCARS | Standalone, 61 tone-ladder entries. Legacy today — pass-through, not grouped; becomes a live group only when `lcars-e` exists. |
 | D | tri-hud | Standalone, 60 tone-ladder entries. Shares the tone-ladder *mechanism* with C, not the catalog — confirmed even the 5 same-named utility palettes (`aqi`, `planets`, `seasons`, `dark`) that are byte-identical between C and D have a real divergence in `light` mode's tone-inversion behavior (LCARS inverts tone2↔tone3 as well as tone0↔tone4; tri-hud only inverts tone0↔tone4). Not the same group. Legacy today — pass-through, not grouped. |
