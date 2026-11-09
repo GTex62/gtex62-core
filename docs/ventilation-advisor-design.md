@@ -1029,6 +1029,17 @@ Two VOC events on one day, both with the office windows in known states (the use
 - The user has set up a soldering station in the office (moved from the Cave exercise room) and names soldering smoke, or other smoke, as candidates. The date of the move is not recorded, so the three bursts are not attributed. A soldering session with a VOC rise of its own (flux) and
   particles together would be a new signature, to compare with the cleaner (VOC only) and the leaf blowers (VOC only) in the observations above.
 
+### An open window can be an exhaust, not an intake (2026-11-09)
+
+- The office windows were opened at 09:57 CST in calm air (outdoors 58 to 63 F, humidity 72 to 62%, PM2.5 11.5 to 12.4), fan on low. After 50 minutes the indoor sensor showed no outside air:
+  CO2 stayed at the house level (590 before, 609 at 10:00, 581 at 10:44; outdoor is about 420), indoor PM2.5 stayed at 2 to 3 while the outdoor value was 4 times higher, and the temperature rose from 64.0 to 68.8 F between 10:08 and 10:30,
+  with the outdoor air at 58 to 63 F.
+- The Main (downstairs) thermostat was heating from 09:58 to 10:24; the Cave thermostat, upstairs, did not engage, so no vent heat reached the sensor (the user's point). The office sensor began to rise about 10 minutes after the Main zone started and peaked about 6 minutes
+  after it stopped. The user's explanation: with the office windows open, warm air from downstairs rises through the house and leaves through them (a stack effect), so the office is flushed with house air, not outside air. The make-up air then comes in somewhere else, through leaks or other windows,
+  not through the office window (the other windows are kept closed). The data fits; it cannot show the path itself.
+- What it means for the advice: in the heating season, with the downstairs zone running and only the office window open, an `OPEN` verdict for CO2 or VOC may not deliver outside air to the room. The sensor can show it afterwards (CO2 not falling toward the outdoor level, indoor PM not following outdoor PM). Per the scope of the advisor
+  this is recorded as an observation, not a rule: the advisor cannot see the windows, the downstairs zone's effect on airflow or the make-up air path.
+
 ---
 
 ## Open Items
