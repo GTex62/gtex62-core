@@ -1037,6 +1037,8 @@ Two VOC events on one day, both with the office windows in known states (the use
 - The Main (downstairs) thermostat was heating from 09:58 to 10:24; the Cave thermostat, upstairs, did not engage, so no vent heat reached the sensor (the user's point). The office sensor began to rise about 10 minutes after the Main zone started and peaked about 6 minutes
   after it stopped. The user's explanation: with the office windows open, warm air from downstairs rises through the house and leaves through them (a stack effect), so the office is flushed with house air, not outside air. The make-up air then comes in somewhere else, through leaks or other windows,
   not through the office window (the other windows are kept closed). The data fits; it cannot show the path itself.
+- The user adds that this is how they have heated the office for years: one window, partially open, gives the warm air from the downstairs main unit an exhaust point and starts the flow of heat into the office. A window opened in the heating season is therefore sometimes for heat, not for air, and
+  a partly open window is enough for it.
 - What it means for the advice: in the heating season, with the downstairs zone running and only the office window open, an `OPEN` verdict for CO2 or VOC may not deliver outside air to the room. The sensor can show it afterwards (CO2 not falling toward the outdoor level, indoor PM not following outdoor PM). Per the scope of the advisor
   this is recorded as an observation, not a rule: the advisor cannot see the windows, the downstairs zone's effect on airflow or the make-up air path.
 
