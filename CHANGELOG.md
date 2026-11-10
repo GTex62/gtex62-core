@@ -20,6 +20,10 @@ this file and has not been backfilled — see each domain's own
 
 ## Unreleased
 
+**airgradient: the HA export timer fires 2.5 minutes after boot, not 5 (2026-11-10).** `OnBootSec=150s` in `systemd/user/gtex62-airgradient-ha-export.timer`, so the 1H and 24H
+columns fill from Home Assistant's history about 4 minutes after a boot instead of 6. If the Home Assistant mount is not up yet the run fails and the service retries 15 minutes
+later (`RestartSec=15min`). Installed units need the new timer copied over (`systemctl --user daemon-reload`).
+
 **airgradient: a metered space heater in the HA export (2026-11-08, optional).** `[ha_export] heater = "sensor.<plug>_current_consumption"` (or `--heater`) adds a `heater_w`
 column to `indoor_1min.csv` (the plug's power in watts as of each minute start, blank while the plug is unavailable) and writes `heater_power.csv` (one row per change of the
 plug's power sensor), so the heater's on-time and level can be lined up with the room's readings. Nothing in the live provider or display uses it. Test: `test_ha_export.py`.

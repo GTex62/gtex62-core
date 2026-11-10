@@ -284,8 +284,8 @@ working (`scripts/airgradient-ha-export.py`, see above), the provider also reads
 the 10-minute bins it has no readings for, such as the hour before a boot, since Home Assistant records the sensor while the
 machine is off. Its own readings always win over Home Assistant's for a bin they cover. `trend_from_ha` in `status.json` is
 `true` while at least one number on the display was compared against a bin that came from Home Assistant, and OSA then adds
-`| HA` to the SRC line. The export runs at boot plus 5 minutes (the systemd timer), so the one-hour column fills in about
-6 minutes after a boot instead of an hour. Without the option, or when the file is missing, nothing changes.
+`| HA` to the SRC line. The export runs at boot plus 2.5 minutes (the systemd timer), so the one-hour column fills in about
+4 minutes after a boot instead of an hour. Without the option, or when the file is missing, nothing changes.
 
 **Event notices (opt-in).** With `[notices] enabled = true` the provider (`providers/airgradient/notices.py`) writes facts about a sudden change
 in the indoor air to `notices`, for the display's DATA line: `PM SPIKE // 2.5: 99` when PM2.5 is at least 3 times its baseline and up at
@@ -669,7 +669,7 @@ provider can read the export's file to fill the first hour after a boot. The fir
 **Automatic catch-up and rolling retention.** A systemd user timer runs the export
 (`systemd/user/gtex62-airgradient-ha-export.{service,timer}`, installed by copying both to
 `~/.config/systemd/user/` and `systemctl --user enable --now gtex62-airgradient-ha-export.timer`):
-5 minutes after boot (or at once if the session starts later), then daily, retrying every 15 minutes
+2.5 minutes after boot (or at once if the session starts later), then daily, retrying every 15 minutes
 if the Home Assistant mount is not up. Titan can be off for days, but anything Home Assistant still
 holds (10 days of raw minutes, indefinite hourly statistics) is merged in at the next boot, so only a
 shutdown longer than 10 days loses minute resolution (the hourly statistics still cover it). Settings

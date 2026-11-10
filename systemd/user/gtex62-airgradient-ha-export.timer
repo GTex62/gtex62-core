@@ -1,9 +1,9 @@
 [Unit]
-Description=Catch up the AirGradient Home Assistant history export (boot + 5 minutes, then daily)
+Description=Catch up the AirGradient Home Assistant history export (boot + 2.5 minutes, then daily)
 
 [Timer]
-# Relative to machine boot: if the session starts later than 5 minutes after boot it runs at once.
-OnBootSec=5min
+# Relative to machine boot: if the session starts later than 2.5 minutes after boot it runs at once.
+OnBootSec=150s
 OnUnitActiveSec=1d
 
 [Install]

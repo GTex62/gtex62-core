@@ -5,7 +5,7 @@ Home Assistant keeps raw sensor history for only 10 days (`recorder: purge_keep_
 running while this machine is off, so it holds the nights the engine's own shadow log cannot. This tool
 copies what HA has into plain CSV files in the engine's persistent data root, merging with anything
 already archived so that a re-run after HA has purged old rows never loses them. Run on a systemd user
-timer (boot + 5 minutes, then daily; systemd/user/gtex62-airgradient-ha-export.timer) it is a catch-up job:
+timer (boot + 2.5 minutes, then daily; systemd/user/gtex62-airgradient-ha-export.timer) it is a catch-up job:
 whatever HA still has that the archive lacks is added.
 
 It reads HA's recorder database READ-ONLY, through a private copy: the database file and its write-ahead
