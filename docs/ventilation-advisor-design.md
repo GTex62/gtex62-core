@@ -1028,6 +1028,15 @@ Two VOC events on one day, both with the office windows in known states (the use
   10-24 cooking test peaked near 1,900 PM0.3 and 8.7 PM2.5. The bursts are 2 to 4 times larger, short, and all fall between 20:00 and 21:30; the data does not say what caused them.
 - The user has set up a soldering station in the office (moved from the Cave exercise room) and names soldering smoke, or other smoke, as candidates. The date of the move is not recorded, so the three bursts are not attributed. A soldering session with a VOC rise of its own (flux) and
   particles together would be a new signature, to compare with the cleaner (VOC only) and the leaf blowers (VOC only) in the observations above.
+- Checked on 2026-11-10 against the thermostat exports and the other evenings. The user does not remember an event at those times and says anything substantial would have been mentioned.
+  - The furnace is ruled out. The user's point: the first runs of the heaters give off a smell that fades and does not return. None of the three thermostats was heating at the burst times (the Cave thermostat in the office did not run at all between 10-27 and 11-07; the Main
+    zone did not run on the evenings of 11-03 to 11-05; the bedroom zone ran once on 11-06, at 23:08, nearly three hours after the peak). The sensor's response to a first run is a VOC rise with no particle change: on 10-27 at 16:08, the first run of the season for the Cave thermostat
+    (the Main zone started the same minute), VOC went from 34 to 106 within 12 minutes and to 186 by 16:50 while PM0.3 stayed at 520 to 720 (1,100 before) and the sensor climbed from 74 to 79 to 81 F; on 10-18 (the first run of the Main and bedroom zones) VOC went from 34 to 47; on 11-07 at 06:34
+    (the Cave thermostat's first run in 11 days) VOC stayed between 109 and 125. The bursts of 11-04 and 11-06 were particles with VOC flat.
+  - The three peaks fall within 14 minutes of each other (20:27, 20:28, 20:41), and the maximum on 11-05 is at 20:48 (1,004, small). Nothing since 11-06 has been larger than 1,386 (11-09, 18:17).
+  - The cool evening air entering through open windows is not what separates these nights: outdoor air was cooler than indoor on almost every evening since 10-16 (by 6 to 30 F) without a burst, including 11-05 (12 F) and 11-07 (30 F). Indoor PM2.5 at the peaks (15, 16 and 23) was well above the regional outdoor value
+    (8.1, 3.8 and 3.2), which points to a source near the house, indoors or next door. A neighbor's fire or a local plume would not show in the regional AirNow value.
+  - Still unattributed. If another burst comes, the useful facts are the time, what was going on in or near the house, and whether the windows were open.
 
 ### An open window can be an exhaust, not an intake (2026-11-09)
 
