@@ -20,6 +20,8 @@ this file and has not been backfilled — see each domain's own
 
 ## Unreleased
 
+**pfblockerng: IP block count works again on pfSense 2.9.0 (2026-11-12).** 2.9.0 (FreeBSD 16) relabeled pf rules from `USER_RULE: pfB_…` to `descr=pfB_… auto rule`, so `fetch_pfblockerng.sh`'s awk matched nothing and `pfb_ip_total` read 0. The pattern now accepts both labels. The value is still pf's since-boot packet count, so it restarts near 0 after a firewall reboot (the 2.9.0 upgrade reboot reset it).
+
 **airgradient: the HA export timer fires 2.5 minutes after boot, not 5 (2026-11-10).** `OnBootSec=150s` in `systemd/user/gtex62-airgradient-ha-export.timer`, so the 1H and 24H
 columns fill from Home Assistant's history about 4 minutes after a boot instead of 6. If the Home Assistant mount is not up yet the run fails and the service retries 15 minutes
 later (`RestartSec=15min`). Installed units need the new timer copied over (`systemctl --user daemon-reload`).

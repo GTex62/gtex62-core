@@ -481,9 +481,11 @@ default to `""`; `load` defaults to `{"l1":0.0,"l5":0.0,"l15":0.0}`.
 }
 ```
 
-`pfb_ip_total` sums the `Packets:` evaluation count across all `USER_RULE: pfB_*` rules
-excluding `pfB_DNSBL_*` (`pfctl -vvsr`). `pfb_dnsbl_total` is `SUM(counter)` from the
-DNSBL sqlite table. `resolver_total` is `totalqueries + queries` from the resolver
+`pfb_ip_total` sums the `Packets:` evaluation count across all `pfB_*` rules
+excluding `pfB_DNSBL_*` (`pfctl -vvsr`). The rule label is `USER_RULE: pfB_…` on pfSense
+≤ 2.8 and `descr=pfB_… auto rule` on 2.9.0+; the awk matches both. Counters are pf's
+since-boot/last-clear values, so they restart near 0 after a firewall reboot.
+`pfb_dnsbl_total` is `SUM(counter)` from the DNSBL sqlite table. `resolver_total` is `totalqueries + queries` from the resolver
 sqlite's `row=0` entry. `pfb_dnsbl_pct` is derived provider-side
 (`pfb_dnsbl_total / resolver_total * 100`).
 

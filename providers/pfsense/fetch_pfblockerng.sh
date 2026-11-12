@@ -164,7 +164,7 @@ TMP_RAW="$TMP_DIR/pfblockerng_raw_$$.txt"
 _ssh_rc=0
 ssh "${SSH_OPTS[@]}" "$SSH_TARGET" \
   'IP_PACKETS=$(pfctl -vvsr 2>/dev/null | awk '"'"'
-     /label "USER_RULE: pfB_/ && $0 !~ /pfB_DNSBL_/ {flag=1}
+     /label "(USER_RULE: |descr=)pfB_/ && $0 !~ /pfB_DNSBL_/ {flag=1}
      flag && /^[[:space:]]*\[ Evaluations:/ {
        for (i=1;i<=NF;i++) if ($i=="Packets:") {p += $(i+1); break}
        flag=0
