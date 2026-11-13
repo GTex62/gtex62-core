@@ -20,6 +20,8 @@ this file and has not been backfilled — see each domain's own
 
 ## Unreleased
 
+**airgradient: a thin bin no longer blocks the 24H column (2026-11-12).** The 24H change compares now with the 10-minute bin from a day ago, and a bin with fewer than 4 readings does not count. A provider that started late in a bin (here 2 readings at 19:39) kept that thin bin when it seeded its history from Home Assistant, so the 24H column read "--" for 10 minutes, exactly one day after every restart. The backfill now replaces an existing bin that has fewer than 4 readings with the fuller one. Test: `test_trend.py`.
+
 **pfblockerng: IP block count works again on pfSense 2.9.0 (2026-11-12).** 2.9.0 (FreeBSD 16) relabeled pf rules from `USER_RULE: pfB_…` to `descr=pfB_… auto rule`, so `fetch_pfblockerng.sh`'s awk matched nothing and `pfb_ip_total` read 0. The pattern now accepts both labels. The value is still pf's since-boot packet count, so it restarts near 0 after a firewall reboot (the 2.9.0 upgrade reboot reset it).
 
 **airgradient: the HA export timer fires 2.5 minutes after boot, not 5 (2026-11-10).** `OnBootSec=150s` in `systemd/user/gtex62-airgradient-ha-export.timer`, so the 1H and 24H

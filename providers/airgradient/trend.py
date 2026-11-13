@@ -122,8 +122,9 @@ def compute(state, now):
 def backfill(state, rows, now, source=None):
     """Seed the 10-minute bins from past readings, for a provider that has just started (or lost its state):
     rows is an iterable of (epoch, {metric: value}) in any order; readings from the current bin or later are
-    left to update(). Existing bins are kept. `source` "h" marks the new bins as filled from Home Assistant's
-    history (the display can say so). Returns the state dict."""
+    left to update(). Existing bins are kept, except a thin one (fewer than MIN_BIN_SAMPLES readings, say from a
+    provider that started late in that bin) which the new rows fill with more readings. `source` "h" marks the new
+    bins as filled from Home Assistant's history (the display can say so). Returns the state dict."""
     st = state if isinstance(state, dict) else {}
     bins = st.setdefault("bins", {})
     cur = int(now // BIN_S)
@@ -140,7 +141,9 @@ def backfill(state, rows, now, source=None):
                 grouped.setdefault((m, idx), []).append(v)
     for (m, idx), vs in grouped.items():
         entry = [statistics.median(vs), len(vs)] + ([source] if source else [])
-        bins.setdefault(m, {}).setdefault(str(idx), entry)
+        have = bins.setdefault(m, {}).get(str(idx))
+        if have is None or (have[1] < MIN_BIN_SAMPLES and len(vs) > have[1]):
+            bins[m][str(idx)] = entry
     return st
 
 

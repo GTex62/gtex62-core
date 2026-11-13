@@ -118,6 +118,12 @@ c = tr.compute(st, T0 + 3 * 3600 + 1500)
 check("backfilled history: CO2 400 an hour ago and 500 now is +25% straight away", c["co2_ppm"]["h1_pct"] == 25, str(c["co2_ppm"]))
 st2 = tr.backfill(st, [(T0 + 30 * k, dict(ONE, co2_ppm=999)) for k in range(0, 120)], T0 + 3 * 3600 + 1500)
 check("backfill never overwrites a bin that already exists", tr.compute(st2, T0 + 3 * 3600 + 1500)["co2_ppm"]["h1_pct"] == 25)
+thin = {"bins": {"co2_ppm": {str(int((T0 + 600) // 600)): [999.0, 2]}}}                     # a late-started provider's 2-reading bin
+thin = tr.backfill(thin, [(T0 + 600 + 30 * k, dict(ONE, co2_ppm=400)) for k in range(0, 20)], T0 + 3 * 3600, "h")
+check("backfill replaces a thin bin (under 4 readings) with the fuller history", thin["bins"]["co2_ppm"][str(int((T0 + 600) // 600))][:2] == [400.0, 20], str(thin["bins"]["co2_ppm"]))
+full = {"bins": {"co2_ppm": {str(int((T0 + 600) // 600)): [999.0, 5]}}}
+full = tr.backfill(full, [(T0 + 600 + 30 * k, dict(ONE, co2_ppm=400)) for k in range(0, 20)], T0 + 3 * 3600, "h")
+check("backfill keeps a bin that already has 4 or more readings", full["bins"]["co2_ppm"][str(int((T0 + 600) // 600))] == [999.0, 5])
 check("backfill with junk rows never raises", tr.backfill({}, [(1, None), ("x", {}), (T0, {"co2_ppm": "abc"})], T0 + 3600) is not None)
 
 # ---- the seven-day HI and LO
