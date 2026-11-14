@@ -1051,6 +1051,17 @@ Two VOC events on one day, both with the office windows in known states (the use
 - What it means for the advice: in the heating season, with the downstairs zone running and only the office window open, an `OPEN` verdict for CO2 or VOC may not deliver outside air to the room. The sensor can show it afterwards (CO2 not falling toward the outdoor level, indoor PM not following outdoor PM). Per the scope of the advisor
   this is recorded as an observation, not a rule: the advisor cannot see the windows, the downstairs zone's effect on airflow or the make-up air path.
 
+### Dry indoor air: no rule for it (2026-11-14)
+
+- Every humidity rule in the advisor looks for too much moisture (rule 2's trip at RH 70, or 66 with a dew-point rise of 4 F in 30 minutes, and the "drier outdoors" comparisons). Nothing looks for too little. In the first cold spell of the year (outdoor dew points near 30 F, 11-13 and 11-14) the house dried out:
+  the sensor read RH 33 to 51% on 11-13 and 34 to 52% on 11-14, with the dew point at 43 to 48 F. The sensor's RH reads low while the ceiling vent heats it (68.8 to 74.8 F at 12:12 on 11-14 took RH from 41% to 35% with the dew point flat at 44 to 45 F); the dew point
+  is the steadier number, and 44 to 45 F at the room's 70 F is about 38 to 41% RH.
+- The user's comfort line: when RH drops to the 30% range they have to use moisturizing lotion, or the skin dries, cracks and itches.
+- A shower (about 13:10 to 13:45 on 11-14) took the dew point from 44.5 to 52.5 F (RH 40 to 52%). The user opened the window at 13:53 CST with outdoor air at 52.9 F, RH 46% (dew point about 33 F); in 3 minutes the dew point was down to 48.3 F and VOC from 300 to 194.
+  An open window on a cold dry day removes the shower's moisture and then keeps drying the room, a drawback the advisor does not see (the verdict was an advisory `CLOSE` for the outdoor temperature only).
+- Recorded as a gap, not a rule (per the scope of the advisor). The user's idea for the next conky suite: an advisory that indoor RH is low, shown in the separate area for advisories and things worth a look, not in the hazard banner. A dew-point reading (or RH
+  at the room's temperature) would be the better input than the sensor's RH while the vent heats the sensor.
+
 ---
 
 ## Open Items
