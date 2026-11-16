@@ -32,6 +32,8 @@ Writes, under <data_root>/airgradient/<profile>/ha_export/ (data_root from core.
     heater_power.csv       optional: the power (W) of a metered space heater, one row per change of the plug's power
                            sensor; indoor_1min.csv then also gets a `heater_w` column (the heater's power as of each
                            minute start), so heater on-time and level line up with the room's readings
+    humidifier_power.csv   optional: the same for a metered humidifier (one row per change of the plug's power sensor);
+                           indoor_1min.csv then also gets a `humidifier_w` column
     statistics_hourly.csv  HA's long-term hourly statistics (kept indefinitely) for the nine sensors
     archive/               rows that have aged out of the rolling window, one gzip per file per month
     manifest.json          what was exported, from where, coverage, retention and units
@@ -269,6 +271,7 @@ def main(argv=None):
                     help="climate entity of another zone, repeatable (optional; written to zone_thermostats.csv)")
     ap.add_argument("--weather", default=None, help="outdoor weather entity (optional)")
     ap.add_argument("--heater", default=None, help="power sensor (W) of a plug that meters a space heater (optional; adds heater_w and heater_power.csv)")
+    ap.add_argument("--humidifier", default=None, help="power sensor (W) of a plug that meters a humidifier (optional; adds humidifier_w and humidifier_power.csv)")
     ap.add_argument("--keep-months", type=int, default=None, help="months kept live; older rows are archived (default 12, 0 = keep all live)")
     ap.add_argument("--max-silence-sec", type=float, default=None,
                     help="blank a minute when none of the fast sensors has recorded for this long (default 900)")
@@ -289,6 +292,7 @@ def main(argv=None):
     args.thermostat = pick(args.thermostat, "thermostat")
     args.weather = pick(args.weather, "weather")
     args.heater = pick(args.heater, "heater")
+    args.humidifier = pick(args.humidifier, "humidifier")
     zones = pick(args.zone_thermostats, "zone_thermostats", [])
     args.zone_thermostats = [str(z) for z in (zones if isinstance(zones, list) else [zones]) if z]
     args.max_silence_sec = float(pick(args.max_silence_sec, "max_silence_sec", DEFAULT_MAX_SILENCE_SEC))
@@ -355,6 +359,15 @@ def main(argv=None):
         if args.heater:
             entities["heater_w"], units["heater_w"] = args.heater, (unit_of(con, hmid) if hmid is not None else None)
 
+        # metered humidifier: the same
+        umid = metadata_id(con, args.humidifier) if args.humidifier else None
+        humid = numeric_states(con, umid) if umid is not None else []
+        u_ts, u_vals = [t for t, _ in humid], [v for _, v in humid]
+        if args.humidifier and umid is None:
+            print(f"humidifier {args.humidifier} not found in the recorder database", file=sys.stderr)
+        if args.humidifier:
+            entities["humidifier_w"], units["humidifier_w"] = args.humidifier, (unit_of(con, umid) if umid is not None else None)
+
         first = min(s[0][0] for s in series.values() if s[0])
         last = max(s[0][-1] for s in series.values() if s[0])
         start_min, end_min = (int(first // 60) + 1) * 60, int(last // 60) * 60 + 60   # first minute that has a prior reading, last whole minute
@@ -362,6 +375,8 @@ def main(argv=None):
         header = ["local_time", "utc_time"] + [c for c, _ in SENSORS] + ["dew_point_f", "thermostat_setpoint_f", "ac_cooling", "ac_fan_running", "ac_heating"]
         if args.heater:
             header.append("heater_w")
+        if args.humidifier:
+            header.append("humidifier_w")
         rows = []
         for m in range(start_min, end_min, 60):
             vals = []
@@ -388,6 +403,9 @@ def main(argv=None):
             if args.heater:
                 hi = bisect.bisect_left(h_ts, m) - 1
                 row.append(round(h_vals[hi], 2) if hi >= 0 and h_vals[hi] is not None else None)
+            if args.humidifier:
+                ui = bisect.bisect_left(u_ts, m) - 1
+                row.append(round(u_vals[ui], 2) if ui >= 0 and u_vals[ui] is not None else None)
             rows.append(row)
         merged_indoor, arch = merge_csv(out / "indoor_1min.csv", header, rows, ["utc_time"], "utc_time", cutoff, archive_dir)
         moved = dict(arch)
@@ -433,6 +451,12 @@ def main(argv=None):
             merged_heater, arch = merge_csv(out / "heater_power.csv", ["utc_time", "local_time", "watts"], hrows, ["utc_time"], "utc_time", cutoff, archive_dir)
             moved.update(arch)
 
+        merged_humid = None
+        if args.humidifier:
+            urows = [[iso(ts), datetime.fromtimestamp(ts, tz).strftime("%Y-%m-%d %H:%M:%S"), None if v is None else round(v, 2)] for ts, v in humid]
+            merged_humid, arch = merge_csv(out / "humidifier_power.csv", ["utc_time", "local_time", "watts"], urows, ["utc_time"], "utc_time", cutoff, archive_dir)
+            moved.update(arch)
+
         srows = []
         for sid, unit, st_ts, mean, mn, mx in con.execute(
                 "select m.statistic_id, m.unit_of_measurement, s.start_ts, s.mean, s.min, s.max from statistics s "
@@ -458,6 +482,7 @@ def main(argv=None):
             "thermostat.csv": span(merged_thermo, 0) if merged_thermo is not None else None,
             "zone_thermostats.csv": span(merged_zones, 0) if merged_zones is not None else None,
             "heater_power.csv": span(merged_heater, 0) if merged_heater is not None else None,
+            "humidifier_power.csv": span(merged_humid, 0) if merged_humid is not None else None,
             "statistics_hourly.csv": span(merged_stats, 1)}.items() if v is not None},
         "retention": {"keep_months": keep_months, "cutoff": cutoff, "archive_dir": "archive",
                       "moved_this_run": moved, "archive_files": archive_listing(archive_dir)},

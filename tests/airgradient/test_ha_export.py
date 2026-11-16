@@ -170,6 +170,23 @@ check("--heater: a re-run merges without duplicating", rh2.returncode == 0 and l
 rh3 = run(db, d / "heater_nope", "--heater", "sensor.nope")
 check("a heater entity with no recorder history is reported, not fatal, and the column is blank",
       rh3.returncode == 0 and "sensor.nope" in rh3.stderr and all(r["heater_w"] == "" for r in rows(d / "heater_nope" / "indoor_1min.csv")), rh3.stderr[-200:])
+uout = d / "humid"
+ru = run(db, uout, "--humidifier", "sensor.heater_w")      # the fixture's metered entity stands in for a humidifier plug
+ui_ = rows(uout / "indoor_1min.csv")
+up = rows(uout / "humidifier_power.csv") if (uout / "humidifier_power.csv").exists() else []
+check("--humidifier: every minute carries the humidifier plug's power as of its start, and there is no heater column",
+      ru.returncode == 0 and "heater_w" not in ui_[0] and [ui_[k]["humidifier_w"] for k in (0, 2, 3, 4, 6, 7, 8, 9)] == ["0.5", "0.5", "890.2", "890.2", "890.2", "", "", "1230.7"],
+      str([r.get("humidifier_w") for r in ui_]) + ru.stderr[-200:])
+check("--humidifier: humidifier_power.csv has one row per change, and the manifest lists the file and the entity",
+      len(up) == 4 and json.loads((uout / "manifest.json").read_text())["files"]["humidifier_power.csv"]["rows"] == 4
+      and json.loads((uout / "manifest.json").read_text())["entities"]["humidifier_w"] == "sensor.heater_w")
+ru2 = run(db, hout, "--heater", "sensor.heater_w", "--humidifier", "sensor.heater_w")   # a heater-only export gains the humidifier column
+hu_ = rows(hout / "indoor_1min.csv")
+check("a heater-only export gains a humidifier column on the next run, without duplicate rows",
+      ru2.returncode == 0 and len(hu_) == len(hi_) and [r["humidifier_w"] for r in hu_] == [r["heater_w"] for r in hu_], ru2.stderr[-200:])
+ru3 = run(db, d / "humid_nope", "--humidifier", "sensor.nope")
+check("a humidifier entity with no recorder history is reported, not fatal, and the column is blank",
+      ru3.returncode == 0 and "sensor.nope" in ru3.stderr and all(r["humidifier_w"] == "" for r in rows(d / "humid_nope" / "indoor_1min.csv")), ru3.stderr[-200:])
 check("indoor rows carry whether the system was heating, as of each minute start (blank when there is no thermostat state)",
       ind[4]["ac_heating"] == "0" and ind[4]["ac_cooling"] == "1" and ind[6]["ac_heating"] == "1" and ind[6]["ac_cooling"] == "0" and ind[6]["thermostat_setpoint_f"] == "70", str([ind[6][k] for k in ("ac_heating", "ac_cooling", "thermostat_setpoint_f")]))
 st = rows(out / "statistics_hourly.csv")
