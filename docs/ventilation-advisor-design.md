@@ -1061,6 +1061,10 @@ Two VOC events on one day, both with the office windows in known states (the use
   An open window on a cold dry day removes the shower's moisture and then keeps drying the room, a drawback the advisor does not see (the verdict was an advisory `CLOSE` for the outdoor temperature only).
 - Recorded as a gap, not a rule (per the scope of the advisor). The user's idea for the next conky suite: an advisory that indoor RH is low, shown in the separate area for advisories and things worth a look, not in the hazard banner. A dew-point reading (or RH
   at the room's temperature) would be the better input than the sensor's RH while the vent heats the sensor.
+- Duration matters more than a single low reading (user, 2026-11-18): the skin dries when RH stays under 40% for a long time, and one reading in the 30s is not enough. How long it takes is unknown (the user guesses it could be as much as 24 hours), so a future advisory
+  should count hours under a threshold over a rolling window rather than react to the instantaneous value. The sensor's RH gives these hours per day under 40%: none from 11-05 to 11-12, then 5.8 (11-13), 11.6 (11-14), 14.8 (11-15), 12.1 (11-16) and 8.2 (11-17,
+  with the humidifier running from the morning). The first dry-skin report (11-14, about 13:50) came after about 16.6 hours of cumulative time under 40%, the first such hours in over a week. That is one data point. The user expects more than 10 hours a day under 40% for two or more days
+  in a cold spell, and will report when the skin dries so the threshold (hours, window length) can be set from several cases. A humidifier on some days, and the vent heating the sensor, both change the count; a dew-point-based RH at the room's temperature would be steadier.
 
 ---
 
