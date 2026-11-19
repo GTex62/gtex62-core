@@ -20,6 +20,10 @@ this file and has not been backfilled — see each domain's own
 
 ## Unreleased
 
+**airgradient: a windows-open helper in the HA export (2026-11-19, optional).** `[ha_export] windows_open = "input_boolean.office_windows_open"` (or `--windows-open`) adds a `windows_open` column (1 = on, 0 = off, blank before the helper's first state or while it is unavailable) to `indoor_1min.csv` and writes `windows_open.csv`
+(one row per change). The helper is created and flipped in Home Assistant by the occupant; the engine only reads its recorded states, as it does for the thermostats and plugs, and never writes to HA. An existing export gains the column on the next run.
+Nothing in the live provider or display uses it. Test: `test_ha_export.py`.
+
 **airgradient: a metered humidifier in the HA export (2026-11-16, optional).** `[ha_export] humidifier = "sensor.<plug>_current_consumption"` (or `--humidifier`) adds a `humidifier_w` column to `indoor_1min.csv` and writes `humidifier_power.csv`
 (one row per change of the plug's power sensor), the same way `heater` does, so the humidifier's run time and draw can be lined up with the room's humidity, dew point, VOC and particles. An existing export gains the column on the next run.
 Nothing in the live provider or display uses it. Test: `test_ha_export.py`.

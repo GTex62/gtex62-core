@@ -49,7 +49,8 @@ def make_db(path, minutes=range(20), co2_gap=range(5, 15), temp_unit="°C", drop
     """)
     ents = {"sensor.t_carbon_dioxide": 1, "sensor.t_pm0_3": 2, "sensor.t_pm1": 3, "sensor.t_pm2_5": 4, "sensor.t_pm10": 5,
             "sensor.t_voc_index": 6, "sensor.t_temperature": 7, "sensor.t_humidity": 8, "sensor.t_nox_index": 9,
-            "climate.t": 10, "weather.t": 11, "climate.main": 12, "climate.bed": 13, "sensor.heater_w": 14}
+            "climate.t": 10, "weather.t": 11, "climate.main": 12, "climate.bed": 13, "sensor.heater_w": 14,
+            "input_boolean.windows": 15}
     for e, i in ents.items():
         con.execute("insert into states_meta values (?,?)", (i, e))
     aid = [0]
@@ -84,6 +85,10 @@ def make_db(path, minutes=range(20), co2_gap=range(5, 15), temp_unit="°C", drop
     state(14, T0 + 3 * 60 + 10, "890.2", {"unit_of_measurement": "W"})
     state(14, T0 + 7 * 60 + 10, "unavailable", {"unit_of_measurement": "W"})
     state(14, T0 + 9 * 60 + 10, "1230.7", {"unit_of_measurement": "W"})
+    state(15, T0 + 2 * 60 + 30, "on", {"editable": True})          # the windows-open helper: on, off, unavailable, on
+    state(15, T0 + 5 * 60 + 30, "off", {"editable": True})
+    state(15, T0 + 8 * 60 + 30, "unavailable", {"editable": True})
+    state(15, T0 + 9 * 60 + 30, "on", {"editable": True})
     state(11, T0 + 10, "sunny", {"temperature": 70, "humidity": 60, "dew_point": 55, "pressure": 30.0})
     state(11, T0 + 600, "cloudy", {"temperature": 69, "humidity": 62, "dew_point": 55.5, "pressure": 30.0})
     con.execute("insert into statistics_meta values (1,'sensor.t_carbon_dioxide','ppm')")
@@ -187,6 +192,26 @@ check("a heater-only export gains a humidifier column on the next run, without d
 ru3 = run(db, d / "humid_nope", "--humidifier", "sensor.nope")
 check("a humidifier entity with no recorder history is reported, not fatal, and the column is blank",
       ru3.returncode == 0 and "sensor.nope" in ru3.stderr and all(r["humidifier_w"] == "" for r in rows(d / "humid_nope" / "indoor_1min.csv")), ru3.stderr[-200:])
+
+check("without --windows-open there is no windows_open column and no windows_open file",
+      "windows_open" not in ind[0] and not (out / "windows_open.csv").exists())
+wout = d / "windows"
+rw = run(db, wout, "--windows-open", "input_boolean.windows")
+wi_ = rows(wout / "indoor_1min.csv")
+wf = rows(wout / "windows_open.csv") if (wout / "windows_open.csv").exists() else []
+check("--windows-open: each minute carries the helper's state as of its start (blank before the first state and while unavailable)",
+      rw.returncode == 0 and [wi_[k]["windows_open"] for k in range(10)] == ["", "", "1", "1", "1", "0", "0", "0", "", "1"],
+      str([r.get("windows_open") for r in wi_]) + rw.stderr[-200:])
+check("--windows-open: windows_open.csv has one row per change (1, 0, blank, 1), and the manifest lists the file and the entity",
+      [r["windows_open"] for r in wf] == ["1", "0", "", "1"]
+      and json.loads((wout / "manifest.json").read_text())["files"]["windows_open.csv"]["rows"] == 4
+      and json.loads((wout / "manifest.json").read_text())["entities"]["windows_open"] == "input_boolean.windows")
+rw2 = run(db, wout, "--windows-open", "input_boolean.windows")
+check("a second --windows-open run adds no duplicate rows",
+      rw2.returncode == 0 and len(rows(wout / "indoor_1min.csv")) == len(wi_) and len(rows(wout / "windows_open.csv")) == 4, rw2.stderr[-200:])
+rw3 = run(db, d / "windows_nope", "--windows-open", "input_boolean.nope")
+check("a windows-open helper with no recorder history is reported, not fatal, and the column is blank",
+      rw3.returncode == 0 and "input_boolean.nope" in rw3.stderr and all(r["windows_open"] == "" for r in rows(d / "windows_nope" / "indoor_1min.csv")), rw3.stderr[-200:])
 check("indoor rows carry whether the system was heating, as of each minute start (blank when there is no thermostat state)",
       ind[4]["ac_heating"] == "0" and ind[4]["ac_cooling"] == "1" and ind[6]["ac_heating"] == "1" and ind[6]["ac_cooling"] == "0" and ind[6]["thermostat_setpoint_f"] == "70", str([ind[6][k] for k in ("ac_heating", "ac_cooling", "thermostat_setpoint_f")]))
 st = rows(out / "statistics_hourly.csv")
