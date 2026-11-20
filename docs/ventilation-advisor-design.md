@@ -1066,6 +1066,23 @@ Two VOC events on one day, both with the office windows in known states (the use
   with the humidifier running from the morning). The first dry-skin report (11-14, about 13:50) came after about 16.6 hours of cumulative time under 40%, the first such hours in over a week. That is one data point. The user expects more than 10 hours a day under 40% for two or more days
   in a cold spell, and will report when the skin dries so the threshold (hours, window length) can be set from several cases. A humidifier on some days, and the vent heating the sensor, both change the count; a dew-point-based RH at the room's temperature would be steadier.
 
+### Window state and how long an opening takes (2026-11-19)
+
+Prompted by a look at another project (ClimateAdvisor, a Home Assistant integration that schedules the thermostat; it has no humidity, dew point, VOC or PM logic). Two of its ideas fit this advisor, which stays advisory only and decides on comfort and air quality, not energy cost.
+
+- The first clean flush with the `windows_open` helper (humidifier off, office windows opened about 11:15 to 11:20 CST, helper on at 11:22:31, outdoor 72 F, dew point about 52 F, RH 49%):
+  - CO2 538 to about 405 ppm, VOC 201 to 28, PM2.5 about 10 to 3 and PM10 about 15 to 4 were at their floor by about 11:50, 30 to 35 minutes after the opening.
+  - Dew point (47.4 to 51.8 F) and temperature (68.5 to 71.8 F) took 45 to 60 minutes to reach the outdoor values.
+  - Rule of thumb for now, to be confirmed: about 30 minutes for CO2, VOC and dust, about 60 for temperature and humidity.
+  - This is one clean event; earlier ones have only hand-noted times. A duration goes into the advice only after several logged openings (wind, the indoor to outdoor gap and which windows are open will all move it, so a range is likely).
+- The stop signal is better as convergence than as a time: close or stop advising `OPEN` when indoor CO2 (and VOC) is within a small margin of the outdoor-driven floor, which the advisor can already see. A duration then becomes a hint in the text ("about 30 minutes for the air, about an hour for temperature and humidity"), not the rule. The margin is not chosen yet.
+- Window state: the advisor cannot see whether the windows are open (see the Open Items). The helper is not a live input. The export reads a snapshot of the HA database at boot and once a day, and the toggle is tapped 2 to 7 minutes after the real opening. It stays ground truth for scoring, not an advisor input.
+  The advisor should infer an opening from the air: a CO2 or VOC step with the indoor dew point and temperature moving toward outdoor (as at 11:20 on 11-19). The inference cannot tell an open window from other ventilation, so scoring it against the helper's events is the way to tune it.
+- User's refinement (2026-11-19): do not poll for the toggle all the time. When the data shows a clearing trend, poll for the window state then, to get an accurate reading. That needs a way to read HA's state on demand, which the engine does not have today (see Open Items); until it does, the analysis uses the helper's recorded events after the fact.
+- What window state would allow: no `OPEN` banner while the windows are already open, a "close now" notice when the outdoor air turns worse than the indoor air, and waiting out the settling period before judging the effect of an opening. Per the scope of the advisor these are advisories, built only after the logged openings show the inference is reliable.
+- Not taken from ClimateAdvisor: forecast-based day classes, pre-heat and pre-cool, time-of-use and energy cost, learned house models, controlling the thermostat. Taken as ideas to score, not rules: auditing the advisor's own verdicts against what the air did afterward (log misses, do not write rules from them).
+- Open question for later: a "close by" time (suggest closing when the outdoor air stops being better than the indoor air). The user does this by hand at sundown on warm days. Not designed.
+
 ---
 
 ## Open Items
@@ -1088,7 +1105,8 @@ Two VOC events on one day, both with the office windows in known states (the use
   declines sooner); the advisor reads v2, the same file `env.lua` reads.
 - A window contact sensor and `hvac_action` from Home Assistant would let the advisor say "close the
   windows" only when they are actually open, and allow a "windows open while the AC is cooling"
-  alert. That needs Home Assistant access in the engine, which it does not have.
+  alert. That needs Home Assistant access in the engine, which it does not have. Inferring an opening from the air, and polling HA only
+  when a clearing trend shows, is the plan (see "Window state and how long an opening takes", 2026-11-19).
 - Outdoor chemical work (cleaning, spraying, painting) next to the windows makes a VOC-driven `OPEN` point the wrong
   way, because the advisor reads only indoor VOC. The 2026-11-03 leaf-blower morning is the first measured case (see the observations). Options (a manual hold, a second sensor, leaving it to the occupant)
   are in the observations; none is built.
